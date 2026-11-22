@@ -16,6 +16,16 @@ import useBioWrite from './useBioWrite'
 import ModuleViews,{ModuleView} from '../../shared/components/ModuleViews'
 import './bioLayout.css'
 const qcCheckLabels:Record<string,string>={raw_hashes:'原始数据一致性',h5ad_roundtrip:'H5AD 读写核对'}
+function runStatus(data:BioRun){
+ const {status,phase}=data.task
+ if(status==='queued')return phase==='parse'?'所选数据的质控任务正在排队。':'排队中，轮到此任务后开始分析。'
+ if(status==='running')return phase==='parse'?'正在对所选数据运行质控。':'正在分析，完成后可继续查看结果。'
+ if(status==='waiting_confirmation')return 'QC 候选待确认'
+ if(status==='succeeded'&&data.result_source)return '处理版本已发布'
+ if(status==='failed')return '运行失败；原件和历史版本保留。'
+ if(status==='cancelled')return '分析已取消，原件和已有结果保留。'
+ return '正在核对任务状态，请稍后重新读取。'
+}
 export default function BioAnalysisReview({projectId,runId,onNavigate,registerLeaveGuard}:{projectId:string;runId:string;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}){
  const {t}=useI18n(),base=projectBase(projectId),read=useBioRead<BioRun>(`${base}/bio-analysis-runs/${encodeURIComponent(runId)}`,v=>['queued','running'].includes(v.task.status)),data=read.value
  const tabular=!!data&&isTabularRaw(data.raw_source),singleCell=data?.raw_source.parser_version==='single_cell_import_v1'
@@ -27,7 +37,7 @@ export default function BioAnalysisReview({projectId,runId,onNavigate,registerLe
   {read.error&&<p role="alert">{t(read.error)}</p>}{!data&&!read.error&&<p role="status">{t('正在读取固定版本……')}</p>}
   {data&&(data.id!==runId||!isRawBioSource(data.raw_source,projectId))&&<p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>}
   {data&&data.id===runId&&isRawBioSource(data.raw_source,projectId)&&<>
-   <div className="bio-workspace-status"><p role="status">{t(data.task.status==='waiting_confirmation'?'QC 候选待确认':data.task.status==='succeeded'&&data.result_source?'处理版本已发布':data.task.status==='failed'?'运行失败；原件和历史版本保留。':data.task.status==='queued'?'排队中，轮到此任务后开始分析。':data.task.status==='cancelled'?'分析已取消，原件和已有结果保留。':data.task.status==='running'?'正在分析，完成后可继续查看结果。':'正在核对任务状态，请稍后重新读取。')}</p><a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(data.task.id)}`}>{t('查看项目任务')}</a></div>
+   <div className="bio-workspace-status"><p role="status">{t(runStatus(data))}</p><a href={`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(data.task.id)}`}>{t('查看项目任务')}</a></div>
    {data.task.reason_code&&<p className="muted">{t('任务正在核对处理条件，请稍后刷新。')}</p>}{data.task.error_code&&<p role="alert">{t(apiError({code:data.task.error_code},'任务暂未完成，请查看处理说明。'))}</p>}
    {data.candidate&&<>
     <ModuleViews label={t('QC 核对模块')}>

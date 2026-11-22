@@ -79,12 +79,12 @@ function Launcher({ projectId, fileId, source, selection, initialSelection, fiel
       setActionError('');setSelected({ taskId: task.id, inputVersion: task.input_version }); setPage(1); setRefresh(n => n + 1); replay.current = null
     } catch (cause) {
       if (cause instanceof TaskRequestError && cause.status === 409) replay.current = null
-      setActionError(cause instanceof TaskRequestError && cause.status === 409 ? '分析配置或数据来源已更新，请重新载入配置后重试。' : safeError(cause, '计划创建结果尚未确认，请重新读取列表。'))
+      setActionError(cause instanceof TaskRequestError && cause.status === 409 && cause.code !== 'analysis_quality_required' ? '分析配置或数据来源已更新，请重新载入配置后重试。' : safeError(cause, '计划创建结果尚未确认，请重新读取列表。'))
       setRefresh(n => n + 1)
     } finally { if (action.current === controller) action.current = null; setBusy(false) }
   }
   async function adoptMissing(r:Recommendation){
-    if(busy||action.current)return
+    if(disabled||busy||action.current)return
     const candidateResearch={...research,question:research.question.trim()?research.question:r.intent?.objective||'',output_language:r.output_language}
     if(!isResearchRequest(candidateResearch)){setActionError('请先填写研究问题，再采纳待补充需求。');return}
     const body=JSON.stringify({schema_version:5,input_kind:'data',file_id:fileId,dataset_id:source.dataset_id,expected_setup_revision:setupRevision,selection:null,research_request:candidateResearch,evidence_version_ids:[],recommendation_ref:{task_id:r.task_id,sha256:r.sha256},origin_recommendation_ref:null})
@@ -119,7 +119,7 @@ function Launcher({ projectId, fileId, source, selection, initialSelection, fiel
     <AnalysisRecommendation schemaVersion={5} onAdoptRequirement={r=>void adoptMissing(r)} projectId={projectId} fileId={fileId} source={source} fields={fields} language={research.output_language} onBusyChange={setRecommendationBusy} disabled={disabled||busy||recommendationBusy} descriptiveSelection={selection} onAdopt={(v,ref,language)=>{change(v);setMethod(v.task_type!=='descriptive_boxplot'?v.method:'descriptive');setRecommendationRef(ref);setOriginRef(null);setResearch({...research,output_language:language})}}/>
     </div>
     <div hidden={taskLayout&&view!=='review'}>
-    {visitedReviews.map(item => <div key={item.taskId} hidden={selected?.taskId !== item.taskId}>{['analysis_plan_v4','analysis_plan_v5'].includes(item.inputVersion.workflow_version) ? <RequirementReview projectId={projectId} taskId={item.taskId} onChanged={()=>setRefresh(n=>n+1)} onPublished={onPublished}/> : <AnalysisPlanReview projectId={projectId} taskId={item.taskId} expectedSource={source} expectedInputVersion={item.inputVersion} onChanged={() => setRefresh(n => n + 1)} onPublished={onPublished} />}</div>)}
+    {visitedReviews.map(item => <div key={item.taskId} hidden={selected?.taskId !== item.taskId}>{['analysis_plan_v4','analysis_plan_v5'].includes(item.inputVersion.workflow_version) ? <RequirementReview blocked={disabled} projectId={projectId} taskId={item.taskId} onChanged={()=>setRefresh(n=>n+1)} onPublished={onPublished}/> : <AnalysisPlanReview blocked={disabled} projectId={projectId} taskId={item.taskId} expectedSource={source} expectedInputVersion={item.inputVersion} onChanged={() => setRefresh(n => n + 1)} onPublished={onPublished} />}</div>)}
     </div>
   </section>
 }

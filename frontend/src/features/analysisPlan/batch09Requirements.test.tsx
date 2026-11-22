@@ -6,6 +6,8 @@ import {isTask,isWorkspace,sameInputVersion} from '../tasks/taskTypes'
 import {taskFixture} from '../tasks/taskFixtures'
 import {isResearchIntent} from './recommendationApi'
 import {setLocale} from '../../shared/i18n'
+import { WorkflowProvider } from '../analysis/AnalysisWorkflow'
+import { baseVersion, qualityVersion } from '../datasetPreparation/batch07Fixtures'
 
 const research={question:'Compare external study',output_language:'zh-CN',population:'',study_design:'',observation_unit:'',observation_structure:'unknown',relationship_description:'',output_requirements:''}
 const materialSource={kind:'original',file_id:'f1',filename:'outside.png',file_type:'png',source_sha256:'a'.repeat(64),size_bytes:100,original_download_url:'/api/v1/projects/p1/files/f1/download',version_id:null,version:null,sha256:'a'.repeat(64),object_download_url:null,review_status:'not_reviewed'}
@@ -14,6 +16,31 @@ const input={kind:'analysis_plan',source:null,workflow_version:'analysis_plan_v4
 const task={...taskFixture,task_type:'analysis_plan',status:'waiting_input',display_status:'waiting_input',phase:'plan',input_version:input}
 const review={task,source:null,input_version:input,input_kind:'materials',evidence_versions:[material],checkpoint_id:'private-checkpoint',wait_id:'private-wait',plan_revision:1,selection:null,research_request:research,check:{rules_version:'analysis_plan_rules_v4',research_missing:['source','selection','study_design'],data_check:null,limitations:[]},resolutions:{},recommendation_ref:null,origin_recommendation_ref:null,result:null,continuation:null}
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
+
+it('assigned plan continuation only accepts a replacement version with confirmed quality', async () => {
+ const fetch = vi.fn(async (url: string) => {
+  if (url.endsWith('/analysis-plan')) return Response.json(review)
+  if (url.endsWith('/files')) return Response.json([{id:'f1', filename:'data.xlsx'}])
+  if (url.includes('/prepared-dataset-versions?')) return Response.json({page:1, page_size:5, total:2, items:[
+   {...baseVersion, quality_confirmed:false}, {...qualityVersion, quality_confirmed:true},
+  ]})
+  if (url.endsWith('/analysis-setup')) return Response.json(null)
+  throw new Error(url)
+ })
+ vi.stubGlobal('fetch', fetch)
+ render(<WorkflowProvider requireQuality><RequirementReview projectId="p1" taskId={task.id}/></WorkflowProvider>)
+ await screen.findByRole('option', {name:'data.xlsx'})
+ fireEvent.change(screen.getByLabelText('来源文件'), {target:{value:'f1'}})
+ const rejected = await screen.findByRole('option', {name:/Sheet1.*v1/}) as HTMLOptionElement
+ expect(rejected.disabled).toBe(true)
+ const select = screen.getByLabelText('整理版本')
+ fireEvent.change(select, {target:{value:baseVersion.id}})
+ expect(fetch.mock.calls.some(([url]) => url.endsWith('/analysis-setup'))).toBe(false)
+ const submit = screen.getByRole('button', {name:'补交来源并建立新计划任务'}) as HTMLButtonElement
+ expect(submit.disabled).toBe(true)
+ fireEvent.change(select, {target:{value:qualityVersion.id}})
+ await waitFor(() => expect(submit.disabled).toBe(false))
+})
 
 it('accepts material-only task/workspace without fabricating dataset and rejects cross-project materials',()=>{
  expect(isTask(task,'p1')).toBe(true)

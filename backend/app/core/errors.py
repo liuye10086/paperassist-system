@@ -6,6 +6,7 @@ from starlette.responses import JSONResponse
 
 
 PUBLIC_CODES = frozenset('''
+analysis_quality_required customer_sample_information_read_only
 bio_design_sample_mismatch
 presentation_citation_unresolved presentation_consistency_conflict presentation_language_unavailable
 blind_review_removed

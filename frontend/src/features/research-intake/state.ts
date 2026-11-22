@@ -1,10 +1,22 @@
-import type { Content, Declaration, MaterialRef } from './contracts'
+import type { Content, Declaration, MaterialRef, SampleRegistration } from './contracts'
 export function declared(state:Declaration['state'],value:string):Declaration{return {state,value:state==='known'?value:null}}
 export function updateServices<T extends {services:unknown}>(content:T,services:string[]):T{return {...content,services}}
 export const emptyRequirement=():Content=>({schema_version:1,services:['analysis'],contact:{},progress:{stages:[],notes:''},scope_items:[],schedule:{},analysis_request:{},figure_request:{},sci_request:{},thesis_request:{},material_checklist:[],notes:''})
 export const emptyDesign=():Content=>({schema_version:1,experiments:[],groups:[],samples:[],observation:{},comparisons:[],exclusions:[],cross_dataset_links:[],declarations:{}})
 
 export const materialPurposes=[['protocol','实验方案'],['sample_sheet','样本信息表'],['raw_data','原始数据'],['existing_results','已有结果'],['figures','已有图表'],['other','其他材料']]
+export function withSampleMaterialRefs(refs: MaterialRef[], samples: SampleRegistration['samples']): MaterialRef[] {
+ const linked = [...refs]
+ for (const sample of samples) {
+  const file = typeof sample.file_id === 'string' ? sample.file_id : null
+  const dataset = typeof sample.bio_dataset_version_id === 'string' ? sample.bio_dataset_version_id : null
+  if (!file && !dataset) continue
+  if (!linked.some(ref => ref.availability === 'provided' && ref.purpose === 'sample_sheet' && (file ? ref.file_id === file : ref.bio_dataset_version_id === dataset))) {
+   linked.push({file_id:file, bio_dataset_version_id:dataset, availability:'provided', purpose:'sample_sheet'})
+  }
+ }
+ return linked
+}
 export function linkSelectedFigureRefs(refs:MaterialRef[],ids:string[]):MaterialRef[]{
  const next=[...refs]
  for(const id of ids){

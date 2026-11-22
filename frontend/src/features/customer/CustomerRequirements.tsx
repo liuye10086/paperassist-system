@@ -3,8 +3,12 @@ import { onApiSessionChanged } from '../../shared/api/client'
 import { safeError, useI18n } from '../../shared/i18n'
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import { IntakeError, intakeRequest, jsonRequest, projectBase } from '../research-intake/api'
-import type { Content, Intake, MaterialRef, Version } from '../research-intake/contracts'
-import { cleanMaterialRefs } from '../research-intake/state'
+import type { Content, Intake, MaterialRef, SampleRegistration, Version } from '../research-intake/contracts'
+import DesignForm from '../research-intake/DesignForm'
+import type { MaterialSource } from '../research-intake/MaterialReferences'
+import { cleanMaterialRefs, withSampleMaterialRefs } from '../research-intake/state'
+import '../research-intake/intake.css'
+import '../research-intake/requirementLayout.css'
 import { useResearchRead } from '../research-results/api'
 import useResearchDraft from '../research-results/useResearchDraft'
 import {
@@ -49,7 +53,16 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
 
   const baseline = readRequirementInput(root?.current_requirement ?? null)
   const input = draft?.input ?? baseline
+  const sampleInformation = input.sampleInformation ?? baseline.sampleInformation
+  const files = useResearchRead<{id:string; filename:string}[]>(base+'/files', !!root)
+  const sources: MaterialSource[] = [
+    ...(Array.isArray(files.data) ? files.data.map(file => ({kind:'file' as const, id:file.id, name:file.filename})) : []),
+    ...(root?.current_requirement?.material_sources ?? []).map(source => ({
+      kind:'bio' as const, id:source.bio_dataset_version_id, name:source.dataset_name+' · v'+source.version,
+    })),
+  ]
   const selectedTypes = analysisTypes.filter(group => input.selected.includes(group.type.id))
+  const standardWorkflows = selectedTypes.filter(group => group.standardSteps.length > 0)
   const conflict = needsReload || !!(draft && root && draft.revision !== root.revision)
   const busy = reading || working
   useDraftLeaveGuard(registerLeaveGuard, !!draft, working || !!pending)
@@ -171,7 +184,7 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
     }
     void resolveWrite({ key: crypto.randomUUID(), body: {
       expected_revision: root.revision, operation, content,
-      material_refs: cleanMaterialRefs(root.current_requirement?.material_refs ?? []),
+      material_refs: withSampleMaterialRefs(cleanMaterialRefs(root.current_requirement?.material_refs ?? []), sampleInformation?.samples ?? []),
     } })
   }
 
@@ -196,6 +209,24 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
           <ChoiceGroup choices={analysisTypeChoices} {...choiceProps}/>
         </fieldset>
       </div>
+      {standardWorkflows.length > 0 && <div className="customer-requirements__row">
+        <span id={`${headingId}-standard`}>{t('标准化分析')}</span>
+        <fieldset aria-labelledby={`${headingId}-standard`} disabled>
+          <p>{t('以下步骤已包含在所选分析中。')}</p>
+          <div className="customer-requirements__groups">
+            {standardWorkflows.map(({type, customerChoice, standardSteps}) =>
+              <div key={type.id} className="customer-requirements__group" role="group" aria-label={t(customerChoice.label)}>
+                <h3>{t(customerChoice.label)}</h3>
+                <div className="customer-requirements__choices">
+                  {standardSteps.map(step => <label key={step} className="customer-requirements__choice">
+                    <input type="checkbox" checked readOnly/>
+                    <span>{t(step)}</span>
+                  </label>)}
+                </div>
+              </div>)}
+          </div>
+        </fieldset>
+      </div>}
       <div className="customer-requirements__row">
         <span id={`${headingId}-analyses`}>{t('个性化分析')}</span>
         <fieldset aria-labelledby={`${headingId}-analyses`} disabled={disabled}>
@@ -215,6 +246,17 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
             <ChoiceGroup title="项目交付" choices={deliveryChoices} {...choiceProps}/>
           </div>
         </fieldset>
+      </div>
+      <div className="customer-requirements__samples">
+        {files.error && <div className="customer-requirements__source-error">
+          <p>{t('样本来源列表读取失败，仍可手动填写样本信息。')}</p>
+          <button type="button" disabled={files.loading} onClick={files.refresh}>{t('重新读取材料')}</button>
+        </div>}
+        <DesignForm mode="customerSamples" projectId={projectId} sources={sources} disabled={disabled}
+          value={{ schema_version:1, ...sampleInformation }}
+          onChange={value => updateInput({...input, sampleInformation:{
+            groups:(value.groups ?? []) as SampleRegistration['groups'], samples:(value.samples ?? []) as SampleRegistration['samples'],
+          }})}/>
       </div>
     </div>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}

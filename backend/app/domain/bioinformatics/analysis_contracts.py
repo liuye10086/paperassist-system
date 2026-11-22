@@ -348,7 +348,7 @@ def validate_snapshot(task):
                 SingleCellParameters.model_validate(value['params'])
                 if 'execution_mode' in value:
                     fields.add('execution_mode')
-                    if value['execution_mode']!='direct':raise ValueError('Invalid execution mode')
+                    if value['execution_mode'] not in ('direct','qc_review'):raise ValueError('Invalid execution mode')
                 if 'subset' in value:
                     from .single_cell_contracts import SingleCellSubsetSelection
                     fields.add('subset');subset=SingleCellSubsetSelection.model_validate(value['subset'])

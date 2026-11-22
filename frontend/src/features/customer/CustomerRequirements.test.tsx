@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { apiFetch } from '../../shared/api/client'
+import { setLocale } from '../../shared/i18n'
 import type { LeaveGuard, RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import type { Content, Intake, MaterialRef, Version } from '../research-intake/contracts'
 import { emptyRequirement } from '../research-intake/state'
@@ -58,6 +59,130 @@ async function open(onSubmitted = vi.fn(), registerLeaveGuard?: RegisterLeaveGua
 }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.resetAllMocks(); sessionStorage.clear() })
+
+it('shows included steps for each selected type while keeping optional analyses independently editable', async () => {
+  server()
+  const page = await open()
+  expect(screen.queryByRole('group', {name:'标准化分析'})).toBeNull()
+  fireEvent.click(checkbox(singleCell))
+  fireEvent.click(checkbox(bulk))
+  const standard = within(screen.getByRole('group', {name:'标准化分析'}))
+  const stepsFor = (type: string) => within(standard.getByRole('group', {name:type}))
+  expect(stepsFor(singleCell).getByRole('checkbox', {name:'细胞聚类'})).toBeTruthy()
+  expect(stepsFor(bulk).getByRole('checkbox', {name:'样本聚类'})).toBeTruthy()
+  const optional = within(screen.getByRole('group', {name:'个性化分析'}))
+  const bulkOptional = within(optional.getByRole('group', {name:bulk}))
+  const differential = bulkOptional.getByRole('checkbox', {name:'差异表达'}) as HTMLInputElement
+  expect(differential.checked).toBe(false)
+  fireEvent.click(differential)
+  for (const step of standard.getAllByRole('checkbox') as HTMLInputElement[]) {
+    expect(step.checked).toBe(true)
+    expect(step.matches(':disabled')).toBe(true)
+  }
+  fireEvent.click(checkbox(singleCell))
+  expect(standard.queryByRole('group', {name:singleCell})).toBeNull()
+  expect(differential.checked).toBe(true)
+  expect(writes()).toHaveLength(0)
+  click('保存草稿')
+  await screen.findByText('草稿已保存。')
+  expect(writes()[0].body.content.scope_items).toHaveLength(2)
+  page.unmount()
+  await open()
+  expect((screen.getByRole('checkbox', {name:'样本聚类'}) as HTMLInputElement).checked).toBe(true)
+  fireEvent.click(checkbox(bulk))
+  expect(screen.queryByRole('group', {name:'标准化分析'})).toBeNull()
+})
+
+it('shows the included workflow in English when reopening a previously saved choice', async () => {
+  server(version({...emptyRequirement(), scope_items:[
+    {id:'customer.type.single_cell',title:singleCell,delivery_kind:'analysis'},
+    {id:'customer.type.bulk',title:bulk,delivery_kind:'analysis'},
+  ]}))
+  setLocale('en')
+  try {
+    render(<CustomerRequirements projectId={projectId} onSubmitted={vi.fn()}/>)
+    const standard = within(await screen.findByRole('group', {name:'Standard analysis workflow'}))
+    expect(standard.getByRole('checkbox', {name:'Cell clustering'}).matches(':checked:disabled')).toBe(true)
+    expect(standard.getByRole('checkbox', {name:'Sample clustering'}).matches(':checked:disabled')).toBe(true)
+    for (const step of standard.getAllByRole('checkbox') as HTMLInputElement[]) {
+      expect(step.labels?.[0].textContent).not.toMatch(/[\u4e00-\u9fff]/)
+    }
+  } finally {
+    cleanup()
+    setLocale('zh-CN')
+  }
+})
+
+const group = {id:'g1', experiment_id:'trial', name:'对照组'}
+const sample = {id:'s1', experiment_id:'trial', group_id:'g1', file_id:'csv'}
+
+it('saves the sample sheet mapping and its file reference together with the customer requirement', async () => {
+ const originalRef: MaterialRef = {file_id:'csv',purpose:'raw_data',availability:'provided'}
+ const {root, commit} = server(version({...emptyRequirement(), sample_information:{groups:[group], samples:[]}}, 'save', [originalRef]))
+ vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+  if (url === base+'/research-intake') return Response.json(root)
+  if (url === base+'/files') return Response.json([
+   {id:'xlsx', filename:'分组.xlsx', file_type:'xlsx'}, {id:'csv', filename:'样本.csv', file_type:'bio_component'},
+   {id:'tsv', filename:'批次.tsv', file_type:'bio_component'}, {id:'pdf', filename:'说明.pdf', file_type:'pdf'},
+  ])
+  if (url === base+'/design-table-previews') return Response.json({samples:[sample],conflicts:[]})
+  if (url === base+'/requirements') return commit(JSON.parse(String(init?.body)))
+  throw new Error(String(url))
+ })
+ const submitted = vi.fn()
+ await open(submitted)
+ fireEvent.click(checkbox(bulk))
+ click('样本表映射')
+ const sources = within(screen.getByRole('combobox', {name:'样本表来源'}))
+ expect(await sources.findByRole('option', {name:'样本.csv'})).toBeTruthy()
+ expect(sources.getByRole('option', {name:'分组.xlsx'})).toBeTruthy()
+ expect(sources.getByRole('option', {name:'批次.tsv'})).toBeTruthy()
+ expect(sources.queryByRole('option', {name:'说明.pdf'})).toBeNull()
+ fireEvent.change(screen.getByRole('combobox', {name:'所属实验'}), {target:{value:'trial'}})
+ fireEvent.change(screen.getByRole('combobox', {name:'样本表来源'}), {target:{value:'csv'}})
+ click('预览样本表映射')
+ await screen.findByText('预览样本 1 条')
+ click('将预览样本加入草稿')
+ expect(writes()).toHaveLength(0)
+ click('保存草稿')
+ await screen.findByText('草稿已保存。')
+ const registration = {groups:[group], samples:[sample]}
+ expect(writes()[0].body).toMatchObject({operation:'save',content:{sample_information:registration},
+  material_refs:[expect.objectContaining(originalRef),expect.objectContaining({file_id:'csv',purpose:'sample_sheet',availability:'provided'})]})
+ click('提交需求')
+ await waitFor(() => expect(submitted).toHaveBeenCalledOnce())
+ expect(writes()[1].body.content.sample_information).toEqual(registration)
+})
+
+it('preserves mapped samples and server edits to separate fields when merging concurrent customer edits', async () => {
+ const initial = {...emptyRequirement(),sample_information:{groups:[group],samples:[]}}
+ const {root, commit} = server(version(initial))
+ vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+  if (url === base+'/research-intake') return Response.json(root)
+  if (url === base+'/files') throw new TypeError('offline')
+  if (url !== base+'/requirements') throw new Error(String(url))
+  if (root.revision === 2) {
+   root.revision = 3
+   root.current_requirement = version({...initial, sample_information:{groups:[{...group, meaning:'服务器说明'}],samples:[sample]}}, 'save', [], 2)
+   return Response.json({detail:{code:'research_revision_conflict'}}, {status:409})
+  }
+  return commit(JSON.parse(String(init?.body)))
+ })
+ await open()
+ expect(await screen.findByText('样本来源列表读取失败，仍可手动填写样本信息。')).toBeTruthy()
+ click('样本分组')
+ fireEvent.change(screen.getByRole('textbox',{name:'分组名称'}), {target:{value:'编辑后的名称'}})
+ click('保存草稿')
+ await screen.findByRole('button',{name:'读取服务器版本并保留草稿'})
+ click('读取服务器版本并保留草稿')
+ await screen.findByRole('button',{name:'合并本地修改'})
+ click('合并本地修改')
+ click('保存草稿')
+ await screen.findByText('草稿已保存。')
+ expect(writes()[1].body).toMatchObject({expected_revision:3,content:{sample_information:{
+  groups:[{...group,name:'编辑后的名称',meaning:'服务器说明'}], samples:[sample],
+ }}})
+})
 
 it('shows five unfinished analysis types as disabled choices', async () => {
   server()

@@ -1,4 +1,8 @@
 export const analystWorkspaceMessages = {
+  '{groups} 个分组，{samples} 个样本': 'Groups: {groups}, samples: {samples}',
+  '样本资料模块': 'Sample information sections',
+  '请先在样本分组中登记该实验的分组，再映射样本表。': 'Add groups for this experiment under Sample groups before mapping the sample sheet.',
+  '样本分组和样本信息由客户填写。需要更正时，请向客户请求补充资料。': 'The customer provides sample groups and sample details. Ask the customer to submit corrections.',
   '分配给我的项目': 'Assigned to me',
   '返回分配项目列表': 'Back to assigned projects',
   '目前没有分配给你的项目。': 'You have no assigned projects.',
@@ -15,7 +19,7 @@ export const analystWorkspaceMessages = {
   '客户资料中暂无可用于分析的 Excel 文件。': 'The customer has provided no Excel files ready for analysis.',
   '客户资料中暂无可导入的组学数据。': 'The customer has provided no omics data ready to import.',
   '客户资料中暂无可用于质控的表格或组学数据。': 'The customer has provided no tables or omics data for quality control.',
-  '选择客户已上传的资料，核对数据后继续分析。': 'Select the materials uploaded by the customer and check the data before continuing the analysis.',
+  '先完成本次分析所用数据的质量控制，再开始分析。': 'Complete quality control for the data you will use before starting the analysis.',
   '正在读取已提交需求……': 'Loading submitted requirements…',
   '客户尚未提交需求。': 'The customer has yet to submit requirements.',
   '无法核对已提交的需求版本。': 'Could not verify the submitted requirements version.',

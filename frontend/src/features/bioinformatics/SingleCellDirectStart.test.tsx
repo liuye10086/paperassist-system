@@ -5,6 +5,15 @@ import SingleCellDirectStart from './SingleCellDirectStart'
 import {capabilitiesFixture,rawFixture} from './spatialFixtures'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner1',onApiSessionChanged:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
+it('submits assigned analysis for QC first and opens the run where its candidate is confirmed',async()=>{
+ const navigate=vi.fn(),capabilities={...capabilitiesFixture,requires_qc_confirmation:true}
+ vi.mocked(apiFetch).mockImplementation(async(_url,init)=>Response.json(init?.method==='POST'?{id:'qc-run',task:{id:'t'}}:capabilities))
+ render(<SingleCellDirectStart projectId="p1" source={rawFixture} onNavigate={navigate}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'下一步：检查并运行'}))
+ fireEvent.click(screen.getByRole('button',{name:'开始单细胞质控'}))
+ await waitFor(()=>expect(navigate).toHaveBeenCalledWith({view:'bio-analysis',fileId:'',runId:'qc-run'}))
+ expect(vi.mocked(apiFetch).mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1)
+})
 it('opens a repeat with the exact saved parameters and design without starting computation',async()=>{
  const params={...capabilitiesFixture.default_params,seed:17,hvg_count:1234}
  vi.mocked(apiFetch).mockImplementation(async(_url,init)=>Response.json(init?.method==='POST'?{id:'repeat',task:{id:'task'}}:capabilitiesFixture))

@@ -15,7 +15,8 @@ const analyst = `${base}/analyst-workspace`
 const delivery = `${base}/deliveries/d1`
 const requirement = {
   id: 'r1', version: 1, operation: 'confirm', created_at: date, sha256: 'b'.repeat(64), project_id: project.id,
-  content: { ...emptyRequirement(), services: ['analysis'], notes: '先核对两组样本。', scope_items: [
+  content: { ...emptyRequirement(), services: ['analysis'], notes: '先核对两组样本。',
+    sample_information:{groups:[{id:'g1',experiment_id:'e',name:'病例'}],samples:[{id:'s1',group_id:'g1',experiment_id:'e'}]}, scope_items: [
     { id: 'customer.type.bulk', title: 'RNA 转录组学分析（Bulk RNA-seq）', delivery_kind: 'analysis', status: 'planned' },
     { id: 'customer.figure.bulk.volcano', title: 'Bulk RNA-seq · 火山图', delivery_kind: 'analysis', status: 'planned' },
   ] },
@@ -181,6 +182,7 @@ it('reads the selected customer scope and notes from the submitted requirement v
   await screen.findByRole('heading', { name: '已提交需求' })
   expect(await screen.findByText('Bulk RNA-seq · 火山图')).toBeTruthy()
   expect(screen.getByText('先核对两组样本。')).toBeTruthy()
+  expect(screen.getByText('1 个分组，1 个样本')).toBeTruthy()
   expect(screen.queryByText('客户未提交的草稿')).toBeNull()
   expect(screen.queryByRole('button', { name: '保存' })).toBeNull()
 })
@@ -391,6 +393,34 @@ it('offers direct table and bio analysis when submitted choices have no linked m
   expect(screen.getByRole('button', { name: /表格数据与统计/ })).toBeTruthy()
   expect(screen.getByRole('button', { name: /组学与生信数据/ })).toBeTruthy()
   expect(screen.getByRole('button', { name: '进入 Bulk RNA-seq 工作流' })).toBeTruthy()
+})
+
+it('opens step three with quality control before the analysis choices and opens the selected source directly', async () => {
+  server()
+  open('#project=assigned&section=analysis&view=setup&file=f1')
+  const step = await screen.findByRole('button', { name: '第 3 步：执行分析' })
+  fireEvent.click(step)
+  const quality = await screen.findByRole('region', { name: '质量控制' })
+  const methods = await screen.findByRole('heading', { name: '选择分析类型' })
+  expect(quality.compareDocumentPosition(methods) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  fireEvent.click(await within(quality).findByRole('button', { name: '检查表格 实验.xlsx' }))
+  expect(window.location.hash).toBe('#project=assigned&section=files&view=quality&file=f1')
+  fireEvent.click(screen.getByRole('button', { name: '返回执行分析' }))
+  const qcHome = await screen.findByRole('region', { name: '质量控制' })
+  fireEvent.click(await within(qcHome).findByRole('button', { name: '进入生信质量控制' }))
+  expect(window.location.hash).toContain('section=files&view=quality&quality=bio-datasets')
+  expect(step.getAttribute('aria-current')).toBe('step')
+})
+
+it('returns to quality control when the analyst selects step three again from a materials request', async () => {
+  server()
+  open('#project=assigned&section=analysis')
+  fireEvent.click(await screen.findByRole('button', {name:'填写补料说明'}))
+  fireEvent.change(await screen.findByLabelText('给客户的进度说明'), {target:{value:'请确认分组。'}})
+  fireEvent.click(screen.getByRole('button', {name:'第 3 步：执行分析'}))
+  await screen.findByRole('region', {name:'质量控制'})
+  fireEvent.click(screen.getByRole('button', {name:'填写补料说明'}))
+  expect(screen.getByLabelText('给客户的进度说明')).toHaveProperty('value','请确认分组。')
 })
 
 it('opens customer materials and previews the workbook within the five-step analysis flow', async () => {

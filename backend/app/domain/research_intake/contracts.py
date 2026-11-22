@@ -138,6 +138,7 @@ class RequirementContent(StrictModel):
     sci_request: SciRequest = Field(default_factory=SciRequest)
     thesis_request: ThesisRequest = Field(default_factory=ThesisRequest)
     material_checklist: list[MaterialChecklistItem] = Field(default_factory=list,max_length=6)
+    sample_information: 'SampleInformation | None' = Field(default=None, exclude_if=lambda value: value is None)
     notes: str = Field(default='',max_length=10000)
 
     @model_validator(mode='after')
@@ -184,6 +185,20 @@ class Sample(StrictModel):
     bio_dataset_version_id: str | None = Field(default=None,max_length=128)
 
 
+class SampleInformation(StrictModel):
+    groups: list[Group] = Field(default_factory=list, max_length=500)
+    samples: list[Sample] = Field(default_factory=list, max_length=10000)
+
+    @model_validator(mode='after')
+    def coherent_samples(self):
+        groups = {group.id: group.experiment_id for group in self.groups}
+        if len(groups) != len(self.groups) or len({sample.id for sample in self.samples}) != len(self.samples):
+            raise ValueError('Duplicate identities are not allowed')
+        if any(groups.get(sample.group_id) != sample.experiment_id for sample in self.samples):
+            raise ValueError('Group and experiment must match')
+        return self
+
+
 class Observation(StrictModel):
     statistical_unit: DeclaredText = Field(default_factory=pending)
     biological_replicate: DeclaredText = Field(default_factory=pending)
@@ -217,11 +232,9 @@ class Declarations(StrictModel):
     source: DeclaredText = Field(default_factory=pending)
 
 
-class DesignContent(StrictModel):
+class DesignContent(SampleInformation):
     schema_version: Literal[1]
     experiments: list[Experiment] = Field(default_factory=list,max_length=50)
-    groups: list[Group] = Field(default_factory=list,max_length=500)
-    samples: list[Sample] = Field(default_factory=list,max_length=10000)
     observation: Observation = Field(default_factory=Observation)
     comparisons: list[Comparison] = Field(default_factory=list,max_length=100)
     exclusions: list[str] = Field(default_factory=list,max_length=100)
@@ -230,7 +243,7 @@ class DesignContent(StrictModel):
 
     @model_validator(mode='after')
     def coherent(self):
-        for values in (self.experiments,self.groups,self.samples,self.comparisons,self.cross_dataset_links):
+        for values in (self.experiments,self.comparisons,self.cross_dataset_links):
             if len({x.id for x in values}) != len(values):
                 raise ValueError('Duplicate identities are not allowed')
         experiments = {x.id for x in self.experiments}
@@ -238,7 +251,7 @@ class DesignContent(StrictModel):
         for group in self.groups:
             if group.experiment_id not in experiments:
                 raise ValueError('Unknown experiment')
-        for item in [*self.samples,*self.comparisons]:
+        for item in self.comparisons:
             if item.experiment_id not in experiments or groups.get(item.group_id) != item.experiment_id:
                 raise ValueError('Group and experiment must match')
         for item in self.comparisons:

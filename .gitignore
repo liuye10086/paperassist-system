@@ -11,6 +11,7 @@ node_modules/
 dist/
 
 # Local configuration
+/.vscode/settings.json
 .env
 .env.*
 !.env.example
@@ -19,6 +20,11 @@ dist/
 # Logs
 *.log
 /script/.runtime/
+
+# Local evidence and handoff notes for the B01–B05 workflow acceptance
+/docs/开发记录/项目管理/2026-11-20-前端流程重整-Edge验收截图/
+/docs/开发记录/项目管理/2026-11-20-前端流程重整-Codex提示词.md
+/docs/开发记录/项目管理/2026-11-20-前端流程重整-下班续接.md
 
 # Local project database, original research files and partial uploads
 /backend/data/

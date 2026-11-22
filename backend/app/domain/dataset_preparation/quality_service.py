@@ -67,7 +67,7 @@ def audit_published(db,task,row):
 def quality_version_summary(project,row,obj):
     prefix='/api/v1/projects/{}/files/{}/prepared-dataset-versions/{}'.format(*[quote(str(v),safe='') for v in (project,row['file_id'],row['id'])])
     return dict(id=row['id'],file_id=row['file_id'],parent_dataset_id=row['parent_dataset_id'],
-        parent_dataset_version=obj.parent_source.dataset_version,version=row['version'],created_at=row['created_at'].isoformat(),task_id=row['task_id'],
+        parent_dataset_version=obj.parent_source.dataset_version,version=row['version'],created_at=row['created_at'].isoformat(),task_id=row['task_id'],quality_confirmed=True,
         source=prepared_dataset_source(row,obj.parent_source.model_dump(),schema_version=2),base_source=obj.base_source.model_dump(mode='json'),
         recipe=row['recipe_json'],summary=row['summary_json'],sheet=sheet_metadata(obj.sheet),download_url=prefix+'/download',
         impact_url=prefix+'/impacts',impact_download_url=prefix+'/impacts/download')

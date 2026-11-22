@@ -104,6 +104,8 @@ it.each([
   ['thesis_requirements_unavailable', '毕业论文需求只适用于毕业论文项目。', /only to thesis projects/],
   ['thesis_template_changed', '学校模板绑定已变化，请核对当前模板和章节。', /school template binding has changed\. Review the current template and chapters\./i],
   ['thesis_template_required', '请先确认并绑定可用的学校模板。', /confirm and bind an available school template first\./i],
+  ['analysis_quality_required', '请先完成本次分析所用数据的质量控制。', /complete quality control for the data used in this analysis first\./i],
+  ['customer_sample_information_read_only', '样本分组和样本信息由客户填写。需要更正时，请向客户请求补充资料。', /customer provides sample groups and sample details/i],
   ['sci_settings_unavailable', 'SCI 建项资料仅适用于 SCI 论文项目。', /only to SCI manuscript projects/],
   ['project_assignment_type_invalid', '论文项目仅可撤回已有分配。', /can only be revoked/],
 ] as const)('gives readable %s text in both languages', (code, zh, en) => {

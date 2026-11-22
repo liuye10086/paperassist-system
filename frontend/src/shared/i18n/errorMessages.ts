@@ -446,6 +446,8 @@ numeric_failure: {zh:'本地统计进程异常退出，未发布结果。请联�
   thesis_requirements_unavailable: { zh: '毕业论文需求只适用于毕业论文项目。', en: 'Thesis requirements apply only to thesis projects.' },
   thesis_template_changed: { zh: '学校模板绑定已变化，请核对当前模板和章节。', en: 'The school template binding has changed. Review the current template and chapters.' },
   thesis_template_required: { zh: '请先确认并绑定可用的学校模板。', en: 'Confirm and bind an available school template first.' },
+  analysis_quality_required: { zh: '请先完成本次分析所用数据的质量控制。', en: 'Complete quality control for the data used in this analysis first.' },
+  customer_sample_information_read_only: { zh: '样本分组和样本信息由客户填写。需要更正时，请向客户请求补充资料。', en: 'The customer provides sample groups and sample details. Ask the customer to submit corrections.' },
   project_assignment_stale: { zh: '项目授权已变化，请重新打开项目。', en: 'Project access changed. Reopen the project.' },
   invalid_current_password: { zh: '当前密码错误。', en: 'The current password is incorrect.' },
   invalid_recovery_code: { zh: '恢复码无效或已过期，请联系管理员重新核验。', en: 'The recovery code is invalid or expired. Contact the administrator for verification.' },

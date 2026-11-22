@@ -57,7 +57,7 @@ function explain(cause: unknown, timedOut: boolean) {
   return safeError(cause, '统计请求失败，请重新读取结果后重试。')
 }
 
-type Props={base: string; savedRevision: number | null; savedSelection?:AnalysisSelection; savedPlan?:{plan_id:string;sha256:string}; savedSource?: DatasetAnalysisSource; fieldsMatch: boolean; allowLegacySavedReport?: boolean; disabled: boolean; onBusyChange: (value: boolean) => void}
+type Props={base: string; savedRevision: number | null; savedSelection?:AnalysisSelection; savedPlan?:{plan_id:string;sha256:string}; savedSource?: DatasetAnalysisSource; fieldsMatch: boolean; qualityBlocked?: boolean; allowLegacySavedReport?: boolean; disabled: boolean; onBusyChange: (value: boolean) => void}
 function ResearchBasis(props: Parameters<typeof ResearchRequestSummary>[0]) {
   const {t}=useI18n()
   return <section className="analysis-detail statistics-provenance"><h3>{t('研究需求与分析依据')}</h3><ResearchRequestSummary {...props}/></section>
@@ -67,7 +67,7 @@ function RunFigure({ onRunBusyChange, ...props }: Omit<Parameters<typeof Boxplot
   return <BoxplotFigure {...props} onBusyChange={change}/>
 }
 export default function StatisticsResults(props:Props){return <Results key={JSON.stringify([props.base,props.savedRevision,props.savedSource,props.savedPlan])} {...props}/>}
-function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, fieldsMatch, allowLegacySavedReport, disabled, onBusyChange }:Props) {
+function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, fieldsMatch, qualityBlocked = false, allowLegacySavedReport, disabled, onBusyChange }:Props) {
   const { t, locale } = useI18n()
   const navigation = useWorkflowNavigation()
   const [state, setState] = useState<ResultState | null>(null)
@@ -122,7 +122,7 @@ function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, 
   useEffect(() => { onBusyChange(running || plotBusy) }, [running, plotBusy, onBusyChange])
 
   async function execute() {
-    if (action.current || loading || error&&!unconfirmed || disabled || plotBusy || running&&!unconfirmed || !fieldsMatch || !revisionMatches) return
+    if (action.current || loading || error&&!unconfirmed || qualityBlocked || disabled || plotBusy || running&&!unconfirmed || !fieldsMatch || !revisionMatches) return
     const controller = new AbortController()
     const generation=requestGeneration.current
     action.current = controller
@@ -157,13 +157,13 @@ function Results({ base, savedRevision, savedSelection, savedSource, savedPlan, 
       <p>{t(modelMethod?'按已确认计划计算模型效应或固定曲线，并保留诊断与排除记录。':isComparison?'按已确认计划计算组间或两次配对比较。':isCorrelation?'按已确认的计划计算相关系数及适用的推断结果。':'按已保存的字段配置，计算所选数据的总体和各分组统计量。')}</p>
     </div>
     {!savedRevision ? <p className="muted">{t("请先检查字段并保存分析配置。")}</p>
-      : !fieldsMatch && <p className="warning-panel">{t("当前字段尚未保存，请先检查并保存，再执行统计。")}</p>}
+      : !qualityBlocked && !fieldsMatch && <p className="warning-panel">{t("当前字段尚未保存，请先检查并保存，再执行统计。")}</p>}
     {state && savedRevision && !revisionMatches && <p className="warning-panel">{t("配置已在其他页面变化，请点击“重新载入分析配置”后再执行。")}</p>}
     <div className="analysis-actions">
-      <button type="button" className="button-primary" disabled={unconfirmed || disabled || plotBusy || loading || running || !!error || !fieldsMatch || !revisionMatches} onClick={() => void execute()}>{t(modelMethod?"执行已确认分析":isComparison?"执行组间比较":isCorrelation?"执行相关分析":"执行描述统计")}</button>
+      <button type="button" className="button-primary" disabled={qualityBlocked || unconfirmed || disabled || plotBusy || loading || running || !!error || !fieldsMatch || !revisionMatches} onClick={() => void execute()}>{t(modelMethod?"执行已确认分析":isComparison?"执行组间比较":isCorrelation?"执行相关分析":"执行描述统计")}</button>
       <button type="button" disabled={disabled || plotBusy || loading || running || !savedRevision} onClick={reload}>{t("重新读取统计结果")}</button>
     </div>
-    {unconfirmed&&<><p className="warning-panel">{t('统计提交尚未确认，请核实并继续同一请求。')}</p><button type="button" disabled={loading||submitting||disabled||!fieldsMatch||!revisionMatches} onClick={()=>void execute()}>{t('核实并继续同一统计请求')}</button></>}
+    {unconfirmed&&<><p className="warning-panel">{t('统计提交尚未确认，请核实并继续同一请求。')}</p><button type="button" disabled={qualityBlocked||loading||submitting||disabled||!fieldsMatch||!revisionMatches} onClick={()=>void execute()}>{t('核实并继续同一统计请求')}</button></>}
     {activeTask&&<StatisticsTaskObserver task={activeTask} context={context} onTask={setActiveTask} onError={setError} onResult={value=>{setState({current_revision:savedRevision,is_current:true,result:value,execution_verification:'verified'});setError('');setNotice('结果已保存，刷新或重启后可再次查看。重复执行同一配置会返回已保存结果。')}}/>}
     {result&&<div className="analysis-actions"><button type="button" disabled={loading||running} onClick={()=>{const project=decodeURIComponent(base.split('/')[4]);queueResearchSource(project,{source_kind:'analysis_run',source_id:result.id,locator:{schema_version:1,kind:'object'}});window.location.hash=`project=${encodeURIComponent(project)}&section=analysis&view=research-findings`}}>{t('整理常规统计研究发现与报告')}</button><p>{t('固定已完成运行，保留原值与验证身份；进入报告不会重新计算。')}</p></div>}
     {state?.execution_verification==='legacy_unverified'&&result&&<p className="warning-panel">{t('此历史结果没有新版隔离执行回执；阅读不会自动重新计算。')}</p>}

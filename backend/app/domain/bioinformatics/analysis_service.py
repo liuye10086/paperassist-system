@@ -27,7 +27,7 @@ def scientific_projection(snapshot):
         if key in params:params[key]=sorted(params[key])
     if 'mt_rule' in params:params['mt_rule']['feature_ids']=sorted(params['mt_rule']['feature_ids'])
     value['params']=params
-    if snapshot.get('execution_mode')!='direct':value['recipe_version_id']=snapshot['recipe_version_id']
+    if snapshot.get('execution_mode') is None:value['recipe_version_id']=snapshot['recipe_version_id']
     return value
 
 
@@ -152,15 +152,16 @@ class BioAnalysisService(BioAnalysisStore):
             from .single_cell_resources import analysis_limits_for
             runtime=cell_runtime()
             if not runtime['available']:raise error('bio_environment_unavailable')
+            mode='qc_review' if self.store.assignment is not None else 'direct'
             snapshot=dict(workflow_version='bio_analysis_v3',raw_source=setup.raw_source.model_dump(mode='json'),params=setup.params.model_dump(mode='json'),
                 observation_map_version_id=setup.observation_map_version_id,design_version_id=setup.design_version_id,
                 **{k:runtime[k] for k in ('engine_version','environment_digest','code_digest')},output_language=setup.params.output_language,
-                limits=analysis_limits_for(single_cell=True,params=setup.params.model_dump()).model_dump(),execution_mode='direct')
+                limits=analysis_limits_for(single_cell=True,params=setup.params.model_dump()).model_dump(),execution_mode=mode)
             reused=self._reuse_run(db,project,key,sha,snapshot)
             if reused:return self._run_response(db,reused)
             recipe=self.save_recipe(project,setup,'single-cell-recipe:'+digest(key),_db=db)
             run=BioAnalysisRunRequest(raw_source=request.raw_source,recipe_version_id=recipe['id'],expected_setup_revision=recipe['revision'])
-            return self.create(project,run,key,execution_mode='direct',request_digest=sha,_db=db)
+            return self.create(project,run,key,execution_mode=mode,request_digest=sha,_db=db)
 
     def _run_response(self,db,row):
         return dict(id=row['id'],task=self.store.public_task(self.store.require_task(db,row['task_id'])),recipe_version_id=row['recipe_version_id'],expected_setup_revision=row['expected_setup_revision'])
@@ -180,11 +181,13 @@ class BioAnalysisService(BioAnalysisStore):
         lock(db,project,'analysis-content:'+digest(projection))
         rows=db.execute("""SELECT r.*,t.input_snapshot,t.status FROM bio_analysis_runs r JOIN tasks t ON t.id=r.task_id
             WHERE r.project_id=%s AND r.created_by=%s AND r.raw_dataset_version_id=%s
-            AND t.status IN ('queued','running','succeeded') ORDER BY r.created_at DESC,r.id""",
-            (project,self.store.user_id,snapshot['raw_source']['dataset_version_id'])).fetchall()
+            AND (t.status IN ('queued','running','succeeded') OR (t.status='waiting_confirmation' AND %s))
+            ORDER BY r.created_at DESC,r.id""",
+            (project,self.store.user_id,snapshot['raw_source']['dataset_version_id'],snapshot.get('execution_mode')=='qc_review')).fetchall()
         for candidate in rows:
             if scientific_projection(candidate['input_snapshot'])!=projection:continue
             task=self.store.require_task(db,candidate['task_id']);self.require_sources(db,task,runtime=False)
+            if task['status']=='waiting_confirmation' and not self.can_confirm(db,task,latest_checkpoint(db,task)):continue
             if task['status']=='succeeded':
                 if not candidate['processed_dataset_version_id']:raise conflict('bio_input_integrity_changed')
                 result,_,members=self.processed_record(db,project,candidate['processed_dataset_version_id'])
@@ -209,7 +212,7 @@ class BioAnalysisService(BioAnalysisStore):
             if root['revision']!=request.expected_setup_revision or recipe['raw_dataset_version_id']!=request.raw_source.dataset_version_id:raise conflict('bio_revision_conflict')
             self.raw(db,project,request.raw_source)
         tabular=recipe['recipe_code']=='tabular_quantitative_v1'
-        if execution_mode is not None and (execution_mode!='direct' or recipe['recipe_code']!='single_cell_explore_v1'):raise error('bio_recipe_invalid',422)
+        if execution_mode is not None and (execution_mode not in ('direct','qc_review') or recipe['recipe_code']!='single_cell_explore_v1'):raise error('bio_recipe_invalid',422)
         if tabular:
             from .tabular_settings import runtime_identity as tabular_runtime
             runtime=tabular_runtime()
@@ -268,6 +271,13 @@ class BioAnalysisService(BioAnalysisStore):
         if value['input_sha256']!=task['input_digest'] or value['run_id']!=task['input_snapshot']['run_id']:raise conflict('bio_input_integrity_changed')
         for member in value['members']:self.objects.verified_path(member)
         return value
+
+    def can_confirm(self,db,task,checkpoint):
+        wait=get_open_wait(db,task)
+        root=self.require(db,'bio_analysis_setups',task['project_id'],task['input_snapshot']['setup_id'])
+        return bool(wait and not confirmation_expired(wait) and root['revision']==task['input_snapshot']['expected_setup_revision']
+                    and wait['task_revision']==task['revision'] and checkpoint['next_node']=='await_confirmation'
+                    and self.read_candidate(task,checkpoint))
 
     def get(self,project,run_id):
         with self.store.connection() as db:
@@ -377,14 +387,19 @@ def source_current(db,task):
     try:service_for(db,task).require_sources(db,task,runtime=False);return True
     except Exception:return False
 
+def _retry_requires_quality_review(store,db,task,checkpoint=None):
+    snapshot=task['input_snapshot']
+    if store.assignment is None or snapshot.get('execution_mode')!='direct' or snapshot.get('subset') is not None:
+        return False
+    # A prepared publication resumes from its frozen output without starting computation.
+    return (checkpoint or latest_checkpoint(db,task))['next_node']!='publish'
+
 def recovery_actions(db,task):
     try:
         service=service_for(db,task);service.require_sources(db,task,runtime=False);cp=latest_checkpoint(db,task)
-        if task['status']=='waiting_confirmation':
-            wait=get_open_wait(db,task)
-            root=service.require(db,'bio_analysis_setups',task['project_id'],task['input_snapshot']['setup_id'])
-            return ['approve'] if wait and not confirmation_expired(wait) and root['revision']==task['input_snapshot']['expected_setup_revision'] and wait['task_revision']==task['revision'] and cp['next_node']=='await_confirmation' and service.read_candidate(task,cp) else []
-        if task['status']=='failed' and task.get('error_code') in {'storage_unavailable','task_worker_interrupted','storage_quota_exceeded','storage_disk_insufficient','storage_accounting_unknown','bio_environment_unavailable'}:return ['retry']
+        if task['status']=='waiting_confirmation':return ['approve'] if service.can_confirm(db,task,cp) else []
+        if task['status']=='failed' and task.get('error_code') in {'storage_unavailable','task_worker_interrupted','storage_quota_exceeded','storage_disk_insufficient','storage_accounting_unknown','bio_environment_unavailable'}:
+            return [] if _retry_requires_quality_review(service.store,db,task,cp) else ['retry']
     except Exception:pass
     return []
 
@@ -416,7 +431,11 @@ def expire_stale_confirmations(db,now=None,limit=20,*,task_id=None):
     return len(rows)
 
 def retry_in_transaction(store,db,task,expected_revision):
-    if task['status']!='failed' or task['revision']!=expected_revision or 'retry' not in recovery_actions(db,task):raise error('bio_confirmation_stale')
+    if task['status']!='failed' or task['revision']!=expected_revision:raise error('bio_confirmation_stale')
+    if _retry_requires_quality_review(store,db,task):
+        from app.core.exceptions import StorageError
+        raise StorageError('analysis_quality_required','请从原始矩阵发起单细胞质控，确认后继续分析。',409)
+    if 'retry' not in recovery_actions(db,task):raise error('bio_confirmation_stale')
     service_for(db,task,store).require_sources(db,task)
     previous=task['revision'];task.update(status='queued',revision=previous+1,updated_at=now(),reason_code='retry_requested',error_code=None)
     TaskStore.update_task(db,task,previous);task['_retry_reason']='manual_retry';TaskStore.append_event(db,task,'requeued');TaskStore.enqueue(db,task)

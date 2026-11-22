@@ -135,6 +135,13 @@
 }
 .analyst-execution-card .analyst-project-details-heading { flex-wrap: wrap; }
 .analyst-execution-card .analyst-material-actions { padding: 0; }
+.analyst-execution-card .analysis-overview-body > .upload-quality {
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--accent);
+  border-radius: 10px;
+}
 .analyst-execution-card .analyst-material-request { margin-inline: 0; }
 .analyst-execution-card .analyst-material-request .analyst-form > button { margin-inline-start: 0; }
 .analyst-execution-card .analysis-page-tabs,

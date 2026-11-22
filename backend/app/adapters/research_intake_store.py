@@ -36,6 +36,13 @@ def require_owner(db,store,project_id):
 
 def require_reference(db,table,identifier,project_id,*,material_filter=''):
     visibility=material_filter if table=='files' else ''
+    if table == 'bio_dataset_versions' and material_filter:
+        # A mixed-source import can contain analyst-only material even when
+        # one source file belongs to the customer.
+        visibility = f''' AND EXISTS (SELECT 1 FROM bio_import_files source
+                WHERE source.import_id=bio_dataset_versions.import_id)
+            AND NOT EXISTS (SELECT 1 FROM bio_import_files source WHERE source.import_id=bio_dataset_versions.import_id
+                AND NOT EXISTS (SELECT 1 FROM files WHERE files.id=source.file_id{material_filter}))'''
     if not db.execute(f'SELECT id FROM {table} WHERE id=%s AND project_id=%s{visibility}',(identifier,project_id)).fetchone():
         raise StorageError('research_material_invalid','材料引用不存在或不属于当前项目。',422)
 

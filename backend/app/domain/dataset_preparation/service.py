@@ -407,7 +407,7 @@ class DatasetPreparationService:
         parent_source = obj.parent_source.model_dump(mode='json')
         return dict(id=row['id'],file_id=row['file_id'],parent_dataset_id=row['parent_dataset_id'],
             parent_dataset_version=parent_source['dataset_version'],version=row['version'],created_at=row['created_at'].isoformat(),
-            task_id=row['task_id'],source=prepared_dataset_source(row,parent_source),recipe=row['recipe_json'],
+            task_id=row['task_id'],source=prepared_dataset_source(row,parent_source),recipe=row['recipe_json'],quality_confirmed=False,
             summary=row['summary_json'],download_url=prefix+'/download')
 
     def get_version(self,project,file,id):

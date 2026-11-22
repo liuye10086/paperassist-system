@@ -377,7 +377,8 @@ class BioAnalysisStore:
             blockers.extend(estimate['blockers'])
         elif shape.get('observations',0)>20000 or shape.get('features',0)>100000:blockers.append('bio_resource_exceeded')
         return dict(raw_source=source,available=not blockers,blockers=blockers,limits=BioAnalysisLimits().model_dump(),
-            assay=manifest.get('assay','visium'),observation_level='cell' if single_cell else 'spot',recipes=['single_cell_explore_v1' if single_cell else 'visium_explore_v1'],design_gaps=['independent_donor_design_not_confirmed'],default_params=new_single_cell_parameters().model_dump(by_alias=True) if single_cell else BioRecipeParameters().model_dump(),runtime=runtime,**({'resource_estimate':estimate,'single_cell_libraries':[{k:s.get(k) for k in ('library_id','sample_id')} for s in manifest.get('samples',[])]} if single_cell else {}))
+            assay=manifest.get('assay','visium'),observation_level='cell' if single_cell else 'spot',recipes=['single_cell_explore_v1' if single_cell else 'visium_explore_v1'],design_gaps=['independent_donor_design_not_confirmed'],default_params=new_single_cell_parameters().model_dump(by_alias=True) if single_cell else BioRecipeParameters().model_dump(),runtime=runtime,**({'resource_estimate':estimate,'requires_qc_confirmation':self.store.assignment is not None,
+            'single_cell_libraries':[{k:s.get(k) for k in ('library_id','sample_id')} for s in manifest.get('samples',[])]} if single_cell else {}))
 
     def processed_record(self,db,project,identifier):
         return self._processed_record(db,project,identifier)

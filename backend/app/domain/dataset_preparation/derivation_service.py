@@ -73,12 +73,45 @@ def _walk(db,task,row):
     audit_old(db,task,row)
     return chain,dict(row)
 
-def audit_published(db,task,row):
+def audited_lineage(db,task,row):
     try:
-        chain,_=_walk(db,task,row)
-        if not chain:raise source_conflict()
-        return chain[0][4]
+        return _walk(db,task,row)
     except (KeyError,TypeError,ValueError) as exc:raise source_conflict() from exc
+
+
+def audit_published(db,task,row):
+    chain,_=audited_lineage(db,task,row)
+    if not chain:raise source_conflict()
+    return chain[0][4]
+
+
+def has_confirmed_quality(chain):
+    return any(task['workflow_version'] == 'dataset_preparation_v2' or relation['operation'] == 'quality'
+               for _, task, _, relation, _ in chain)
+
+
+def require_analysis_quality(db, task):
+    """Check the exact frozen input when an assigned analyst queues analysis."""
+    snapshot = task['input_snapshot']
+    if task['task_type'] == 'analysis_plan' and snapshot.get('input_kind') == 'materials':
+        return
+    source = (snapshot['setup'] if task['task_type'] == 'statistics_compute' else snapshot).get('source')
+    if source and source['kind'] == 'prepared_dataset_version' and source['schema_version'] in (2, 3):
+        row = db.execute('''SELECT * FROM prepared_dataset_versions
+            WHERE id=%s AND file_id=%s AND created_by=%s''',
+            (source['dataset_id'], source['file_id'], task['user_id'])).fetchone()
+        producer = row and db.execute('''SELECT * FROM tasks
+            WHERE id=%s AND project_id=%s AND user_id=%s AND task_type='prepare_dataset' ''',
+            (row['task_id'], task['project_id'], task['user_id'])).fetchone()
+        if not producer:
+            raise source_conflict()
+        chain, _ = audited_lineage(db, producer, row)
+        if not chain or chain[0][4] != source:
+            raise source_conflict()
+        if has_confirmed_quality(chain):
+            return
+    raise StorageError('analysis_quality_required', '请先完成所选工作表版本的质量控制，再开始分析。', 409)
+
 
 class DerivationPreparationService(QualityPreparationService):
     def __init__(self,assets):
@@ -168,8 +201,7 @@ class DerivationPreparationService(QualityPreparationService):
             row=db.execute('SELECT * FROM prepared_dataset_versions WHERE id=%s AND file_id=%s AND created_by=%s',(id,file,self.store.user_id)).fetchone()
             if not row:raise StorageError('dataset_missing','整理版本不存在。',404)
             task=self.store.require_task(db,row['task_id'])
-            try:chain,root=_walk(db,task,row)
-            except (KeyError,TypeError,ValueError) as exc:raise source_conflict() from exc
+            chain,root=audited_lineage(db,task,row)
         base_row,_,base=DatasetPreparationService(self.assets).load_version(project,file,root['id'])
         for row,task,checkpoint,relation,_ in reversed(chain):
             service=self if task['workflow_version']==WORKFLOW_VERSION else QualityPreparationService(self.assets)
@@ -177,13 +209,14 @@ class DerivationPreparationService(QualityPreparationService):
             if (obj.summary.model_dump(mode='json')!=row['summary_json']
                 or {k:relation['manifest_'+k] for k in ('object_key','sha256','size_bytes','entry_count')}!=obj.manifest.model_dump()):raise source_conflict()
             base_row,base=row,obj
-        return row,content,obj
+        return {**row, 'quality_confirmed': has_confirmed_quality(chain)},content,obj
 
     @staticmethod
     def version_summary(project,row,obj):
         prefix='/api/v1/projects/{}/files/{}/prepared-dataset-versions/{}'.format(*[quote(str(v),safe='') for v in (project,row['file_id'],row['id'])])
         return dict(id=row['id'],file_id=row['file_id'],parent_dataset_id=row['parent_dataset_id'],parent_dataset_version=obj.parent_source.dataset_version,
             version=row['version'],created_at=row['created_at'].isoformat(),task_id=row['task_id'],operation=obj.operation,
+            quality_confirmed=row['quality_confirmed'],
             source=prepared_dataset_source(row,obj.parent_source.model_dump(),schema_version=3),base_source=obj.base_source.model_dump(mode='json'),
             recipe=row['recipe_json'],summary=row['summary_json'],sheet=sheet_metadata(obj.sheet),download_url=prefix+'/download',impact_url=prefix+'/impacts',impact_download_url=prefix+'/impacts/download')
 

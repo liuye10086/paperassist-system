@@ -140,9 +140,21 @@ def test_delegate_scope_checks_nested_files_tasks_and_actor():
         expected_revision=0, sheet_name='研究数据', numeric_column='B', group_column=None,
     ))
     assert saved.status_code == 200, saved.text
-    queued = analyst.post(file_path + '/analysis-runs', json={'expected_revision': 1})
+    from app.adapters.storage import ProjectStore
+    from app.core.config import get_data_dir
+    from app.domain.descriptive import RunRequest
+    from app.domain.statistics_execution.service import create
+
+    # Seed a task accepted before delegated statistics required a quality version.
+    historical = create(project_id, file_id, RunRequest(expected_revision=1, idempotency_key='historic'),
+                        ProjectStore(get_data_dir(), owner_id=owner_id))
+    blocked = analyst.post(file_path + '/analysis-runs', json={'expected_revision': 1})
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()['detail']['code'] == 'analysis_quality_required'
+    queued = analyst.post(file_path + '/analysis-runs', json={'expected_revision': 1, 'idempotency_key': 'historic'})
     assert queued.status_code == 202, queued.text
     task_id = queued.json()['id']
+    assert task_id == historical['id']
     task = '/api/v1/tasks/' + task_id
     assert analyst.get(task).status_code == 200
     assert analyst.get(task + '/workspace').status_code == 200
@@ -167,6 +179,15 @@ def test_delegate_scope_checks_nested_files_tasks_and_actor():
         audit = db.execute('SELECT user_id FROM operational_request_events WHERE request_id=%s',
                            (queued.headers['x-request-id'],)).fetchone()
         assert audit['user_id'] == analyst_id
+
+    from app.adapters.task_execution_store import TaskExecutionStore
+    worker = TaskExecutionStore()
+    lease = worker.claim(task_id, historical['revision'], task_type='statistics_compute')
+    worker.fail(lease, 'storage_unavailable')
+    failed = analyst.get(task).json()
+    retry = analyst.post(task + '/retry', json={'expected_revision': failed['revision']})
+    assert retry.status_code == 409 and retry.json()['detail']['code'] == 'analysis_quality_required'
+    assert analyst.get(task).json()['revision'] == failed['revision']
 
     assert assign(admin, project, None, 1).status_code == 200
     assert analyst.get(project).status_code == 404

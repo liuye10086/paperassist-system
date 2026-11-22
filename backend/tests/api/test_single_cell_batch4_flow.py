@@ -42,6 +42,14 @@ def parent_result(client,monkeypatch,tmp_path,base=None):
     monkeypatch.setattr(analysis_execution,'execute_bio_analysis',base_engine)
     from app.domain.tasks.execution import run_task
     task=created.json()['task'];done=run_task(task['id'],task['revision'])
+    if done['status']=='waiting_confirmation':
+        run_path=base+'/bio-analysis-runs/'+created.json()['id']
+        qc=client.get(run_path).json()
+        confirmed=client.post(run_path+'/confirm',headers={'Idempotency-Key':'parent-qc'},json=dict(
+            task_revision=qc['task']['revision'],checkpoint_id=qc['checkpoint_id'],wait_id=qc['wait_id'],
+            candidate_sha256=qc['candidate']['sha256'],expected_setup_revision=qc['expected_setup_revision']))
+        assert confirmed.status_code==202,confirmed.text
+        done=run_task(task['id'],confirmed.json()['revision'])
     assert done['status']=='succeeded',done
     run=client.get(base+'/bio-analysis-runs/'+created.json()['id']).json()
     fixture.update(source=run['result_source'],modes=modes,run_id=created.json()['id'])

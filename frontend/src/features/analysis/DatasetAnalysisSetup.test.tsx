@@ -7,6 +7,8 @@ import type { StructureVersion } from '../datasets/datasetApi'
 import { reviewFixture } from '../analysisPlan/analysisPlanFixtures'
 import { correlationResult } from './correlationFixtures'
 import { readerPolicy } from '../reports/statisticsReaderFixtures'
+import { baseVersion, qualityVersion } from '../datasetPreparation/batch07Fixtures'
+import filterFixture from '../datasetPreparation/batch09BackendFixture.json'
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 const source = { kind: 'dataset_version', schema_version: 1, dataset_id: 'd1', structure_id: 's1', dataset_version: 1, file_id: 'f1', source_sha256: 'a'.repeat(64), dataset_sha256: 'b'.repeat(64), dataset_size_bytes: 100, dataset_schema_version: 1, sheet_index: 0, sheet_name: 'Sheet1', parser_version: 'openpyxl-3.1.5-structure-v1' }
 const selection = { task_type: 'descriptive_boxplot', sheet_name: 'Sheet1', numeric_column: 'A', group_column: null, unit: '', missing_policy: 'exclude_selected_missing' }
@@ -413,6 +415,106 @@ test('initial setup GET times out and reload recovers', async () => {
 
 const preparedSource = { ...source, kind: 'prepared_dataset_version', dataset_id: 'pd1', dataset_version: 7, parent_dataset_id: 'd1', parent_dataset_version: 1, transform_version: 'excel_prepare_v1' }
 const preparedVersion = { id: 'pd1', file_id: 'f1', parent_dataset_id: 'd1', parent_dataset_version: 1, version: 7, created_at: dataset.created_at, task_id: 'pt1', source: preparedSource, recipe: { header_row: 1, data_range: 'A2:B31', fields: [{ column: 1, name: '数值', unit: { status: 'confirmed', value: 'mg' }, trim_text: false, missing_markers: [] }] }, summary: { record_count: 30, changed_cell_count: 0, changed_row_count: 0, trimmed_cell_count: 0, missing_marker_cell_count: 0, columns: [], unresolved: [], changes_truncated: false }, download_url: '/api/v1/projects/p1/files/f1/prepared-dataset-versions/pd1/download' }
+
+test('assigned analyst can read the saved raw statistics but must open quality control before a new run', async () => {
+ const fetch = mockApi({saved, result})
+ const user = userEvent.setup()
+ const onOpenQuality = vi.fn()
+ render(<AnalysisSetup projectId="p1" files={files} fileId="f1" requireQuality onOpenQuality={onOpenQuality}/>)
+ await screen.findByLabelText('数值列')
+ await user.click(screen.getByRole('button', {name: '统计结果'}))
+ await screen.findByText('总体（完整记录）')
+ const run = screen.getByRole('button', {name: '执行描述统计'}) as HTMLButtonElement
+ expect(run.disabled).toBe(true)
+ await user.click(run)
+ expect(fetch.mock.calls.some(([url]) => url.endsWith('/analysis-runs'))).toBe(false)
+ await user.click(screen.getByRole('button', {name: '前往表格质量控制'}))
+ expect(onOpenQuality).toHaveBeenCalledWith('f1')
+})
+
+test('returning from quality control refreshes the prepared versions without losing the current draft', async () => {
+ const accepted = {...qualityVersion, quality_confirmed:true}
+ const second = {...accepted, id:'next', version:3, source:{...accepted.source, dataset_id:'next',dataset_version:3}}
+ let versions: (typeof second)[] = [accepted]
+ const fetch = mockApi({saved:{...saved,source:accepted.source}}), original = fetch.getMockImplementation()!
+ fetch.mockImplementation(async (url, init) => {
+  if (url.endsWith('/prepared-dataset-versions/pd2')) return Response.json(accepted)
+  if (url.includes('/prepared-dataset-versions?')) return Response.json({items:versions,total:versions.length,page:1,page_size:5})
+  return original(url,init)
+ })
+ const user = userEvent.setup()
+ const props = {projectId:'p1', files, fileId:'f1', requireQuality:true}
+ const view = render(<AnalysisSetup {...props} active/>)
+ const unit = await screen.findByLabelText('数值单位（可选）') as HTMLInputElement
+ await user.type(unit, 'draft')
+ view.rerender(<AnalysisSetup {...props} active={false}/>)
+ versions = [second,accepted]
+ view.rerender(<AnalysisSetup {...props} active/>)
+ const picker = screen.getByLabelText('整理数据版本') as HTMLSelectElement
+ await waitFor(() => expect(picker.querySelector('option[value="next"]')).toBeTruthy())
+ expect(picker.value).toBe(accepted.id)
+ expect(unit.value).toBe('draft')
+})
+
+test('a first analyst plan uses the explicitly selected QC version and explains a server-side quality rejection', async () => {
+ const fetch = mockApi(), original = fetch.getMockImplementation()!
+ fetch.mockImplementation(async (url, init) => {
+  if (url.includes('/prepared-dataset-versions?')) return Response.json({items:[{...qualityVersion, quality_confirmed:true}], total:1, page:1, page_size:5})
+  if (url.includes('/analysis-plans?')) return Response.json({items:[], total:0, page:1, page_size:5})
+  if (url.endsWith('/analysis-plans') && init?.method === 'POST') return Response.json({detail:{code:'analysis_quality_required'}}, {status:409})
+  return original(url,init)
+ })
+ const user = userEvent.setup()
+ render(<AnalysisSetup projectId="p1" files={files} fileId="f1" requireQuality/>)
+ await screen.findByRole('option', {name:/Sheet1.*已确认质控/})
+ const picker = screen.getByLabelText('整理数据版本') as HTMLSelectElement
+ expect(picker.value).toBe('')
+ await user.selectOptions(picker, qualityVersion.id)
+ await user.selectOptions(await screen.findByLabelText('数值列'), 'A')
+ await user.click(screen.getByRole('button', {name:'分析方案'}))
+ await user.type(screen.getByLabelText('研究问题'), 'Measure the synthetic data')
+ await user.click(screen.getByRole('button', {name:'生成分析计划'}))
+ const request = fetch.mock.calls.find(([url]) => url.endsWith('/analysis-plans'))
+ expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({dataset_id:qualityVersion.id, expected_setup_revision:0})
+ expect(await screen.findByText('请先完成本次分析所用数据的质量控制。')).toBeTruthy()
+})
+
+test('assigned analyst can use a QC-derived filter and switching sources restores the gate', async () => {
+ const accepted = {...qualityVersion, quality_confirmed: true}
+ const filter = {...filterFixture.published, file_id: 'f1', id: 'filter', version: 3, quality_confirmed: true,
+  source: {...accepted.source, dataset_id: 'filter', dataset_version: 3, schema_version: 3, dataset_schema_version: 3, transform_version: 'excel_prepare_v3'},
+  base_source: accepted.source}
+ const sibling = {...filter, id: 'sibling', source: {...filter.source, dataset_id: 'sibling'}, base_source: baseVersion.source, quality_confirmed: false}
+ const fetch = mockApi({saved: {...saved, source: accepted.source}}), original = fetch.getMockImplementation()!
+ fetch.mockImplementation(async (url, init) => {
+  if (url.endsWith('/prepared-dataset-versions/pd2')) return Response.json(accepted)
+  if (url.includes('/prepared-dataset-versions?')) return Response.json({items: [accepted, filter, sibling], total: 3, page: 1, page_size: 5})
+  if (url.includes('/analysis-plans?') || url.includes('task_type=analysis_recommendation')) return Response.json({items: [], total: 0, page: 1, page_size: url.includes('/analysis-plans?') ? 5 : 10})
+  return original(url, init)
+ })
+ const user = userEvent.setup()
+ render(<AnalysisSetup projectId="p1" files={files} fileId="f1" requireQuality/>)
+ await screen.findByLabelText('数值列')
+ await user.click(screen.getByRole('button', {name: '统计结果'}))
+ expect((screen.getByRole('button', {name: '执行描述统计'}) as HTMLButtonElement).disabled).toBe(false)
+ await user.click(screen.getByRole('button', {name: '字段配置'}))
+ const picker = screen.getByLabelText('整理数据版本') as HTMLSelectElement
+ expect(picker.querySelector('option[value="filter"]')?.textContent).toContain('已确认质控')
+ expect(picker.querySelector('option[value="sibling"]')?.textContent).toContain('待质控')
+ await user.selectOptions(picker, 'filter')
+ await user.click(screen.getByRole('button', {name: '分析方案'}))
+ expect((await screen.findByLabelText('研究问题') as HTMLTextAreaElement).disabled).toBe(false)
+ await user.click(screen.getByRole('button', {name: '字段配置'}))
+ await user.selectOptions(picker, 'sibling')
+ await user.click(screen.getByRole('button', {name: '分析方案'}))
+ expect((await screen.findByLabelText('研究问题') as HTMLTextAreaElement).disabled).toBe(true)
+ await user.click(screen.getByRole('button', {name: '字段配置'}))
+ await user.selectOptions(screen.getByLabelText('数据来源类型'), 'raw')
+ await pick(user, 's2', 'd2')
+ await user.click(screen.getByRole('button', {name: '统计结果'}))
+ expect((screen.getByRole('button', {name: '执行描述统计'}) as HTMLButtonElement).disabled).toBe(true)
+ expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+})
 
 test.each([false,true])('parent setup stays mounted after published plan (initially published=%s)',async(initiallyPublished)=>{
  let published=initiallyPublished

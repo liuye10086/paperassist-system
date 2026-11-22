@@ -3,10 +3,81 @@ import {afterEach,expect,it,vi} from 'vitest'
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import ResearchIntake from './ResearchIntake'
 import {apiFetch} from '../../shared/api/client'
-import {emptyRequirement} from './state'
+import {emptyDesign,emptyRequirement} from './state'
+import type {Content,MaterialRef} from './contracts'
 import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner',onApiSessionChanged:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.useRealTimers();sessionStorage.clear()})
+it('uses confirmed customer samples in assigned design and sends only material reference fields',async()=>{
+ const groups=[{id:'customer-group',experiment_id:'customer-exp',name:'Baseline'}]
+ const samples=[{id:'sample-a',group_id:'customer-group',experiment_id:'customer-exp',file_id:'material'}]
+ const submitted={id:'r1',version:1,operation:'confirm',content:{...emptyRequirement(),sample_information:{groups,samples}},created_at:'2026-11-01'}
+ const old={id:'d1',version:1,operation:'save',sha256:'h',created_at:'2026-10-01',material_refs:[],content:{
+  ...emptyDesign(),experiments:[{id:'previous-exp',data_type:'Previous assay'}],samples:[{id:'historical-sample',experiment_id:'previous-exp'}],exclusions:['Saved analyst note']}}
+ const prefix='paperassist.research-draft.v1:owner:p1:'
+ const legacyRefs={requirements:[],design:[{id:'historical-sample',experiment_id:'previous-exp',group_id:'old-group',file_id:'old-file',purpose:'sample_sheet',availability:'provided'}]}
+ for(const [key,value] of Object.entries({'intake-design':old.content,'intake-design-base':JSON.stringify(old.content),
+  'intake-requirement-base':JSON.stringify(emptyRequirement()),'intake-base-revision':3,'intake-materials':legacyRefs})){
+  sessionStorage.setItem(prefix+key,JSON.stringify(value))
+ }
+ let posted:{content:Content;material_refs:MaterialRef[]}|undefined
+ vi.mocked(apiFetch).mockImplementation(async(url,init)=>{
+  if(init?.method==='POST'){posted=JSON.parse(String(init.body));return Response.json({revision:4,version:{...old,id:'d2',content:posted!.content,material_refs:posted!.material_refs},gaps:[]})}
+  return Response.json(url.endsWith('/research-intake')?{revision:3,current_requirement:submitted,current_design:old,deliveries:[],capabilities:{},gaps:[]}:url.endsWith('/files')?[{id:'material',filename:'counts.csv'}]:{items:[],total:0})
+ })
+ render(<ResearchIntake projectId="p1" active designOnly view="design"/>)
+ await screen.findByDisplayValue('Previous assay')
+ const ids=screen.getAllByLabelText('实验标识') as HTMLInputElement[]
+ expect(ids.map(input=>input.value)).toEqual(['previous-exp','customer-exp'])
+ fireEvent.change(screen.getAllByLabelText('数据类型')[1],{target:{value:'Bulk RNA-seq'}})
+ fireEvent.click(screen.getByRole('button',{name:'保存'}))
+ await waitFor(()=>expect(posted).toBeTruthy())
+ expect(posted!.content).toMatchObject({groups,samples,exclusions:['Saved analyst note'],experiments:[{id:'previous-exp',data_type:'Previous assay'},{id:'customer-exp',data_type:'Bulk RNA-seq'}]})
+ expect(posted!.material_refs).toHaveLength(1)
+ expect(posted!.material_refs[0]).toMatchObject({file_id:'material',purpose:'sample_sheet',availability:'provided'})
+ expect(posted!.material_refs[0]).not.toHaveProperty('id')
+ expect(posted!.material_refs[0]).not.toHaveProperty('experiment_id')
+})
+it.each(['legacy','unsubmitted'])('keeps saved design samples for a %s requirement',async(kind)=>{
+ const content={...emptyDesign(),experiments:[{id:'e',data_type:'Bulk RNA-seq'}],groups:[{id:'g',experiment_id:'e',name:'Control'}],
+  samples:[{id:'saved-sample',experiment_id:'e',group_id:'g'}]}
+ const version={id:'design',version:1,operation:'save',created_at:'2026-10-01',content}
+ const requirement=kind==='legacy'?{operation:'confirm',content:emptyRequirement()}:
+  {operation:'save',content:{...emptyRequirement(),sample_information:{groups:[],samples:[]}}}
+ vi.mocked(apiFetch).mockImplementation(async url=>Response.json(url.endsWith('/research-intake')?{
+  revision:3,current_requirement:requirement,current_design:version,deliveries:[],gaps:[],capabilities:{}
+ }:url.endsWith('/files')?[]:{items:[],total:0}))
+ render(<ResearchIntake projectId="p1" active designOnly view="design"/>)
+ fireEvent.click(await screen.findByRole('button',{name:'样本信息'}))
+ expect(screen.getByText('saved-sample')).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'添加样本信息'})).toBeNull()
+})
+it('keeps restored analyst edits while refreshed customer samples and historical samples retain their own versions',async()=>{
+ const from=(id:string)=>({groups:[{id:'g',experiment_id:'e',name:'Group'}],samples:[{id,group_id:'g',experiment_id:'e'}]})
+ const historical={id:'old-design',version:1,created_at:'2026-10-01',operation:'save',sha256:'h',material_refs:[],
+  content:{...emptyDesign(),...from('old-sample'),experiments:[{id:'e',data_type:'Saved experiment'}]}}
+ const req={id:'r2',version:2,operation:'confirm',content:{...emptyRequirement(),sample_information:from('new-sample')}}
+ const fields={'intake-requirement-base':JSON.stringify(emptyRequirement()),'intake-design-base':JSON.stringify(historical.content),'intake-base-revision':2,
+  'intake-design':{...historical.content,...from('local-stale-sample'),experiments:[{id:'e',data_type:'Edited experiment'}]}}
+ for(const [key,value] of Object.entries(fields))sessionStorage.setItem('paperassist.research-draft.v1:owner:p1:'+key,JSON.stringify(value))
+ vi.mocked(apiFetch).mockImplementation(async url=>Response.json(url.endsWith('/research-intake')?{
+  revision:3,current_requirement:req,current_design:historical,deliveries:[],gaps:[],capabilities:{}
+ }:url.endsWith('/old-design')?historical:url.includes('/research-designs?')?{items:[historical],total:1}:url.endsWith('/files')?[]:{items:[],total:0}))
+ render(<ResearchIntake projectId="p1" active designOnly view="design"/>)
+ await screen.findByDisplayValue('Edited experiment')
+ expect(screen.getByRole('button',{name:'保存'})).toHaveProperty('disabled',true)
+ fireEvent.click(screen.getByRole('button',{name:'样本信息'}))
+ expect(screen.getByText('new-sample')).toBeTruthy()
+ expect(screen.queryByText('local-stale-sample')).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'历史记录'}))
+ fireEvent.click(await screen.findByRole('button',{name:/历史记录 ·/}))
+ await screen.findByText('old-sample')
+ expect(screen.queryByText('new-sample')).toBeNull()
+ expect(screen.queryByRole('button',{name:'保存'})).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'返回当前草稿'}))
+ expect(screen.getByText('new-sample')).toBeTruthy()
+ expect(vi.mocked(apiFetch).mock.calls.every(([,init])=>!init?.method)).toBe(true)
+})
 it('does not report a revision conflict when an earlier GET returns during the original pending save',async()=>{
  let reads=0,serverRevision=0,finishRead!:(response:Response)=>void,finishSave!:(response:Response)=>void
  const version={id:'v1',version:1,operation:'save',content:emptyRequirement(),material_refs:[],sha256:'hash',created_at:''}

@@ -1,6 +1,10 @@
 import {spatialAnalysisMessages} from './spatialAnalysisMessages'
 export const analysisViewsMessages: Record<string, string> = {
   ...spatialAnalysisMessages,
+  '分析前请在字段配置中选择已确认质控的整理版本。': 'Select a prepared version with confirmed quality control in Field configuration before starting the analysis.',
+  '前往表格质量控制': 'Open table quality control',
+  '已确认质控': 'QC confirmed',
+  '待质控': 'QC required',
   '分析方案': 'Analysis plan',
   '请先在字段配置中明确选择数据版本与工作表。': 'Select a data version and worksheet in Field configuration first.',
   '前往字段配置': 'Go to field configuration',

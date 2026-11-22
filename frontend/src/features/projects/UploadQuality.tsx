@@ -13,7 +13,7 @@ export default function UploadQuality({ files, loading, error, onReload, onNavig
   const canOpenMaterials = analysisOnly || files.length > 0
   return <section className="upload-quality" aria-label={t('质量控制')}>
     <header className="upload-quality-heading"><div><h2>{t('质量控制')}</h2>
-      <p>{t(analysisOnly ? '选择客户已上传的资料，核对数据后继续分析。' : '选择已上传材料，检查数据并查看已有结果，再进入第 3 步选择分析需求。')}</p></div>
+      <p>{t(analysisOnly ? '先完成本次分析所用数据的质量控制，再开始分析。' : '选择已上传材料，检查数据并查看已有结果，再进入第 3 步选择分析需求。')}</p></div>
       <button type="button" disabled={loading} onClick={onReload}>{t('重新读取材料')}</button></header>
     {loading ? <p role="status">{t('正在核对材料状态……')}</p> : error ? <p role="alert">{t(error)}</p> : <>
       {bioFiles.length > 0 && <article className="upload-quality-card"><div><h3>{t('组学与生信数据')}</h3>

@@ -61,7 +61,7 @@ it('opens analysis from the dataset next action and remembers the selected panel
  const first=render(<BioDatasetDetail projectId="p1" datasetId="d1" versionId="v1" onNavigate={()=>{}}/>)
  const next=await screen.findByRole('button',{name:'下一步：配置分析'});const datasetBody=first.container.querySelector('.module-views')!;const datasetFooter=first.container.querySelector('.bio-confirmation-actions')!;expect(datasetBody.compareDocumentPosition(datasetFooter)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
  fireEvent.click(next)
- expect(screen.getByRole('textbox',{name:'分析名称'})).toBeTruthy()
+ expect(await screen.findByRole('textbox',{name:'分析名称'})).toBeTruthy()
  first.unmount()
  render(<BioDatasetDetail projectId="p1" datasetId="d1" versionId="v1" onNavigate={()=>{}}/>)
  expect(await screen.findByRole('textbox',{name:'分析名称'})).toBeTruthy()
@@ -73,6 +73,12 @@ it('shows a queue state without claiming computation has started',async()=>{
  render(<BioAnalysisReview projectId="p1" runId="run1" onNavigate={()=>{}}/>)
  expect(await screen.findByText('排队中，轮到此任务后开始分析。')).toBeTruthy()
  expect(screen.queryByRole('button',{name:'下一步：查看结果与 Word'})).toBeNull()
+})
+
+it.each([['queued','所选数据的质控任务正在排队。'],['running','正在对所选数据运行质控。']])('shows the QC stage before analyst confirmation (%s)',async(status,message)=>{
+ vi.mocked(apiFetch).mockResolvedValue(Response.json({...runFixture,raw_source:source,candidate:null,task:{...runFixture.task,status,phase:'parse'}}))
+ render(<BioAnalysisReview projectId="p1" runId="run1" onNavigate={()=>{}}/>)
+ expect(await screen.findByText(message)).toBeTruthy()
 })
 
 it('continues to the completed result without submitting another analysis',async()=>{

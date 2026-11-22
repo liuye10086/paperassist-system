@@ -1,4 +1,9 @@
 export const singleCellBatch7Messages:Record<string,string>={
+ '先对所选矩阵运行质控。确认质控结果后，任务才会继续标准化、降维和聚类。':'Run quality control on the selected matrix first. Confirm the results to continue with normalization, dimensionality reduction, and clustering.',
+ '提交后可在运行页核对保留的细胞、过滤记录和有效参数。':'After submission, review the retained cells, filtering records, and effective parameters on the run page.',
+ '开始单细胞质控':'Start single-cell quality control',
+ '所选数据的质控任务正在排队。':'Quality control for the selected data is queued.',
+ '正在对所选数据运行质控。':'Quality control is running on the selected data.',
  'PNG 图件尺寸':'PNG figure size',
  '自定义 PNG 尺寸':'Customize PNG size',
  '宽度（英寸）':'Width (inches)',

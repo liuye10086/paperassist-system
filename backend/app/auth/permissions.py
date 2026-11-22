@@ -96,6 +96,7 @@ CUSTOMER_OPERATIONS = frozenset({
 })
 
 CUSTOMER_ANALYSIS_OPERATIONS = frozenset({
+    ('POST', PROJECT_PATH + '/design-table-previews'),
     ('GET', PROJECT_PATH + '/bio-upload-batches'),
     ('POST', PROJECT_PATH + '/bio-upload-batches'),
     ('GET', PROJECT_PATH + '/bio-upload-batches/{batch_id}'),

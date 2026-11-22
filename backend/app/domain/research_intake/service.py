@@ -89,16 +89,14 @@ def _validate_refs(db,project_id,kind,content,refs,*,material_filter):
     references=[('research_deliveries',r.delivery_id) for r in refs if r.delivery_id]
     references += [('files',r.file_id) for r in refs if r.file_id]
     references += [('bio_dataset_versions',r.bio_dataset_version_id) for r in refs if r.bio_dataset_version_id]
-    if kind=='research-designs':
-        for sample in content['samples']:
-            for key,table in [('file_id','files'),('bio_dataset_version_id','bio_dataset_versions')]:
-                if sample[key]:
-                    references.append((table,sample[key]))
-                    # Every structured object reference also has a real scoped
-                    # material FK attached to this immutable version.
-                    if not any(getattr(r,key)==sample[key] and r.availability=='provided' for r in refs):
-                        raise StorageError('research_material_invalid','样本来源须同时登记为provided材料引用。',422)
-    else:
+    sample_information = content if kind == 'research-designs' else content.get('sample_information', {})
+    provided_files = {ref.file_id for ref in refs if ref.availability == 'provided'}
+    provided_datasets = {ref.bio_dataset_version_id for ref in refs if ref.availability == 'provided'}
+    for sample in sample_information.get('samples', []):
+        if ((sample['file_id'] and sample['file_id'] not in provided_files)
+                or (sample['bio_dataset_version_id'] and sample['bio_dataset_version_id'] not in provided_datasets)):
+            raise StorageError('research_material_invalid','样本来源须同时登记为provided材料引用。',422)
+    if kind=='requirements':
         for identifier in content['figure_request']['existing_file_ids']:
             references.append(('files',identifier))
             if not any(r.file_id==identifier and r.availability=='provided' for r in refs):
@@ -106,8 +104,21 @@ def _validate_refs(db,project_id,kind,content,refs,*,material_filter):
         for item in content['material_checklist']:
             if item['availability']=='provided' and not any(r.purpose==item['purpose'] and r.availability=='provided' for r in refs):
                 raise StorageError('research_material_invalid','已提供材料须绑定实际文件或数据集版本。',422)
-    for table,identifier in references:
+    for table,identifier in set(references):
         require_reference(db,table,identifier,project_id,material_filter=material_filter)
+
+
+def _require_submitted_samples(db, project_id, design_id, content):
+    latest = db.execute("""SELECT content_json->'sample_information' AS info FROM research_requirement_versions
+        WHERE project_id=%s AND operation='confirm' ORDER BY version DESC LIMIT 1""", (project_id,)).fetchone()
+    information = latest['info'] if latest else None
+    if information is None:
+        # Projects created before customer sample declarations retain the last saved design.
+        existing = db.execute('SELECT content_json FROM research_design_versions WHERE id=%s AND project_id=%s',
+                              (design_id, project_id)).fetchone() if design_id else None
+        information = existing['content_json'] if existing else {}
+    if any(content[key] != information.get(key, []) for key in ('groups', 'samples')):
+        raise StorageError('customer_sample_information_read_only', '分组和样本信息由客户填写，请使用客户已提交的版本。', 403)
 
 
 def write_version(store,project_id,kind,request,key):
@@ -136,6 +147,8 @@ def write_version(store,project_id,kind,request,key):
             raise StorageError('research_intake_not_found','项目尚无需求登记。',404)
         if root['revision']!=request.expected_revision:
             raise StorageError('research_revision_conflict','需求已被另一窗口修改，请读取新版本并保留本地草稿。',409)
+        if kind == 'research-designs' and getattr(store, 'assignment', None) is not None:
+            _require_submitted_samples(db, project_id, root['current_design_version_id'], content)
         _validate_refs(db,project_id,kind,content,request.material_refs,material_filter=store.material_filter)
         version=db.execute(f'SELECT coalesce(max(version),0)+1 AS n FROM {table} WHERE project_id=%s',(project_id,)).fetchone()['n']
         pointer='current_requirement_version_id' if kind=='requirements' else 'current_design_version_id'
@@ -171,7 +184,8 @@ def preview_table(store,project_id,request):
         require_owner(db,store,project_id)
         source=None
         if request.file_id:
-            row=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(request.file_id,project_id)).fetchone()
+            row=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s' + store.material_filter,
+                           (request.file_id,project_id)).fetchone()
             if not row:
                 raise StorageError('research_material_invalid','样本表不存在或不属于当前项目。',422)
             file=dict(row)

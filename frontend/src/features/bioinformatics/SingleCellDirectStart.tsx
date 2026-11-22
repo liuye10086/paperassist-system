@@ -36,6 +36,7 @@ function SingleCellStartForm({allowNewAnalysis=true,projectId,source,onNavigate,
  const setStep=(step:Draft['step'])=>setSaved(value=>({...value,step}))
  const params=draft??read.value?.default_params
  const estimate=read.value?.resource_estimate
+ const reviewQc=read.value?.requires_qc_confirmation
  const selectedLimits=(params?.doublet?.enabled||params?.decontx?.enabled||params?.harmony?.enabled)?estimate?.optional_r_limits??estimate?.configured_limits:estimate?.configured_limits
  const denseValues=estimate&&params&&estimate.matrix.observations!==null&&estimate.matrix.features!==null?estimate.matrix.observations*Math.min(params.hvg_count,estimate.matrix.features):null
  const blockers=read.value?.blockers.filter(code=>!estimate||code!=='single_cell_dense_hvg_limit')??[]
@@ -53,7 +54,7 @@ function SingleCellStartForm({allowNewAnalysis=true,projectId,source,onNavigate,
   setDraft({...params,mt_rule:rule,max_mt_fraction:null,library_qc_overrides,technical_covariates:rule.confirmed?params.technical_covariates:(params.technical_covariates??[]).filter(value=>value!=='mt_fraction')})
  }
  return <section className="bio-workspace intake-form"><h3>{t('单细胞探索分析')}</h3>
-  <p>{t('填写参数后开始分析，任务会连续执行 QC、标准化、降维和聚类，完成后查看图表与结果。')}</p>
+  {read.value&&<p>{t(reviewQc?'先对所选矩阵运行质控。确认质控结果后，任务才会继续标准化、降维和聚类。':'填写参数后开始分析，任务会连续执行 QC、标准化、降维和聚类，完成后查看图表与结果。')}</p>}
   <p>{t('来源和参数相同时使用已有分析；修改后建立新分析，已有结果保留。')}</p>
   <p>{t('未知供者不影响探索；cell 不代表独立供者，marker 仅为探索性 cell 群关联。')}</p>
   {read.error&&<p role="alert">{t(read.error)}</p>}
@@ -84,13 +85,15 @@ function SingleCellStartForm({allowNewAnalysis=true,projectId,source,onNavigate,
     {step==='review'&&<section aria-label={t('分析前核对')}>
      <h4>{t('检查并运行')}</h4><p>{name}</p>
      <dl className="bio-source"><dt>{t('最低 counts')}</dt><dd>{params.min_counts}</dd><dt>{t('最低检测基因数')}</dt><dd>{params.min_genes}</dd><dt>{t('HVG 数量')}</dt><dd>{params.hvg_count}</dd><dt>{t('输出语言')}</dt><dd>{params.output_language==='en'?'English':'简体中文'}</dd></dl>
-     <p>{t('流程：细胞质控 → 标准化 → 降维与聚类 → 图表与 Word。')}</p>
-     <p>{t('点击开始后才会提交计算；任务按顺序排队，完成后可查看结果和下载 Word。')}</p>
+     {reviewQc?<p>{t('提交后可在运行页核对保留的细胞、过滤记录和有效参数。')}</p>:<>
+      <p>{t('流程：细胞质控 → 标准化 → 降维与聚类 → 图表与 Word。')}</p>
+      <p>{t('点击开始后才会提交计算；任务按顺序排队，完成后可查看结果和下载 Word。')}</p>
+     </>}
      <ul>{params.doublet?.enabled&&<li>{t('运行 scDblFinder 双细胞检测')}</li>}{params.decontx?.enabled&&<li>{t('运行 decontX 环境 RNA 校正')}</li>}{params.harmony?.enabled&&<li>{t('启用 Harmony 批次整合')}</li>}{!!params.technical_covariates?.length&&<li>{t('技术协变量处理')}：{params.technical_covariates.join('、')}</li>}</ul>
     </section>}
     <footer className="bio-confirmation-actions">
      {step==='review'&&<button type="button" disabled={blocked} onClick={()=>setStep('parameters')}>{t('上一步：调整参数')}</button>}
-     <button type="submit" className="button-primary" disabled={blocked||!resourceAvailable||step==='review'&&!allowNewAnalysis}>{t(step==='parameters'?'下一步：检查并运行':'开始单细胞分析')}</button>
+     <button type="submit" className="button-primary" disabled={blocked||!resourceAvailable||step==='review'&&!allowNewAnalysis}>{t(step==='parameters'?'下一步：检查并运行':reviewQc?'开始单细胞质控':'开始单细胞分析')}</button>
     </footer>
    </form>}
   </>}

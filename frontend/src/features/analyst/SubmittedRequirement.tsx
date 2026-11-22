@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useI18n } from '../../shared/i18n'
 import { projectBase } from '../research-intake/api'
+import { confirmedSampleRegistration } from '../research-intake/assignedSampleRegistration'
 import type { Intake, Version } from '../research-intake/contracts'
 import { useResearchRead } from '../research-results/api'
 import type { AnalystWorkspace, SubmittedVersion } from './useAnalystWorkspace'
@@ -28,6 +29,7 @@ export default function SubmittedRequirement({ projectId, workspace, onDesign, h
   const version = current ?? (submitted && confirmedVersion(historical.data, projectId) && matchesSubmitted(historical.data, submitted) ? historical.data : null)
   const readError = workspace.error || intake.error || needsExactVersion && (historical.error || historical.data && !version && '无法核对已提交的需求版本。')
   const notes = version && typeof version.content.notes === 'string' ? version.content.notes : ''
+  const sampleInfo = confirmedSampleRegistration(version)
   const scope = Array.isArray(version?.content.scope_items) ? version.content.scope_items.filter(item => item && typeof item.id === 'string'
     && typeof item.title === 'string' && item.delivery_kind === 'analysis' && item.status !== 'not_included') : []
   return <section className="project-details-card analyst-project-details" aria-label={t('已提交需求')} tabIndex={0}>
@@ -49,6 +51,7 @@ export default function SubmittedRequirement({ projectId, workspace, onDesign, h
           ? <ul className="analyst-scope-list">{scope.map(item => <li key={item.id}>{item.title}</li>)}</ul>
           : t('暂无已选研究范围。')}</dd>
       </div>
+      {sampleInfo && <div><dt>{t('样本信息')}</dt><dd>{t('{groups} 个分组，{samples} 个样本',{groups:sampleInfo.groups.length,samples:sampleInfo.samples.length})}</dd></div>}
       {notes && <div><dt>{t('补充说明')}</dt><dd className="analyst-note">{notes}</dd></div>}
     </dl>}
   </section>

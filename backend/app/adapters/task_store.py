@@ -335,6 +335,12 @@ class TaskStore:
 
     @staticmethod
     def enqueue(db, task, *, validated_file_ids=None):
+        if task['task_type'] in ('statistics_compute', 'analysis_plan', 'analysis_recommendation'):
+            scope = assignment_for_owner(task['user_id'])
+            if scope is not None:
+                from app.domain.dataset_preparation.derivation_service import require_analysis_quality
+                scope.require_project(task['project_id'])
+                require_analysis_quality(db, task)
         from app.domain.storage_governance.guards import require_task_open
         require_task_open(db,task,validated_file_ids=validated_file_ids)
         db.execute('''INSERT INTO task_outbox

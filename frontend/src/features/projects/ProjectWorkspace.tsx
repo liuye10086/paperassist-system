@@ -168,8 +168,7 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
   }
 
   function openAnalysis() {
-    const current = selection.analysisNavigation
-    selection.selectAnalysis(analysisOnly && (current.fromResults || isAnalysisResultView(current.view)) ? { view: 'overview', fileId: '' } : current)
+    selection.selectAnalysis(analysisOnly ? { view: 'overview', fileId: '' } : selection.analysisNavigation)
   }
 
   function openResultTask(taskId: string) {
@@ -436,7 +435,7 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
         <ProjectTasks assigned={assigned} detailView={selection.taskDetailView} onDetailViewChange={selection.selectTaskDetailView} registerLeaveGuard={selection.registerLeaveGuard} onOpenJournals={analysisOnly?undefined:()=>changeSection('journals')} onOpenManuscripts={analysisOnly?undefined:()=>changeSection('manuscripts')} onOpenFiles={() => changeSection('files')} projectId={project.id} active={view === 'project' && section === 'tasks'}
           selectedTaskId={selection.taskId} taskReportReturn={selection.taskReportReturn} onSelectTask={openTask} onBackToResults={assigned && showingTaskResult ? openResults : undefined}
           onOpenLiterature={analysisOnly?undefined:selection.selectLiterature} />
-        <ProjectResources analysisOnly={analysisOnly} assigned={assigned} assignmentRevision={assigned ? project.assignment_revision : undefined}
+        <ProjectResources analysisOnly={analysisOnly} assigned={assigned} navigationSequence={navigationSequence} assignmentRevision={assigned ? project.assignment_revision : undefined}
           analystWorkspace={assigned ? analyst : undefined} headerAction={showingAnalystExecution || showingAnalystResults && section === 'analysis' ? returnToListButton : undefined}
           onBackToResults={showingAnalystResults && section === 'analysis' ? openResults : undefined}
           onDeliveries={() => selection.changeOverviewView('deliveries')} allowNewAnalysis={flow.reason('analysis')===''}

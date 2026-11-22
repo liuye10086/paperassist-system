@@ -15,6 +15,13 @@
 .customer-requirements__header { justify-content: space-between; }
 .customer-requirements__header p { color: var(--muted-foreground); }
 .customer-requirements__form { display: grid; gap: 12px; min-width: 0; }
+.customer-requirements__samples { min-width: 0; border: 1px solid var(--border); border-radius: 8px; }
+.customer-requirements__samples .intake-form { max-width: none; }
+.customer-requirements__samples .intake-module-layout { grid-template-columns: minmax(0, 1fr); }
+.customer-requirements__samples .intake-module-nav,
+.customer-requirements__source-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+.customer-requirements__samples .intake-module-nav { border-bottom: 1px solid var(--border); }
+.customer-requirements__samples .intake-module-nav button[aria-current='step'] { background: var(--accent-surface); color: var(--accent-foreground); }
 
 .customer-requirements__row {
   display: grid;

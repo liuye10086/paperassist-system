@@ -37,6 +37,7 @@ import type { NativeDeliveryTarget } from '../analyst/NativeDeliveryArtifact'
 
 type Props = { analysisOnly?:boolean; assigned?:boolean; assignmentRevision?:number; onDeliveries?:()=>void; analystWorkspace?:AnalystWorkspace; headerAction?:ReactNode; allowNewAnalysis?:boolean; savedRequirement?:Version|null; onRequirements?: (panel?:'materials') => void; projectId: string; onSaved: () => void; section: ProjectSection; onSectionChange: (section: ProjectSection) => void; active?: boolean; outputLanguage?:'zh-CN'|'en'; bulkOverviewRevision?:number
   onBackToResults?: () => void
+  navigationSequence?: number
   analysisNavigation?: AnalysisNavigation; onAnalysisNavigate?: (next:AnalysisNavigation)=>void; resourceNavigation?: ResourceNavigation; onResourceNavigate?: (next: ResourceNavigation) => void; registerLeaveGuard?: RegisterLeaveGuard }
 
 function ResourceScope({ projectId, onSaved, section, onSectionChange, active = true, ...navigationProps }: Props) {
@@ -48,7 +49,7 @@ function ResourceScope({ projectId, onSaved, section, onSectionChange, active = 
   return <ResourceContent projectId={projectId} onSaved={onSaved} section={section} onSectionChange={onSectionChange} active={active} onUnavailable={denied} {...navigationProps} />
 }
 
-function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnavailable, active, resourceNavigation, onResourceNavigate, registerLeaveGuard, analysisNavigation, onAnalysisNavigate, onRequirements, onDeliveries, analystWorkspace, headerAction, onBackToResults, assignmentRevision, savedRequirement, allowNewAnalysis=true, outputLanguage, bulkOverviewRevision=0, analysisOnly=false, assigned=false }: Props & { onUnavailable: () => void }) {
+function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnavailable, active, resourceNavigation, onResourceNavigate, registerLeaveGuard, analysisNavigation, onAnalysisNavigate, onRequirements, onDeliveries, analystWorkspace, headerAction, onBackToResults, assignmentRevision, savedRequirement, allowNewAnalysis=true, outputLanguage, bulkOverviewRevision=0, navigationSequence=0, analysisOnly=false, assigned=false }: Props & { onUnavailable: () => void }) {
   const { t } = useI18n()
   const [localNavigation, setLocalNavigation] = useState<ResourceNavigation>({ view: 'list', fileId: '' })
   const [uploadKind, setUploadKind] = useResearchDraft<'documents'|'bio'>(projectId,'resource-upload-kind',()=> 'documents')
@@ -76,7 +77,11 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   const requirement=analysis.entry?fixedVersion:current
   const entryAvailable=!analysis.entry||!!fixedVersion&&!fixedError&&analysisScopes(fixedVersion).some(s=>s.id===analysis.entry?.scopeItemId)
   const deliveryTarget:NativeDeliveryTarget|undefined=assigned&&assignmentRevision!==undefined?{assignmentRevision,onDeliveries}:undefined
-  function openFile(id:string){if(onResourceNavigate)onResourceNavigate({view:'detail',fileId:id});else{onSectionChange('files');navigate({view:'detail',fileId:id})}}
+  function openResource(next: ResourceNavigation) {
+    if (!onResourceNavigate) onSectionChange('files')
+    navigate(next)
+  }
+  function openFile(id: string) { openResource({view:'detail',fileId:id}) }
   const insightView=isInsightView(analysis.view)
   const readerReportView=analysis.view==='bio-reader-report'
   const bioView=analysis.view.startsWith('bio-')&&!insightView&&!readerReportView
@@ -106,8 +111,8 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  // The materials request is its own view of the current section; leaving the section returns to its normal content.
-  const [materialsRequestSection, setMaterialsRequestSection] = useState<string | null>(null)
+  const [requestView, setRequestView] = useState<{section:ProjectSection; sequence:number} | null>(null)
+  const atRequest = requestView?.section === section && requestView.sequence === navigationSequence
   const [opened, setOpened] = useState<{ id: string; request: number } | null>(null)
   const [previewState, setPreviewState] = useState<SavedPreviewState | null>(null)
   const openSequence = useRef(0)
@@ -138,20 +143,21 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
 
   function batchChanged() { setUploadVersion(value => value + 1); refresh(); onSaved() }
   function refreshMaterials(){refresh();imports.refresh()}
-  function openUpload(){if(onResourceNavigate)onResourceNavigate({view:'upload',fileId:''});else{onSectionChange('files');navigate({view:'upload',fileId:''})}}
+  function openUpload(){openResource({view:'upload',fileId:''})}
   function openBulkUpload(){setUploadKind('bio');openUpload()}
   const canContinueMaterials=!loading&&!error&&files.some(file=>file.parse_status==='stored'||file.parse_status==='parsed')
   const canRequestMaterials = analystWorkspace && analystWorkspace.value?.status !== 'delivered'
-    && (analystWorkspace.value?.requirement || materialsRequestSection === section)
-  const materialsRequestOpen = !onBackToResults && materialsRequestSection === section && !!canRequestMaterials
+    && (analystWorkspace.value?.requirement || atRequest)
+  const materialsRequestOpen = !onBackToResults && atRequest && !!canRequestMaterials
+  const qualityPanel = <UploadQuality analysisOnly={analysisOnly} files={files} loading={loading} error={error} onReload={refreshMaterials} onNavigate={openResource}/>
   const materialActions = analysisOnly && <div className="analyst-material-actions">
     {onBackToResults && <button type="button" className="button-quiet" onClick={onBackToResults}>{t('返回成果列表')}</button>}
     {!onBackToResults && (section === 'files'
-      ? <button type="button" onClick={() => { setMaterialsRequestSection(null); navigateAnalysis(analysis) }}>{t('返回执行分析')}</button>
-      : <button type="button" onClick={() => { setMaterialsRequestSection(null); openMaterials() }}>{t('查看客户资料')}</button>)}
+      ? <button type="button" onClick={() => { setRequestView(null); navigateAnalysis(analysis) }}>{t('返回执行分析')}</button>
+      : <button type="button" onClick={() => { setRequestView(null); openMaterials() }}>{t('查看客户资料')}</button>)}
     {!onBackToResults && canRequestMaterials && <nav className="analyst-work-views" aria-label={t('分析员工作视图')}>
-      <button type="button" aria-pressed={!materialsRequestOpen} onClick={() => setMaterialsRequestSection(null)}>{t(section === 'files' ? '客户资料' : '执行分析')}</button>
-      <button type="button" aria-pressed={materialsRequestOpen} onClick={() => setMaterialsRequestSection(section)}>{t('填写补料说明')}</button>
+      <button type="button" aria-pressed={!materialsRequestOpen} onClick={() => setRequestView(null)}>{t(section === 'files' ? '客户资料' : '执行分析')}</button>
+      <button type="button" aria-pressed={materialsRequestOpen} onClick={() => setRequestView({section,sequence:navigationSequence})}>{t('填写补料说明')}</button>
     </nav>}
     {headerAction}
   </div>
@@ -174,7 +180,7 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
           <button type="button" onClick={() => navigate({ view: 'detail', fileId: navigation.fileId })}>{t('文件详情')}</button>
           <button type="button" disabled={busy} onClick={() => { setPreviewState({ id: navigation.fileId, status: 'loading' }); setOpened({ id: navigation.fileId, request: ++openSequence.current }) }}>{t('重新读取预览')}</button>
       </div>}
-      {navigation.view==='quality' && !navigation.fileId && !navigation.bio && <UploadQuality analysisOnly={analysisOnly} files={files} loading={loading} error={error} onReload={refreshMaterials} onNavigate={navigate}/>}
+      {filesActive && navigation.view==='quality' && !navigation.fileId && !navigation.bio && qualityPanel}
       {navigation.view==='list'&&<section className="upload-preparation-summary" aria-label={t('材料准备状态')}>{imports.error&&<p role="alert">{t(imports.error)}</p>}{loading?<p role="status">{t('正在核对材料状态……')}</p>:error?<p role="alert">{t(error)} <button type="button" onClick={refreshMaterials}>{t('重新读取材料')}</button></p>:<ul>{Object.entries(files.reduce<Record<string,number>>((counts,file)=>{const label=file.parse_status==='stored'&&imports.unknown?'材料状态尚未核实':filePreparation(file,imports.data??[]).label;counts[label]=(counts[label]??0)+1;return counts},{})).map(([label,count])=><li key={label}>{t(label)} · {count}</li>)}</ul>}</section>}
       {!analysisOnly && <><div className="upload-mode-bar" hidden={navigation.view !== 'upload'}>
         <div className="upload-kind-options" role="group" aria-label={t('选择上传材料类型')}>{([['documents','表格、报告与图片'],['bio','组学与生信数据包']] as const).map(([kind,label])=><button type="button" key={kind} aria-pressed={uploadKind===kind} onClick={()=>setUploadKind(kind)}>{t(label)}</button>)}</div>
@@ -212,11 +218,12 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       {analysisActive&&readerReportView&&entryAvailable&&<BioReaderReportWorkspace key={projectId+':'+analysis.reportContextId}
        {...{projectId,deliveryTarget}} navigation={analysis}/>}
       <div className="analysis-overview-body" hidden={analysis.view!=='overview'}>
+        {analysisOnly && analysisActive && analysis.view==='overview' && !analysis.entry && qualityPanel}
         <AnalysisGuide embedded={analysisOnly} assigned={assigned} projectId={projectId} onUpload={analysisOnly ? undefined : openUpload} version={requirement} scopeId={analysis.entry?.scopeItemId} loading={analysis.entry?fixed.loading:intake.loading&&!current} error={analysis.entry?fixedError:intake.error} onRefresh={analysis.entry?fixed.refresh:intake.refresh} files={files} filesLoading={loading} filesError={error} onReloadFiles={refreshMaterials} imports={imports.data??[]} importsUnknown={imports.unknown} importsError={imports.error} onFile={openFile} onNavigate={navigateAnalysis} onRequirements={onRequirements} onDeliveries={onDeliveries}/>
       </div>
       {!assigned&&<div hidden={analysis.view!=='research-request'}>{requirementsVisited&&<ProjectRequirements projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored')} registerLeaveGuard={registerLeaveGuard}/>}</div>}
       <div hidden={!entryAvailable||analysis.view==='overview'||analysis.view==='research-request'||bioView||insightView||researchView||readerReportView||bulkHome}>
-      <AnalysisSetup analysisOnly={analysisOnly} projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored'&&file.file_type==='xlsx')} filesLoading={loading} filesError={error} onReloadFiles={refresh}
+      <AnalysisSetup active={analysisActive} analysisOnly={analysisOnly} requireQuality={assigned} onOpenQuality={fileId=>openResource({view:'quality',fileId})} projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored'&&file.file_type==='xlsx')} filesLoading={loading} filesError={error} onReloadFiles={refresh}
         onOpenFiles={analysisOnly ? undefined : () => onSectionChange('files')} stage={analysis.view==='overview'||analysis.view==='research-request'||analysis.view==='research-findings'||analysis.view.startsWith('bio-')||bulkHome?'setup':analysis.view as import('../analysis/analysisWorkflowContext').AnalysisStage} onStageChange={view=>navigateAnalysis({...analysis,view})} fileId={analysis.fileId} onFileChange={fileId=>navigateAnalysis({...analysis,fileId})} registerLeaveGuard={registerLeaveGuard} />
       </div>
     </div>

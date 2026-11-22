@@ -99,6 +99,102 @@ def test_assigned_analyst_can_cancel_only_an_authorized_single_cell_task(client,
         assert analyst.post(task_url + '/cancel', json=body).status_code == 404
 
 
+def test_assigned_single_cell_waits_for_review_of_the_selected_input(client, ready_single_cell, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.domain.bioinformatics import analysis_execution
+    from app.domain.tasks.execution import run_task
+    from app.main import app
+    from tests.api.test_customer_workspace import sign_in
+    from tests.api.test_project_assignments import assign
+
+    source, base = ready_single_cell['source'], ready_single_cell['base']
+    body = dict(name='Selected cells', raw_source=source, params={'min_spots': 1, 'seed': 7})
+    path = base + '/single-cell-analysis-runs'
+    def start(actor, key):
+        response = actor.post(path, json=body, headers={'Idempotency-Key': key})
+        assert response.status_code == 202, response.text
+        return response.json()
+
+    owner_id = client.get('/api/v1/auth/me').json()['user']['id']
+    modes = []
+    monkeypatch.setattr(analysis_execution, 'execute_bio_analysis',
+                        synthetic_engine(source, ready_single_cell['runtime'], modes))
+    legacy = start(client, 'before-assignment')
+    assert run_task(legacy['task']['id'], legacy['task']['revision'])['status'] == 'succeeded'
+    assert modes == ['compute']
+    modes.clear()
+    with TestClient(app) as admin, TestClient(app) as analyst:
+        sign_in(admin, 'qc-admin@single-cell.test', 'admin')
+        analyst_id = sign_in(analyst, 'qc-analyst@single-cell.test', 'analyst')
+        changed = admin.patch('/api/v1/admin/users/' + owner_id, json={
+            'role': 'customer', 'active': True, 'expected_revision': 1, 'reason': 'Assign synthetic project',
+        })
+        assert changed.status_code == 200, changed.text
+        assert assign(admin, base, analyst_id, 0).status_code == 200
+        capability = analyst.get(base + '/bio-analysis-capabilities',
+                                 params={'dataset_id': source['dataset_id'], 'version_id': source['dataset_version_id']})
+        assert capability.json()['requires_qc_confirmation'] is True
+        assert start(analyst, 'before-assignment')['id'] == legacy['id']
+        created = start(analyst, 'review-selected')
+        task = created['task']
+        wait = run_task(task['id'], task['revision'])
+        assert wait and wait['status'] == 'waiting_confirmation', wait
+        assert modes == ['qc']
+        assert start(analyst, 'review-selected-again')['id'] == created['id']
+        run_path = base + '/bio-analysis-runs/' + created['id']
+        view = analyst.get(run_path).json()
+        assert view['result_source'] is None and view['raw_source'] == source
+        assert view['candidate']['effective_params']['seed'] == 7
+        confirmation = analyst.post(run_path + '/confirm', headers={'Idempotency-Key': 'reviewed-qc'},
+            json=dict(task_revision=view['task']['revision'], checkpoint_id=view['checkpoint_id'],
+                      wait_id=view['wait_id'], candidate_sha256=view['candidate']['sha256'],
+                      expected_setup_revision=view['expected_setup_revision']))
+        assert confirmation.status_code == 202, confirmation.text
+        assert run_task(task['id'], confirmation.json()['revision'])['status'] == 'succeeded'
+        assert modes == ['qc', 'compute']
+        assert analyst.get(run_path).json()['result_source']['raw_source'] == source
+        assert start(analyst, 'after-confirmation')['id'] == created['id']
+
+
+def test_assigned_retry_of_failed_legacy_single_cell_requires_input_qc(client, ready_single_cell, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.core.exceptions import StorageError
+    from app.domain.bioinformatics import analysis_execution
+    from app.domain.tasks.execution import run_task
+    from app.main import app
+    from tests.api.test_customer_workspace import sign_in
+    from tests.api.test_project_assignments import assign
+
+    base = ready_single_cell['base']
+    body = dict(name='Legacy matrix', raw_source=ready_single_cell['source'], params={'min_spots':1})
+    started = client.post(base + '/single-cell-analysis-runs', json=body, headers={'Idempotency-Key':'legacy-failure'})
+    assert started.status_code == 202, started.text
+    task = started.json()['task']
+    def interrupted(*args, **kwargs):
+        raise StorageError('storage_unavailable', 'Synthetic worker interruption', 503)
+    monkeypatch.setattr(analysis_execution, 'execute_bio_analysis', interrupted)
+    failed = run_task(task['id'], task['revision'])
+    assert failed['status'] == 'failed' and failed['error_code'] == 'storage_unavailable'
+    task_url = '/api/v1/tasks/' + task['id']
+    assert 'retry' in client.get(task_url + '/workspace').json()['allowed_actions']
+    with TestClient(app) as admin, TestClient(app) as analyst:
+        sign_in(admin, 'retry-admin@single-cell.test', 'admin')
+        analyst_id = sign_in(analyst, 'retry-analyst@single-cell.test', 'analyst')
+        owner_id = client.get('/api/v1/auth/me').json()['user']['id']
+        changed = admin.patch('/api/v1/admin/users/' + owner_id, json={
+            'role':'customer', 'active':True, 'expected_revision':1, 'reason':'Assign synthetic project',
+        })
+        assert changed.status_code == 200, changed.text
+        assert assign(admin, base, analyst_id, 0).status_code == 200
+        rejected = analyst.post(task_url + '/retry', json={'expected_revision':failed['revision']})
+        assert rejected.status_code == 409, rejected.text
+        assert rejected.json()['detail']['code'] == 'analysis_quality_required'
+        workspace = analyst.get(task_url + '/workspace').json()
+        assert 'retry' not in workspace['allowed_actions']
+        replay = analyst.post(base + '/single-cell-analysis-runs', json=body, headers={'Idempotency-Key':'legacy-failure'})
+        assert replay.json()['task']['status'] == 'failed'
+
+
 def test_direct_start_unified_worker_has_no_manual_qc_wait_and_replays(client,ready_single_cell,monkeypatch):
     from app.domain.tasks.execution import run_task
     from app.domain.bioinformatics import analysis_execution

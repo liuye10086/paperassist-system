@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from 'react'
 import { useI18n } from '../../shared/i18n'
-import { WorkflowContext, useWorkflowNavigation, type AnalysisStage } from './analysisWorkflowContext'
+import { WorkflowContext, useWorkflowNavigation, type AnalysisStage, type TableQualityOptions } from './analysisWorkflowContext'
 import './analysisWorkflow.css'
 
-export function WorkflowProvider({ children, stage, onStageChange }: { children: ReactNode; stage?: AnalysisStage; onStageChange?: (stage: AnalysisStage) => void }) {
+export function WorkflowProvider({ children, stage, onStageChange, requireQuality, onOpenQuality }: TableQualityOptions & { children: ReactNode; stage?: AnalysisStage; onStageChange?: (stage: AnalysisStage) => void }) {
   const [localStage, setLocalStage] = useState<AnalysisStage>('setup')
   function setStage(next: AnalysisStage) { if (stage === undefined) setLocalStage(next); onStageChange?.(next) }
-  return <WorkflowContext.Provider value={{ stage: stage ?? localStage, setStage }}>{children}</WorkflowContext.Provider>
+  return <WorkflowContext.Provider value={{ stage: stage ?? localStage, setStage, requireQuality, onOpenQuality }}>{children}</WorkflowContext.Provider>
 }
 export function WorkflowStage({ stage, children }: { stage: AnalysisStage; children: ReactNode }) {
   const navigation = useWorkflowNavigation()
