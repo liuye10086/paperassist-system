@@ -26,10 +26,12 @@ describe.each(['sci', 'thesis'] as const)('analysis results for writing material
   const target = '#' + new URLSearchParams({ 'customer-project': projectId, step: 'materials', view: 'analysis-results',
     return: files, returnLabel: 'materials' }).toString()
   let uploaded = false
+  let notesReady: Promise<void>
   let fetch: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     uploaded = false
+    notesReady = Promise.resolve()
     setApiSession('csrf', 'customer-test')
     sessionStorage.clear()
     vi.stubGlobal('URL', class extends URL { static createObjectURL = vi.fn(() => 'blob:x'); static revokeObjectURL = vi.fn() })
@@ -43,7 +45,10 @@ describe.each(['sci', 'thesis'] as const)('analysis results for writing material
         const items = uploaded ? [file('f1', '生存分析.docx'), file('f2', '其他.docx')] : []
         return Response.json({ items, total: items.length, page: 1, page_size: 5 })
       }
-      if (url.startsWith(base + '/paper-materials?')) return Response.json({ items: [], targets: [{ id: 't1', label: '发现 1' }] })
+      if (url.startsWith(base + '/paper-materials?')) {
+        await notesReady
+        return Response.json({ items: [], targets: [{ id: 't1', label: '发现 1' }] })
+      }
       if (url.startsWith('/api/v1/projects?type=research')) return Response.json({ items: [research], total: 1, page: 1, page_size: 100 })
       if (url === deliveries) return Response.json({ items: [delivery] })
       if (url === deliveries + '/s1') return Response.json({ ...delivery, feedback: [], package_url: null,
@@ -82,13 +87,19 @@ describe.each(['sci', 'thesis'] as const)('analysis results for writing material
     // Focus comes back to the writing materials instead of dropping to the page body.
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '从我的分析项目取用成果' })))
     expect(screen.getByLabelText('模拟已选文件')).toHaveProperty('value', '已选 生存分析.docx')
+    let finishReadingNotes!: () => void
+    notesReady = new Promise<void>(resolve => { finishReadingNotes = resolve })
     uploaded = true
     fireEvent.click(screen.getByRole('button', { name: '刷新资料' }))
     const list = await screen.findByRole('list', { name: '已上传资料' })
     const rows = within(list).getAllByRole('listitem')
     expect(rows[0].textContent).toContain('来自 分析项目甲 · 生存分析')
     expect(rows[1].textContent).not.toContain('来自')
-    fireEvent.click(await within(rows[1]).findByRole('button', { name: '填写 其他.docx 的图表资料' }))
+    const editOtherFile = within(rows[1]).getByRole('button', { name: '填写 其他.docx 的图表资料' })
+    expect(editOtherFile).toHaveProperty('disabled', true)
+    finishReadingNotes()
+    await waitFor(() => expect(editOtherFile).toHaveProperty('disabled', false))
+    fireEvent.click(editOtherFile)
     expect(await screen.findByRole('textbox', { name: '主要结果' })).toHaveProperty('value', '')
     fireEvent.click(screen.getByRole('button', { name: '返回项目文件' }))
     fireEvent.click(await screen.findByRole('button', { name: '填写 生存分析.docx 的图表资料' }))
