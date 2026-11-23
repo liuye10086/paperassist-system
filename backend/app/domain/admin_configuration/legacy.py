@@ -50,7 +50,7 @@ def _affected(task,paths):
         return False  # v1 stays offline; v2 validates its original frozen bundle.
     if name=='literature_assistance':
         # Unbound execution retains the installed/injected provider.policy,
-        # installed allowance and original task budget; it never reads current.
+        # installed input allowance; it never reads current.
         # Even disabling the future entry cannot change this legacy fallback.
         # Fixed Batch06 policy constraints are independently enforced by validation.
         return False
@@ -66,10 +66,10 @@ def _affected(task,paths):
                 from app.domain.analysis_recommendation.policy import validate_execution_policy
                 validate_execution_policy(snap.get('recommendation_policy'))
             elif name in ('figure_workbench','figure_explanation'):
-                from app.domain.admin_configuration.contracts import Execution,PlotExecution
+                from app.domain.admin_configuration.contracts import Execution
                 from app.domain.model_usage.contracts import ModelPolicy
                 explanation=name=='figure_explanation'
-                frozen=(Execution if explanation else PlotExecution).model_validate(snap.get('explanation_policy' if explanation else 'boxplot_policy'))
+                frozen=Execution.model_validate(snap.get('explanation_policy' if explanation else 'boxplot_policy'))
                 policy=ModelPolicy.model_validate(frozen.policy.model_dump())
                 versions=tuple('figure_explanation_v'+str(n) for n in (1,2,3,4,5)) if explanation else tuple('openai_figure_workbench_v'+str(n) for n in (1,2,3,4))
                 if policy.prompt_version not in versions or policy.tools!=([] if explanation else ['code_interpreter']):return True
@@ -81,7 +81,8 @@ def _affected(task,paths):
 
 def check(db,paths):
     # Process pool size never changes a task's frozen parse/model contract.
-    paths=[path for path in paths if path!='basic.worker_concurrency']
+    paths=[path for path in paths if path!='basic.worker_concurrency' and path.split('.')[-1] not in
+           ('task_limit_micro_usd', 'batch_cap_micro_usd', 'tool_reserve_micro_usd', 'tool_reserve_version')]
     if not paths:return
     rows=db.execute('''SELECT t.id,t.task_type,t.input_snapshot,t.input_digest,t.workflow_version,t.project_id FROM tasks t
         LEFT JOIN admin_configuration_bindings b ON b.kind='task' AND b.object_id=t.id

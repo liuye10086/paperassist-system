@@ -27,7 +27,9 @@ it('requires an explicit checkbox edit and preserves independent policies, promp
  expect({...next.models,real_calls_enabled:false}).toEqual(testBundle.models)
  expect(next.prompts).toEqual(testBundle.prompts);expect(next.ncbi.enabled).toBe(false)
  expect(screen.getByText('对新任务生效')).toBeTruthy()
- expect(screen.getByText('启用后仍须单独确认外发，并满足部署凭据、预算与任务授权要求。')).toBeTruthy()
+ expect(screen.getByText('启用后仍须单独确认外发，并满足部署凭据与任务授权要求。')).toBeTruthy()
+ expect(screen.queryByLabelText(/预算|工具预留/)).toBeNull()
+ expect(screen.getByLabelText('输入 Token 上限')).toBeTruthy()
  fireEvent.click(toggle);expect(changed.mock.calls.at(-1)![0].models.real_calls_enabled).toBe(false)
 })
 it('does not make the setting editable when the server catalog marks it readonly',()=>{
@@ -38,7 +40,7 @@ it('renders opt-in scope and independent requirements in English',()=>{
  setLocale('en');render(<Harness changed={()=>{}}/>)
  expect(screen.getByRole('checkbox',{name:'Allow real model calls'})).toBeTruthy()
  expect(screen.getByText('Applies to new tasks')).toBeTruthy()
- expect(screen.getByText('Outbound confirmation, deployment credentials, budgets and task authorization are still required.')).toBeTruthy()
+ expect(screen.getByText('Outbound confirmation, deployment credentials and task authorization are still required.')).toBeTruthy()
 })
 it('retains a safe configuration error identifier with actionable translations',()=>{
  const error=apiError({detail:{code:'model_configuration_disabled',message:'PRIVATE TRACE'}},'fallback')

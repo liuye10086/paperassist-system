@@ -35,14 +35,13 @@ it('admin saved summaries and request metrics load only when visited and stop wh
  expect(reads.mock.calls.some(([url,active])=>url.includes('/metrics')&&active)).toBe(true)
  expect(reads.mock.calls.filter(([url])=>url.includes('/summaries')).at(-1)?.[1]).toBe(false)
 })
-it('layers project and task budgets and calls without changing call sources',async()=>{
+it('layers project and task usage without budget controls',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json(usageFixture)))
  render(<TaskModelUsage taskId="t1" layered />)
  await screen.findByRole('navigation',{name:'任务用量工作视图'})
  await screen.findByText('任务内部估算')
  expect(screen.queryByRole('heading',{name:'任务预算'})).toBeNull()
- fireEvent.click(screen.getByRole('button',{name:'预算额度'}))
- expect(screen.getByText('任务预算')).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'预算额度'})).toBeNull()
  fireEvent.click(screen.getByRole('button',{name:'逐次调用'}))
  expect(await screen.findByText('test-model')).toBeTruthy()
  expect(within(screen.getByText('test-model').closest('tr')!).getByText('待核对')).toBeTruthy()

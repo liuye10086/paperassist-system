@@ -6,7 +6,7 @@ from unicodedata import east_asian_width
 from zipfile import ZipFile
 
 from docx.opc.constants import RELATIONSHIP_TYPE
-from docx.oxml import parse_xml
+from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import nsmap, qn
 from lxml import etree
 
@@ -90,11 +90,17 @@ def _text(node, value):
     node.set(SPACE, 'preserve')
 
 
-def _replace(p, value):
+def _replace(p, value, split=None):
     tokens = list(p.iter(qn('w:t')))
-    _text(tokens[0], value)
+    _text(tokens[0], value if split is None else value[:split])
     for token in tokens[1:]:
         _text(token, '')
+    if split is not None:
+        line = OxmlElement('w:br')
+        tail = OxmlElement('w:t')
+        _text(tail, value[split:].lstrip())
+        tokens[0].addnext(line)
+        line.addnext(tail)
 
 
 def _slots(paragraph):
@@ -136,8 +142,39 @@ def _set_cover_title(first, second, title):
     # than the original space count when those spaces become Chinese glyphs.
     length = 32
     split = next((index for index in range(1, len(title) + 1) if _units(title[:index]) > length), len(title) + 1) - 1
-    _fill(first_slot, title[:split])
-    _fill(second_slot, title[split:])
+    if 0 < split < len(title) and _ascii_word_char(title[split]):
+        word_start = split
+        while word_start and _ascii_word_char(title[word_start - 1]):
+            word_start -= 1
+        if word_start:
+            split = word_start
+    _fill(first_slot, title[:split].rstrip())
+    _fill(second_slot, title[split:].lstrip())
+
+
+def _ascii_word_char(char):
+    return char.isascii() and char.isalnum()
+
+
+def _compact_title_page_spacers(forms, title, english_title):
+    # Longer titles can add two lines at the template's original font sizes.
+    # Recover that height from the two empty lines above the date.
+    if _units(title) <= 46 and _units(english_title) <= 60:
+        return
+    for paragraph in forms[36:38]:
+        spacing = paragraph.get_or_add_pPr().get_or_add_spacing()
+        spacing.set(qn('w:line'), '20')
+        spacing.set(qn('w:lineRule'), 'exact')
+
+
+def _balanced_title_break(title):
+    width = _units(title)
+    if width <= 46:
+        return None
+    spaces = (i for i, char in enumerate(title) if char == ' ')
+    candidates = [(abs(width / 2 - _units(title[:i])), i) for i in spaces
+                  if width * .35 <= _units(title[:i]) <= width * .65]
+    return min(candidates)[1] if candidates else None
 
 
 def _set_student_number(table, value):
@@ -154,8 +191,9 @@ def _fill_known_values(forms, title, english_title, values):
     # The positions come from the SHA-pinned appendix. They are direct body
     # children, including the native page breaks in the last paragraph of each page.
     _set_cover_title(forms[4], forms[5], title)
-    _replace(forms[25], title)
+    _replace(forms[25], title, _balanced_title_break(title))
     _replace(forms[26], english_title)
+    _compact_title_page_spacers(forms, title, english_title)
     for index, keys in (
         (10, ('college',)), (11, ('discipline',)), (12, ('specialty',)),
         (13, ('author',)), (14, ('supervisor',)), (28, ('author', 'supervisor')),

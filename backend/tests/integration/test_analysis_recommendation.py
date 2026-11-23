@@ -48,10 +48,6 @@ def queued_recommendation(client,monkeypatch):
     response=seed_legacy_recommendation(client, base+'/analysis-recommendations',json=body,headers={'Idempotency-Key':'planning'})
     assert response.status_code==202,response.text
     task=response.json()
-    from tests.helpers.tasks import task_owner
-    from app.domain.model_usage.service import ModelUsageService
-    owner=task_owner(client);ledger=ModelUsageService(owner)
-    for scope,key in [('user',owner),('project',task['project_id'])]: ledger.set_budget(scope,key,5000000,0)
     return base,prepared,task
 
 def test_recommendation_task_is_claimable_without_publishing_setup(client,monkeypatch):
@@ -142,19 +138,14 @@ def test_late_recommendation_receipt_recovers_without_another_submission(client,
 
 def test_budget_wait_releases_worker_and_resume_does_not_approve_a_plan(client,monkeypatch):
     from app.domain.tasks.recommendation_execution import run_recommendation_task
-    from app.domain.model_usage.service import ModelUsageService
-    from tests.helpers.tasks import task_owner
+    from tests.helpers.tasks import historical_model_wait
     base,_,task=queued_recommendation(client,monkeypatch)
-    ledger=ModelUsageService(task_owner(client))
-    budget=ledger.get_budget('project',task['project_id'])
-    ledger.set_budget('project',task['project_id'],0,budget['revision'])
     provider=RecommendationProvider()
-    waiting=run_recommendation_task(task['id'],task['revision'],provider_factory=lambda:provider)
+    waiting=historical_model_wait(task)
     assert waiting['status']=='waiting_confirmation' and waiting['reason_code']=='budget_exceeded'
     assert provider.posts==[]
     view=client.get('/api/v1/tasks/'+task['id']+'/workspace').json()
     assert view['allowed_actions']==['resume']
-    budget=ledger.get_budget('project',task['project_id']);ledger.set_budget('project',task['project_id'],5000000,budget['revision'])
     body=dict(operation='resume',wait_id=view['wait']['id'],expected_task_revision=view['task']['revision'],input_version=view['task']['input_version'])
     resumed=client.post('/api/v1/tasks/'+task['id']+'/resume',json=body,headers={'Idempotency-Key':'budget-resume'})
     assert resumed.status_code==202,resumed.text

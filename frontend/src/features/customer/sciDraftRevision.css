@@ -1,0 +1,7 @@
+.sci-draft-revision { width: 100%; max-width: 54rem; margin-inline: auto; }
+.sci-draft-revision fieldset { display: grid; gap: 1.1rem; min-width: 0; margin: 1rem 0 0; padding: 0; border: 0; }
+.sci-draft-revision label { display: grid; gap: .4rem; }
+.sci-draft-revision textarea, .sci-draft-revision input[type=file] { width: 100%; min-width: 0; }
+.sci-draft-revision .sci-revision-consent { display: flex; align-items: baseline; gap: .55rem; }
+.sci-draft-revision .sci-revision-consent input { flex: none; }
+.sci-draft-revision .manuscript-actions { display: flex; flex-wrap: wrap; gap: .6rem; }

@@ -41,7 +41,7 @@ def test_customer_maps_only_visible_files_and_submits_scoped_sample_references(a
     assert hidden.status_code == 422 and hidden.json()['detail']['code'] == 'research_material_invalid'
     groups = [{'id': '0', 'experiment_id': 'e', 'name': 'Control'}]
     body = {'operation': 'confirm', 'expected_revision': 1, 'content': {'schema_version': 1,
-            'services': ['analysis'], 'sample_information': {'groups': groups, 'samples': [sample]}}}
+            'services': ['analysis'], 'study_species': ['人类', '小鼠'], 'sample_information': {'groups': groups, 'samples': [sample]}}}
     assert write(customer, project, 'requirements', body, 'missing-ref').status_code == 422
     body['material_refs'] = [{'availability': 'provided', 'purpose': 'sample_sheet', 'file_id': visible}]
     for change in ('private', 'group', 'duplicate'):
@@ -59,6 +59,7 @@ def test_customer_maps_only_visible_files_and_submits_scoped_sample_references(a
     intake = analyst.get(project + '/research-intake').json()
     assert intake['current_requirement']['id'] == confirmed.json()['version']['id']
     assert intake['current_requirement']['content']['sample_information']['samples'] == [sample]
+    assert intake['current_requirement']['content']['study_species'] == ['人类', '小鼠']
     assert customer.get(project + '/research-intake').json()['current_design'] is None
     assert customer.get(project + '/research-designs').status_code == 403
 

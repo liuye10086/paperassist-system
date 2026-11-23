@@ -116,6 +116,33 @@ it('shows the included workflow in English when reopening a previously saved cho
 const group = {id:'g1', experiment_id:'trial', name:'对照组'}
 const sample = {id:'s1', experiment_id:'trial', group_id:'g1', file_id:'csv'}
 
+it('collects one or more study species before samples and restores them after saving', async () => {
+  server()
+  const submitted = vi.fn()
+  const first = await open(submitted)
+  const species = screen.getByRole('group', {name:'研究物种'})
+  expect(species.compareDocumentPosition(screen.getByRole('button',{name:'样本分组'})) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  fireEvent.click(checkbox(bulk))
+  click('提交需求')
+  expect(screen.getByRole('alert').textContent).toContain('请至少选择或填写一种研究物种。')
+  expect(writes()).toHaveLength(0)
+  fireEvent.click(checkbox('人类'))
+  fireEvent.click(checkbox('小鼠'))
+  fireEvent.change(screen.getByRole('textbox', {name:'其他物种'}), {target:{value:'家兔、猕猴、家兔'}})
+  click('保存草稿')
+  await screen.findByText('草稿已保存。')
+  expect(writes()[0].body.content.study_species).toEqual(['人类','小鼠','家兔','猕猴'])
+  first.unmount()
+  await open(submitted)
+  expect(checkbox('人类').checked && checkbox('小鼠').checked).toBe(true)
+  expect((screen.getByRole('textbox', {name:'其他物种'}) as HTMLInputElement).value).toBe('家兔、猕猴')
+  fireEvent.click(checkbox('小鼠'))
+  fireEvent.change(screen.getByRole('textbox', {name:'其他物种'}), {target:{value:''}})
+  click('提交需求')
+  await waitFor(() => expect(submitted).toHaveBeenCalledOnce())
+  expect(writes()[1].body.content.study_species).toEqual(['人类'])
+})
+
 it('saves the sample sheet mapping and its file reference together with the customer requirement', async () => {
  const originalRef: MaterialRef = {file_id:'csv',purpose:'raw_data',availability:'provided'}
  const {root, commit} = server(version({...emptyRequirement(), sample_information:{groups:[group], samples:[]}}, 'save', [originalRef]))
@@ -149,13 +176,14 @@ it('saves the sample sheet mapping and its file reference together with the cust
  const registration = {groups:[group], samples:[sample]}
  expect(writes()[0].body).toMatchObject({operation:'save',content:{sample_information:registration},
   material_refs:[expect.objectContaining(originalRef),expect.objectContaining({file_id:'csv',purpose:'sample_sheet',availability:'provided'})]})
+ fireEvent.click(checkbox('人类'))
  click('提交需求')
  await waitFor(() => expect(submitted).toHaveBeenCalledOnce())
  expect(writes()[1].body.content.sample_information).toEqual(registration)
 })
 
 it('preserves mapped samples and server edits to separate fields when merging concurrent customer edits', async () => {
- const initial = {...emptyRequirement(),sample_information:{groups:[group],samples:[]}}
+ const initial = {...emptyRequirement(),study_species:['人类'],sample_information:{groups:[group],samples:[]}}
  const {root, commit} = server(version(initial))
  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
   if (url === base+'/research-intake') return Response.json(root)
@@ -163,13 +191,15 @@ it('preserves mapped samples and server edits to separate fields when merging co
   if (url !== base+'/requirements') throw new Error(String(url))
   if (root.revision === 2) {
    root.revision = 3
-   root.current_requirement = version({...initial, sample_information:{groups:[{...group, meaning:'服务器说明'}],samples:[sample]}}, 'save', [], 2)
+   root.current_requirement = version({...initial, study_species:['人类','大鼠'], sample_information:{groups:[{...group, meaning:'服务器说明'}],samples:[sample]}}, 'save', [], 2)
    return Response.json({detail:{code:'research_revision_conflict'}}, {status:409})
   }
   return commit(JSON.parse(String(init?.body)))
  })
  await open()
  expect(await screen.findByText('样本来源列表读取失败，仍可手动填写样本信息。')).toBeTruthy()
+ fireEvent.click(checkbox('人类'))
+ fireEvent.click(checkbox('小鼠'))
  click('样本分组')
  fireEvent.change(screen.getByRole('textbox',{name:'分组名称'}), {target:{value:'编辑后的名称'}})
  click('保存草稿')
@@ -182,6 +212,7 @@ it('preserves mapped samples and server edits to separate fields when merging co
  expect(writes()[1].body).toMatchObject({expected_revision:3,content:{sample_information:{
   groups:[{...group,name:'编辑后的名称',meaning:'服务器说明'}], samples:[sample],
  }}})
+ expect(writes()[1].body.content.study_species).toEqual(['大鼠','小鼠'])
 })
 
 it('shows five unfinished analysis types as disabled choices', async () => {
@@ -287,6 +318,7 @@ it('saves readable choices and restores them with legacy fields, delivery types 
   expect(checkbox('UMAP 图').checked).toBe(true)
   expect(checkbox('Word 报告').checked).toBe(true)
   fireEvent.click(checkbox(singleCell))
+  fireEvent.click(checkbox('人类'))
   click('提交需求')
   await waitFor(() => expect(onSubmitted).toHaveBeenCalledOnce())
   expect(writes()[1].body).toMatchObject({ expected_revision: 3, operation: 'confirm', content: {
@@ -311,6 +343,7 @@ it('allows an empty draft and requires an analysis type for a new submission', a
 
   fireEvent.click(checkbox('交付包'))
   fireEvent.click(checkbox(bulk))
+  fireEvent.click(checkbox('人类'))
   click('提交需求')
   await waitFor(() => expect(onSubmitted).toHaveBeenCalledOnce())
   expect(writes()[1].body).toMatchObject({ operation: 'confirm', content: {
@@ -328,6 +361,7 @@ it('restores an unfinished request and retries its original confirmation after r
   const onSubmitted = vi.fn()
   const first = await open(onSubmitted)
   fireEvent.click(checkbox(bulk))
+  fireEvent.click(checkbox('人类'))
   click('提交需求')
   await screen.findByRole('button', { name: '按原请求重试' })
   expect(onSubmitted).not.toHaveBeenCalled()
@@ -356,6 +390,7 @@ it('opens progress after finding the submitted version by its original request k
   const onSubmitted = vi.fn()
   await open(onSubmitted)
   fireEvent.click(checkbox(bulk))
+  fireEvent.click(checkbox('人类'))
   click('提交需求')
   await screen.findByRole('button', { name: '核对保存结果' })
   expect(onSubmitted).not.toHaveBeenCalled()

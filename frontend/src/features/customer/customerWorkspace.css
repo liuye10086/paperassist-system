@@ -63,6 +63,8 @@
 }
 .sci-settings-fields legend { margin-bottom: 8px; padding: 0; font-weight: 500; }
 .sci-inline-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.sci-file-note { display: grid; gap: 8px; margin-top: 8px; }
+.customer-list > li > div:has(.sci-file-note) { flex: 1; width: 100%; max-width: 48rem; }
 .sci-journal-field label:has(> input[type="radio"]),
 .project-dialog .project-form.customer-project-form .sci-journal-field label:has(> input[type="radio"]) {
   display: inline-flex;
@@ -288,3 +290,21 @@
 .customer-submissions h3 { margin: 0 0 4px; }
 .customer-submission-files { display: grid; gap: 4px; margin-top: 6px; }
 .customer-requirements__impact { margin: 8px 0 0; color: var(--muted-foreground); }
+
+.thesis-organizer-panels {
+  display: grid;
+  gap: 18px;
+  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr));
+}
+.thesis-organizer-panels > * {
+  min-width: 0;
+  margin: 0;
+  padding: clamp(14px, 2vw, 24px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+.thesis-organizer-panels .customer-material-history { margin-top: 0; flex-wrap: wrap; }
+.thesis-organizer-panels .customer-material-history h2 { margin: 0; margin-inline-end: auto; }
+.thesis-organizer-panels .customer-list > li { flex-wrap: wrap; }

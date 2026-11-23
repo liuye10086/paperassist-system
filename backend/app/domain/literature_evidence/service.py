@@ -1,4 +1,5 @@
 """Actual saved sources, stable claims, and explicitly manual immutable decisions."""
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -188,9 +189,9 @@ class LiteratureEvidenceService:
             result.update(is_current=version['revision']==row['revision'], versions=[dict(revision=v['revision'], content=v['content'], output_language=v['output_language'], created_at=iso(v['created_at'])) for v in versions])
         return result
 
-    def create_claim(self, project, request, key):
+    def create_claim(self, project, request, key, *, connection=None):
         require_key(key); body = request_data(ClaimRequest, request)
-        with self.store.connection(write=True) as db:
+        with (self.store.connection(write=True) if connection is None else nullcontext(connection)) as db:
             self.lock(db, project)
             row = self.replay(db, 'literature_claims', project, key, body)
             if row:
@@ -268,9 +269,12 @@ class LiteratureEvidenceService:
             record = actual.get(identity['pmid']) if identity else None
             if record != hit['record_json'] or hit['reference_id'] != reference['reference_id']:
                 raise source_conflict()
+            location = body.get('abstract_location')
             for index, abstract in enumerate(record['abstract']):
-                if quote in abstract['text']:
-                    start = abstract['text'].index(quote)
+                if location and index != location['abstract_index']:
+                    continue
+                start = location['start'] if location else abstract['text'].find(quote)
+                if start >= 0 and abstract['text'][start:start + len(quote)] == quote:
                     source = dict(kind='abstract', search_id=search_id, receipt_id=receipt['id'],
                         source_kind=receipt['source_kind'], sha256=receipt['sha256'], record_sha256=digest(record),
                         source_download_url=self.literature.reference_view(db, reference, search_id)['source']['source_download_url'])
@@ -311,9 +315,9 @@ class LiteratureEvidenceService:
             result.append(self.evidence_view(db, project, row))
         return result
 
-    def create_evidence(self, project, identity, request, key):
+    def create_evidence(self, project, identity, request, key, *, connection=None):
         require_key(key); body = request_data(QuoteRequest, request)
-        with self.store.connection(write=True) as db:
+        with (self.store.connection(write=True) if connection is None else nullcontext(connection)) as db:
             self.lock(db, project); self.claim_row(db, project, identity)
             row = self.replay(db, 'literature_claim_evidence', project, key, body, identity)
             status = 200 if row else 201
@@ -334,9 +338,9 @@ class LiteratureEvidenceService:
         self.evidence_by_ids(db, project, row['claim_id'], row['claim_revision'], row['project_reference_id'], body['evidence_ids'])
         return dict(id=row['id'], claim_id=row['claim_id'], decided_by=row['decided_by'], created_at=iso(row['created_at']), **body)
 
-    def create_review(self, project, identity, request, key):
+    def create_review(self, project, identity, request, key, *, connection=None):
         require_key(key); body = request_data(ReviewRequest, request)
-        with self.store.connection(write=True) as db:
+        with (self.store.connection(write=True) if connection is None else nullcontext(connection)) as db:
             self.lock(db, project); self.claim_row(db, project, identity)
             row = self.replay(db, 'literature_claim_reviews', project, key, body, identity)
             status = 200 if row else 201

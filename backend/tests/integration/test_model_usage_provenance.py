@@ -7,7 +7,7 @@ from psycopg.types.json import Jsonb
 from app.db.database import database_connection
 from app.domain.model_usage.gateway import ModelGateway,input_digest
 from tests.api.test_analysis import client  # noqa: F401
-from tests.integration.test_model_usage import context,configure,request  # noqa: F401
+from tests.integration.test_model_usage import context,request  # noqa: F401
 from tests.integration.test_plot_gateway import context as plot_context,setup,Provider as PlotProvider,submit
 from tests.adapters.test_model_gateway import Provider as TextProvider
 
@@ -27,7 +27,7 @@ class FixtureText(TextProvider):
 
 
 def test_gateway_writes_source_in_submission_transaction_before_provider_and_exposes_same_projection(context):
-    service=configure(context);req=request(context[3],input_digest=input_digest(instructions='safe',payload={}))
+    service=context[0];req=request(context[3],input_digest=input_digest(instructions='safe',payload={}))
     saved=service.reserve_call(req);provider=FixtureText(service);provider.call_id=saved['id']
     value=ModelGateway(service,provider).submit(req,instructions='safe',payload={})
     assert value['call']['status']=='completed'
@@ -42,7 +42,7 @@ def test_gateway_writes_source_in_submission_transaction_before_provider_and_exp
 
 
 def test_refresh_does_not_add_source_to_a_historical_unknown_call(context):
-    service=configure(context);req=request(context[3]);call=service.reserve_call(req);service.begin_submission(call['id'])
+    service=context[0];req=request(context[3]);call=service.reserve_call(req);service.begin_submission(call['id'])
     service.record_response(call['id'],event_key='pending',response_id='resp_text',request_id=None,model='test-model',status='in_progress',usage=None)
     before=service.get_call(call['id'])['provider_state']
     provider=FixtureText(service)
@@ -54,7 +54,7 @@ def test_refresh_does_not_add_source_to_a_historical_unknown_call(context):
 
 
 def test_plain_json_source_is_rejected_without_changing_submission_state(context):
-    service=configure(context);call=service.reserve_call(request(context[3]))
+    service=context[0];call=service.reserve_call(request(context[3]))
     from app.core.exceptions import StorageError
     with pytest.raises(StorageError):service.begin_submission(call['id'],provenance_context={'kind':'openai_live'})
     assert service.get_call(call['id'])['status']=='reserved'

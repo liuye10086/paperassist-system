@@ -57,7 +57,7 @@ def test_create_eight_read_forty_pmc_twelve_and_distinct_three_limits(tmp_path):
             with ledger.locked() as state: ledger.reserve(state,'pmc',{'pmcid':pmcid})
     summary=ledger.summary()
     assert [summary[k] for k in ('model_create_attempts','model_read_attempts','pmc_attempts')]==[8,40,12]
-    assert summary['reserved_micro_usd']==2000000 and summary['estimated_cost_micro_usd'] is None
+    assert 'batch_budget_micro_usd' not in ledger.policy and summary['estimated_cost_micro_usd'] is None
 
 
 def test_unknown_create_cannot_resend_and_failure_or_reopen_never_resets(tmp_path):
@@ -195,7 +195,7 @@ def test_cross_process_attempts_cannot_reset_or_exceed_budget(tmp_path):
     ledger=ledger_at(tmp_path)
     with multiprocessing.get_context('spawn').Pool(3) as pool:
         results=pool.map(_process_reserve,[(str(tmp_path),i) for i in range(18)])
-    assert sum(results)==8 and ledger.summary()['reserved_micro_usd']==2000000
+    assert sum(results)==8 and ledger.summary()['model_create_attempts']==8
 
 
 def test_pmc_fourth_identifier_denied_before_any_attempt(tmp_path):

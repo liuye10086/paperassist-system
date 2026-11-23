@@ -25,6 +25,33 @@ def resume(client, failed, key='storage-retry'):
     return response
 
 
+def test_uploaded_docx_parses_with_slow_storage_reconciliation(client, monkeypatch):
+    import time
+    from app.adapters.docx_parser import parse_docx
+    from app.domain.storage_governance import service as ledger
+    from app.domain.tasks.file_parse_execution import run_parse_file_task
+    from tests.api.test_document_versions import uploaded_docx
+
+    project, _, _, item, original = uploaded_docx(client)
+    original_reconcile = ledger.reconcile_intents
+
+    def slow_history(db, root, *, progress=None):
+        for _ in range(6):
+            time.sleep(0.24)
+            if progress is not None:
+                progress()
+        return original_reconcile(db, root, progress=progress)
+
+    monkeypatch.setattr('app.adapters.task_execution_store.LEASE_SECONDS', 1)
+    monkeypatch.setattr(ledger, 'reconcile_intents', slow_history)
+    parsed = run_parse_file_task(item['task']['id'], 1, parser=parse_docx)
+    assert parsed and parsed['status'] == 'succeeded'
+    assert client.get(f"/api/v1/projects/{project['id']}/files/{item['file_id']}/download").content == original
+    with database_connection() as db:
+        rows = db.execute("SELECT state FROM storage_reservations WHERE task_id=%s", (item['task']['id'],)).fetchall()
+        assert len(rows) == 3 and all(row['state'] == 'settled' for row in rows)
+
+
 def test_document_full_manifest_precedes_first_byte_and_http_retry_keeps_parse(client):
     from tests.api.test_document_versions import uploaded_docx
     from app.adapters.docx_parser import parse_docx

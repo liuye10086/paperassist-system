@@ -5,7 +5,7 @@ import re
 from app.core.exceptions import StorageError
 from app.domain.literature.service import digest
 from app.domain.school_templates import bsu_gs501
-from .school import CHAPTER_FIELDS, validate_chapters
+from .school import CHAPTER_FIELDS, chapter_groups, validate_chapters
 
 RULES_VERSION='school-export-v1'
 FRONT_RULES_VERSION='school-export-v2'
@@ -205,8 +205,7 @@ def compile_school_export(snapshot,analysis,options,*,submission_forms=False):
         match=re.match(r'^\s*(\d+)(?:[.、．\s]|$)',chapter['title'])
         number=match[1] if match else str(max(1,chapter_number))
         counts=chapter_counts.setdefault(number,dict(figures=0,tables=0))
-        for group in snapshot['results_groups']:
-            if group['id'] not in chapter['result_group_ids']:continue
+        for group in chapter_groups(snapshot, chapter):
             for kind in counts:
                 for item in group[kind]:
                     counts[kind]+=1

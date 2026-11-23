@@ -202,6 +202,8 @@ app.include_router(pdf_exports_router)
 
 from app.api.manuscript_writing import router as manuscript_writing_router
 app.include_router(manuscript_writing_router, dependencies=[Depends(legacy_writing_project)])
+from app.api.sci_draft_reader import router as sci_draft_reader_router
+app.include_router(sci_draft_reader_router)
 from app.api.manuscript_review import router as manuscript_review_router
 app.include_router(manuscript_review_router, dependencies=[Depends(legacy_writing_project)])
 

@@ -19,7 +19,6 @@ from app.domain.figure_workbench.execution import run_figure_workbench_task,run_
 from app.domain.figure_workbench.explanations import build_payload
 from app.adapters.figure_workbench_store import read_bundle
 from app.domain.external_processing import digest
-from app.domain.model_usage.service import ModelUsageService
 from tests.api.test_analysis import client
 from tests.integration.test_batch05_figure_store import source
 from tests.integration.test_batch05_figure_execution import frozen_policy,IndependentLineProvider
@@ -109,8 +108,6 @@ def synthetic_figure(workbench,project,result,config_id,monkeypatch):
     monkeypatch.setattr('app.domain.figure_workbench.tasks.policy_for',frozen_policy)
     preview=workbench.external_preview(*args)
     task=submit(workbench,*args,GenerateFigure(idempotency_key='queue-source-figure',external_processing={'confirmed':True,'payload_sha256':preview['payload_sha256']}))['task']
-    budgets=ModelUsageService(workbench.tasks.user_id)
-    for scope,key in [('user',workbench.tasks.user_id),('project',project)]:budgets.set_budget(scope,key,5000000,0)
     provider=VersionedIndependentLineProvider(result,pending=False)
     for _ in range(5):
         task=run_figure_workbench_task(task['id'],task['revision'],provider_factory=lambda:provider)

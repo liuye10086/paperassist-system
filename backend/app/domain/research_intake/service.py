@@ -147,6 +147,11 @@ def write_version(store,project_id,kind,request,key):
             raise StorageError('research_intake_not_found','项目尚无需求登记。',404)
         if root['revision']!=request.expected_revision:
             raise StorageError('research_revision_conflict','需求已被另一窗口修改，请读取新版本并保留本地草稿。',409)
+        if kind == 'requirements' and request.operation == 'confirm' and not content.get('study_species'):
+            selected_type = any(item['id'].startswith('customer.type.') and item['status'] != 'not_included'
+                                for item in content['scope_items'])
+            if selected_type or 'study_species' in request.content.model_fields_set:
+                raise StorageError('research_requirement_invalid', '请至少选择或填写一种研究物种。', 422)
         if kind == 'research-designs' and getattr(store, 'assignment', None) is not None:
             _require_submitted_samples(db, project_id, root['current_design_version_id'], content)
         _validate_refs(db,project_id,kind,content,request.material_refs,material_filter=store.material_filter)

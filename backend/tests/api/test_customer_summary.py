@@ -108,7 +108,7 @@ def test_summary_is_customer_only_and_owner_scoped():
             assert (denied.status_code, code(denied)) == (403, 'permission_denied')
 
 
-# ---- SCI rules (B03). The rule order is B01 interface design, section 1.4. ----
+# SCI opens the project, uploads, or literature and drafts. The reader resolves exact drafts.
 
 def manuscript_target(manuscript, revision, view):
     return {**TARGET, 'manuscript_id': manuscript, 'revision': revision, 'view': view}
@@ -144,50 +144,42 @@ def test_sci_settings_missing_opens_details():
         assert summary(customer, project)['target'] == TARGET
 
 
-def test_sci_summary_follows_manuscript_writing_and_word_rules():
-    from app.domain.manuscript_writing.execution import run_manuscript_writing_task
+def test_sci_summary_opens_drafts_through_preparation_recovery_and_reading():
+    from app.adapters.task_execution_store import TaskExecutionStore
+    from app.domain.manuscript_writing.execution import run_manuscript_writing_task, wait
     from app.domain.tasks.execution import run_task
     from tests.api.test_customer_sci_workflow import article_request
     from tests.api.test_literature_evidence import post
-    from tests.api.test_manuscript_writing_live import LiveFixture, owner_budgets
+    from tests.api.test_manuscript_writing_live import LiveFixture
     from tests.api.test_manuscripts import body
     from tests.integration.test_customer_sci_to_word import SciFixtureProvider
     with TestClient(app) as customer:
         sign_in(customer, 'sci-rules@summary.test', 'customer')
         project, file_id, materials = sci_with_material(customer, 'sci-rules')
-        assert landing(customer, project) == ('materials_needed', 'customer', 'materials')
+        def check_summary():
+            value = summary(customer, project)
+            assert (value['kind'], value['actor'], value['step']) == ('continue_writing', 'customer', 'manuscripts')
+            assert value['target'] == TARGET and value['message_params'] == {}
 
+        check_summary()  # The project already has a visible upload.
+        current = project + '/sci-current-draft'
+        assert customer.get(current).json() == {'draft': None}
         created = post(customer, project + '/manuscripts', body(**materials), 'summary-fact')
         assert created.status_code == 201, created.text
         manuscript = created.json()['id']
         first = created.json()['versions'][0]
-        value = summary(customer, project)
-        assert landing(customer, project) == ('writing_needed', 'customer', 'manuscripts')
-        assert value['target'] == manuscript_target(manuscript, 1, 'writing') and value['message_params'] == {'revision': 1}
         root = project + '/manuscripts/' + manuscript
+        check_summary()
         preview = article_request('research', selected_source_ids=[file_id])
         premature = post(customer, root + '/writing-previews', preview, 'before-ready')
         assert premature.status_code == 409, premature.text
         assert run_task(first['task_id'], 1)['status'] == 'succeeded'
-        value = summary(customer, project)
-        assert landing(customer, project) == ('writing_needed', 'customer', 'manuscripts')
-        assert value['target'] == manuscript_target(manuscript, 1, 'writing')
-
-        word = post(customer, root + '/versions/1/exports', {}, 'summary-word-1')
-        assert word.status_code == 201, word.text
-        assert landing(customer, project) == ('writing_needed', 'customer', 'manuscripts')
-        assert run_task(word.json()['task_id'], 1)['status'] == 'succeeded'
-        value = summary(customer, project)
-        assert landing(customer, project) == ('word_ready', 'none', 'word')
-        assert value['target'] == manuscript_target(manuscript, 1, 'exports')
-
-        # D2 overwrite: version 2 replaces the materials, version 1's Word no longer counts.
+        assert customer.get(current).json() == {'draft': None}
+        assert post(customer, root + '/versions/1/exports', {}, 'old-word').status_code == 403
         second = post(customer, root + '/versions', body(expected_revision=1, **materials), 'summary-overwrite')
         assert second.status_code == 201, second.text
         assert run_task(second.json()['versions'][0]['task_id'], 1)['status'] == 'succeeded'
-        value = summary(customer, project)
-        assert landing(customer, project) == ('writing_needed', 'customer', 'manuscripts')
-        assert value['target'] == manuscript_target(manuscript, 2, 'writing') and value['message_params'] == {'revision': 2}
+        check_summary()
 
         bundle = post(customer, root + '/writing-previews', article_request(
             'research', base_revision=2, selected_source_ids=[file_id]), 'summary-preview')
@@ -201,25 +193,37 @@ def test_sci_summary_follows_manuscript_writing_and_word_rules():
             schema_version=2, authorization_id=auth.json()['id'], logical_task_id='article', **ref), 'summary-write')
         assert requested.status_code == 202, requested.text
         task = requested.json()['task']
-        writing = manuscript_target(manuscript, 2, 'writing')
-        value = summary(customer, project)
-        assert landing(customer, project) == ('writing_running', 'none', 'manuscripts')
-        assert value['target'] == writing and value['message_params'] == {'revision': 2}
+        check_summary()
+        assert customer.get(current).json() == {'draft': dict(manuscript_id=manuscript, revision=2, request_id=task['id'])}
 
-        # Only the automatic task budget exists: user and project budgets are support's to open.
-        waited = run_manuscript_writing_task(task['id'], task['revision'], provider=LiveFixture())
-        assert waited['status'] == 'waiting_confirmation', waited
-        value = summary(customer, project)
-        assert landing(customer, project) == ('writing_waiting', 'admin', 'manuscripts')
-        assert value['target'] == writing
-        assert value['message_params'] == {'revision': 2, 'reason': 'model_budget_missing'}
+        # Recreate a persisted pre-removal wait using its original checkpoint and revision.
+        repository = TaskExecutionStore()
+        lease = repository.claim(task['id'], task['revision'], task_type='manuscript_writing')
+        assert lease is not None
+        waited = wait(repository, lease, 'budget_exceeded', 'model_budget_missing')
+        check_summary()
+
+        task_url = '/api/v1/tasks/' + task['id']
+        workspace = customer.get(task_url + '/workspace').json()
+        assert workspace['allowed_actions'] == ['resume']
+        resumed = post(customer, task_url + '/resume', dict(operation='resume', wait_id=workspace['wait']['id'],
+                       expected_task_revision=waited['revision'], input_version=workspace['wait']['input_version']), 'summary-resume')
+        assert resumed.status_code == 202, resumed.text
+        check_summary()
+
+        set_task(task['id'], 'waiting_confirmation', 'budget_exceeded', 'model_budget_missing')
+        check_summary()
+        assert customer.get(task_url + '/workspace').json()['allowed_actions'] == []
+
+        set_task(task['id'], 'waiting_confirmation', 'confirmation_required', 'manuscript_writing_not_authorized')
+        check_summary()
+        assert customer.get(task_url + '/workspace').json()['allowed_actions'] == []
 
         set_task(task['id'], 'waiting_confirmation', 'submission_unknown', 'model_submission_unknown')
-        assert landing(customer, project) == ('submission_unknown', 'admin', 'manuscripts')
-        assert summary(customer, project)['target'] == writing
+        check_summary()
 
         set_task(task['id'], 'failed', error='task_execution_failed')
-        assert landing(customer, project) == ('writing_needed', 'customer', 'manuscripts')
+        check_summary()
 
         def start(logical_task_id):
             response = post(customer, root + '/writing-requests', dict(schema_version=2, authorization_id=auth.json()['id'],
@@ -228,22 +232,22 @@ def test_sci_summary_follows_manuscript_writing_and_word_rules():
             return response.json()['task']
 
         candidate = start('candidate')
-        owner_budgets(customer, candidate, ('user', 'project'))
         sections = bundle['local_manifest']['writing_scope']['target_section_ids']
         provider = SciFixtureProvider({section: dict(text='Synthetic text for review.') for section in sections})
         assert run_manuscript_writing_task(candidate['id'], candidate['revision'], provider=provider)['status'] == 'succeeded'
-        assert landing(customer, project) == ('review_needed', 'customer', 'manuscripts')
-        assert summary(customer, project)['target'] == writing
+        check_summary()
+
+        assert customer.get(current).json()['draft']['request_id'] == candidate['id']
 
         newer = start('new-draft')
-        assert landing(customer, project) == ('writing_running', 'none', 'manuscripts')
+        check_summary()
         failed = run_manuscript_writing_task(newer['id'], newer['revision'], provider=LiveFixture(model='different-model'))
         assert failed['status'] == 'failed'
-        assert landing(customer, project) == ('review_needed', 'customer', 'manuscripts')
-        assert summary(customer, project)['target'] == writing
+        check_summary()
+        assert customer.get(current).json()['draft']['request_id'] == candidate['id']
 
 
-def test_material_preparation_and_retry_reopen_the_same_writing_version():
+def test_sci_preparation_and_retry_keep_the_landing_on_drafts_without_uploads():
     from app.adapters.task_execution_store import TaskExecutionStore
     from app.domain.tasks.execution import run_task
     from tests.api.test_customer_sci_workflow import sci_project
@@ -261,9 +265,8 @@ def test_material_preparation_and_retry_reopen_the_same_writing_version():
 
         def check_landing(version_status):
             result = summary(customer, project)
-            assert (result['kind'], result['actor'], result['step']) == ('writing_needed', 'customer', 'manuscripts')
-            assert result['target'] == manuscript_target(manuscript, 1, 'writing')
-            assert result['message_params'] == {'revision': 1}
+            assert (result['kind'], result['actor'], result['step']) == ('continue_writing', 'customer', 'manuscripts')
+            assert result['target'] == TARGET and result['message_params'] == {}
             current = customer.get(project + '/manuscripts/' + manuscript).json()['versions'][0]
             assert (current['id'], current['status']) == (version['id'], version_status)
 
@@ -287,76 +290,41 @@ def test_material_preparation_and_retry_reopen_the_same_writing_version():
         check_landing('published')
 
 
-def test_adopted_version_without_word_needs_word(monkeypatch):
-    from app.domain import customer_summary_paper
+def test_sci_summary_counts_only_customer_visible_uploads():
+    from tests.api.test_customer_sci_workflow import sci_project, upload_docx
+    from tests.api.test_customer_thesis_permissions import hide
+    with TestClient(app) as customer, TestClient(app) as other:
+        sign_in(customer, 'sci-visible@summary.test', 'customer')
+        actor = sign_in(other, 'sci-private@summary.test', 'customer')
+        project = sci_project(customer)
+        file = upload_docx(customer, project, 'private.docx', 'Private synthetic text.')
+        assert landing(customer, project) == ('continue_writing', 'customer', 'manuscripts')
+        hide(file['id'], actor)
+        assert landing(customer, project) == ('materials_needed', 'customer', 'materials')
+
+
+def test_old_thesis_round_remains_readable_without_redirecting_to_a_review_workbench():
     from app.domain.tasks.execution import run_task
-    from tests.api.test_customer_sci_workflow import sci_project
     from tests.api.test_literature_evidence import post
-    from tests.api.test_manuscripts import body
     with TestClient(app) as customer:
-        sign_in(customer, 'sci-adopted@summary.test', 'customer')
-        project = sci_project(customer, key='sci-adopted')
-        created = post(customer, project + '/manuscripts', body(), 'adopted-fact').json()
-        assert run_task(created['versions'][0]['task_id'], 1)['status'] == 'succeeded'
-        monkeypatch.setattr(customer_summary_paper, 'is_adopted', lambda row: True)
-        value = summary(customer, project)
-        assert landing(customer, project) == ('word_needed', 'customer', 'word')
-        assert value['target'] == manuscript_target(created['id'], 1, 'exports')
-        assert value['message_params'] == {'revision': 1}
-
-
-def test_adoption_means_a_version_with_written_or_derived_text():
-    from app.domain.customer_summary_paper import is_adopted
-    assert not is_adopted(dict(parent_version_id=None, snapshot_json={'title': 'Fact'}))
-    written = dict(parent_version_id='base', snapshot_json={'writing_provenance': {'base_version_id': 'base'}})
-    assert is_adopted(written)
-    assert not is_adopted(dict(written, parent_version_id='other'))
-    for key in ('review_provenance', 'review_revision_provenance', 'user_return_provenance',
-                'journal_adaptation_provenance', 'school_change_provenance'):
-        assert is_adopted(dict(parent_version_id='base', snapshot_json={key: {'any': 'value'}}))
-
-
-def test_word_ready_uses_successful_non_blind_exports():
-    from app.domain.customer_summary_paper import word_ready
-
-    blind = dict(id='archived', status='succeeded', presentation={'binding': {'review_mode': 'blind'}})
-    signed = dict(id='signed', status='succeeded', presentation={'binding': {'review_mode': 'identified'}})
-    plain = dict(id='plain', status='succeeded')
-    assert word_ready([blind, signed | {'status': 'failed'}]) is None
-    assert word_ready([blind, signed, plain]) == signed
-    assert word_ready([blind, plain, signed]) == plain
-
-
-def test_open_review_round_comes_first_until_it_continues(monkeypatch):
-    from app.domain.review_rounds.service import ReviewRoundService
-    from app.domain.tasks.execution import run_task
-    from tests.api.test_customer_sci_workflow import sci_project
-    from tests.api.test_literature_evidence import post
-    from tests.api.test_manuscripts import body
-    with TestClient(app) as customer:
-        sign_in(customer, 'sci-review@summary.test', 'customer')
-        project = sci_project(customer, key='sci-review')
-        created = post(customer, project + '/manuscripts', body(), 'review-fact').json()
+        sign_in(customer, 'thesis-review@summary.test', 'customer')
+        project, confirmation, profile, _ = bound_thesis(customer, 'thesis-review')
+        created = post(customer, project + '/manuscripts', thesis_input(confirmation, profile), 'review-fact').json()
         version = created['versions'][0]
         assert run_task(version['task_id'], 1)['status'] == 'succeeded'
         started = post(customer, project + '/reviews/rounds', dict(
-            title='Synthetic review', project_type='sci', synthetic=False, materials=[],
+            title='Synthetic review', project_type='thesis', school_confirmation_id=confirmation['id'], synthetic=False, materials=[],
             manuscript=dict(id=created['id'], revision=1, version_id=version['id']),
-            sources=[dict(role='reviewer', label='Reviewer 1', format='text',
+            sources=[dict(role='advisor', label='Thesis advisor', format='text',
                           text='1. Clarify the method.\n2. Add experiment to confirm conclusion.')]), 'review-round')
         assert started.status_code == 202, started.text
         run_task(started.json()['task']['id'], 1)
         saved = customer.get(project + '/reviews/rounds/' + started.json()['id']).json()
         open_items = [item for item in saved['items'] if item['status'] in ('pending', 'waiting_confirmation', 'waiting_material')]
         assert open_items
-        value = summary(customer, project)
-        assert landing(customer, project) == ('review_open', 'customer', 'reviews')
-        assert value['target'] == {**TARGET, 'round_id': saved['id'], 'item_id': open_items[0]['id']}
-        assert value['message_params'] == {'round': saved['round_number'], 'count': len(open_items)}
-
-        view = ReviewRoundService.view
-        monkeypatch.setattr(ReviewRoundService, 'view', lambda self, db, row: view(self, db, row) | {'next_round_ids': ['later']})
-        assert landing(customer, project) == ('writing_needed', 'customer', 'manuscripts')
+        assert landing(customer, project) == ('continue_writing', 'customer', 'manuscripts')
+        assert summary(customer, project)['target'] == TARGET
+        assert customer.get(project + '/reviews/rounds/' + saved['id']).json()['items'] == saved['items']
 
 
 # ---- Thesis rules (B04). B01 interface design, section 1.5. ----
@@ -382,17 +350,17 @@ def parsed_template(customer, project, name, parser=None):
     return item, file_id
 
 
-def bound_thesis(customer, key):
+def bound_thesis(customer, key, parser=None):
     from tests.api.test_customer_thesis_permissions import bind, confirm_template
     project = project_path(create(customer, key, **project_body('thesis')))
     thesis_requirements(customer, project)
-    item, file_id = parsed_template(customer, project, key + '-template')
+    item, file_id = parsed_template(customer, project, key + '-template', parser)
     confirmation, _, _ = confirm_template(customer, project, item, key + '-rules')
     profile = bind(customer, project, confirmation, customer.get(project + '/thesis-profile').json()['revision'])
     return project, confirmation, profile, file_id
 
 
-def test_thesis_requirements_then_template_rules_come_first():
+def test_thesis_routes_to_materials_then_the_visible_school_template():
     from app.domain.school_templates.execution import run_school_template_task
     from tests.api.test_customer_thesis_permissions import hide, template
     from tests.api.test_school_templates import analysis
@@ -403,15 +371,17 @@ def test_thesis_requirements_then_template_rules_come_first():
         assert landing(customer, project) == ('requirements_needed', 'customer', 'details')
         assert summary(customer, project)['target'] == TARGET
         thesis_requirements(customer, project)
-        assert landing(customer, project) == ('template_needed', 'customer', 'school')
+        assert landing(customer, project) == ('materials_needed', 'customer', 'materials')
         assert summary(customer, project)['target'] == TARGET
-
-        pending, _, _ = template(customer, project, 'thesis-pending')
+        upload_material(customer, project)
         assert landing(customer, project) == ('template_needed', 'customer', 'school')
+        assert summary(customer, project)['target'] == {**TARGET, 'view':'upload'}
+        pending, _, _ = template(customer, project, 'thesis-pending')
+        assert summary(customer, project)['target'] == {**TARGET, 'template_version_id':pending['id'], 'view':'detail'}
         assert run_school_template_task(pending['task']['id'], 1, parser=analysis)['status'] == 'succeeded'
         value = summary(customer, project)
         assert landing(customer, project) == ('template_conflicts', 'customer', 'school')
-        assert value['target'] == {**TARGET, 'template_version_id': pending['id'], 'view': 'confirm'}
+        assert value['target'] == {**TARGET, 'template_version_id': pending['id'], 'view': 'detail'}
         assert value['message_params'] == {'count': 1}
 
         def two_conflicts(*args):
@@ -425,7 +395,7 @@ def test_thesis_requirements_then_template_rules_come_first():
         assert value['target']['template_version_id'] == newer['id'] and value['message_params'] == {'count': 2}
 
         hide(newer_file, actor)   # the newest version's source is no longer current or visible
-        assert landing(customer, project) == ('template_needed', 'customer', 'school')
+        assert summary(customer, project)['target'] == {**TARGET, 'template_version_id':pending['id'], 'view':'detail'}
 
 
 def test_template_summary_counts_text_decisions_with_and_without_rule_conflicts():
@@ -441,52 +411,59 @@ def test_template_summary_counts_text_decisions_with_and_without_rule_conflicts(
         sign_in(customer, 'thesis-text-rules@summary.test', 'customer')
         project = project_path(create(customer, 'thesis-text-rules', **project_body('thesis')))
         thesis_requirements(customer, project)
+        upload_material(customer, project)
         for parser, key, count in ((text_analysis, 'text-only', 2), (mixed_rules, 'mixed-rules', 3)):
             item, _ = parsed_template(customer, project, key, parser=parser)
             value = summary(customer, project)
             assert value['kind'] == 'template_conflicts'
-            assert value['target'] == {**TARGET, 'template_version_id': item['id'], 'view': 'confirm'}
+            assert value['target'] == {**TARGET, 'template_version_id': item['id'], 'view': 'detail'}
             assert value['message_params'] == {'count': count}
 
 
-def test_bound_thesis_follows_sci_manuscript_rules(monkeypatch):
-    from app.domain import customer_summary_paper
-    from app.domain.tasks.execution import run_task
+def thesis_input(confirmation, profile):
+    return dict(title='Synthetic thesis', output_language='zh-CN', sources=[], thesis=dict(
+        confirmation_id=confirmation['id'], profile_revision=profile['revision'], chapter_mappings=[dict(
+            chapter_id='results', purpose='results', output_language='project', result_group_ids=[])]))
+
+
+def test_bound_thesis_opens_upload_or_writing_after_real_materials_or_a_started_draft():
+    from app.adapters.school_template_parser import inspect_school_template
+    from tests.api.test_school_templates import analysis
+    from tests.api.test_customer_thesis_permissions import hide
     from tests.api.test_literature_evidence import post
-    with TestClient(app) as customer:
+    with TestClient(app) as customer, TestClient(app) as other:
         sign_in(customer, 'thesis-bound@summary.test', 'customer')
-        project, confirmation, profile, _ = bound_thesis(customer, 'thesis-bound')
+        other_actor = sign_in(other, 'thesis-bound-other@summary.test', 'customer')
+        def with_word_layout(*args):
+            return analysis() | dict(sections=inspect_school_template(*args)['sections'])
+
+        project, confirmation, profile, _ = bound_thesis(customer, 'thesis-bound', with_word_layout)
         assert landing(customer, project) == ('materials_needed', 'customer', 'materials')
-        # A newer, unconfirmed template after binding is D6 territory and does not take over.
         parsed_template(customer, project, 'thesis-bound-newer')
         assert landing(customer, project) == ('materials_needed', 'customer', 'materials')
 
-        request = dict(title='Synthetic thesis', output_language='zh-CN', sources=[], thesis=dict(
-            confirmation_id=confirmation['id'], profile_revision=profile['revision'], chapter_mappings=[dict(
-                chapter_id='results', purpose='results', output_language='project', result_group_ids=[])]))
-        created = post(customer, project + '/manuscripts', request, 'thesis-fact')
-        assert created.status_code == 201, created.text
-        manuscript = created.json()['id']
-        value = summary(customer, project)
-        assert landing(customer, project) == ('writing_needed', 'customer', 'manuscripts')
-        assert value['target'] == manuscript_target(manuscript, 1, 'writing')
-        assert run_task(created.json()['versions'][0]['task_id'], 1)['status'] == 'succeeded'
-        assert landing(customer, project) == ('writing_needed', 'customer', 'manuscripts')
-        assert summary(customer, project)['target'] == manuscript_target(manuscript, 1, 'writing')
+        file_id, _ = upload_material(customer, project)
+        assert landing(customer, project) == ('continue_writing', 'customer', 'manuscripts')
+        hide(file_id, other_actor)
+        assert landing(customer, project) == ('materials_needed', 'customer', 'materials')
 
-        writing = dict(task_id='synthetic', has_candidate=False, published_revision=None, status='running',
-                       reason_code=None, error_code=None, updated_at=None)
-        monkeypatch.setattr(customer_summary_paper, 'latest_writing_task', lambda db, version: writing)
-        assert landing(customer, project) == ('writing_running', 'none', 'manuscripts')
-        writing.update(status='succeeded', has_candidate=True)
-        assert landing(customer, project) == ('review_needed', 'customer', 'manuscripts')
-        monkeypatch.setattr(customer_summary_paper, 'latest_writing_task', lambda db, version: None)
-        monkeypatch.setattr(customer_summary_paper, 'is_adopted', lambda row: True)
-        assert landing(customer, project) == ('word_needed', 'customer', 'word')
-        monkeypatch.setattr(customer_summary_paper, 'word_ready', lambda exports: dict(created_at=None))
-        value = summary(customer, project)
-        assert landing(customer, project) == ('word_ready', 'none', 'word')
-        assert value['target'] == manuscript_target(manuscript, 1, 'exports')
+        created = post(customer, project + '/manuscripts', thesis_input(confirmation, profile), 'thesis-fact')
+        assert created.status_code == 201, created.text
+        assert landing(customer, project) == ('continue_writing', 'customer', 'manuscripts')
+        assert summary(customer, project)['target'] == TARGET
+        # A project predating basic-information intake can already have a frozen school manuscript.
+        from app.db.database import database_connection
+        with database_connection(write=True) as db:
+            db.execute("UPDATE thesis_profiles SET requirements_json=NULL WHERE project_id=%s", (project.rsplit('/', 1)[1],))
+        assert landing(customer, project) == ('continue_writing', 'customer', 'manuscripts')
+        from app.domain.tasks.execution import run_task
+        manuscript = created.json()
+        assert run_task(manuscript['versions'][0]['task_id'],1)['status'] == 'succeeded'
+        root = project + '/manuscripts/' + manuscript['id']
+        word = post(customer, root + '/versions/1/exports', {'school':{'include_toc':False}}, 'archived-word')
+        assert word.status_code == 201, word.text
+        assert run_task(word.json()['task_id'],1)['status'] == 'succeeded'
+        assert summary(customer, project)['target'] == manuscript_target(manuscript['id'], 1, 'saved')
 
 
 def test_thesis_summary_is_owner_scoped():

@@ -8,7 +8,7 @@ from pydantic import BaseModel, BeforeValidator, Field
 from app.api.tasks import decimal_query_integer
 from app.domain.model_usage.service import ModelUsageService
 
-router = APIRouter(prefix='/api/v1', tags=['模型调用与预算'])
+router = APIRouter(prefix='/api/v1', tags=['模型调用与用量'])
 
 
 def get_request_usage_service(request: Request) -> ModelUsageService:
@@ -19,17 +19,6 @@ Service = Annotated[ModelUsageService, Depends(get_request_usage_service)]
 Page = Annotated[int, Query(ge=1, le=1_000_000), BeforeValidator(decimal_query_integer)]
 PageSize = Annotated[int, Query(ge=1, le=50), BeforeValidator(decimal_query_integer)]
 Amount = Annotated[int, Field(strict=True, ge=0)]
-
-
-class BudgetView(BaseModel):
-    scope_type: Literal['user', 'project', 'task']
-    limit_micro_usd: Amount | None
-    revision: Annotated[int, Field(strict=True, ge=0)]
-    estimated_micro_usd: Amount
-    accounted_micro_usd: Amount
-    reserved_micro_usd: Amount
-    available_micro_usd: Annotated[int, Field(strict=True)] | None
-    exceeded: bool
 
 
 class CallReconciliation(BaseModel):
@@ -52,7 +41,7 @@ class PublicCall(BaseModel):
     id: str
     task_type: Literal[
         'boxplot', 'explanation', 'word_report', 'analysis_recommendation', 'figure_workbench', 'figure_explanation',
-        'literature_assistance', 'manuscript_writing', 'reader_report_narrative',
+        'literature_assistance', 'manuscript_writing', 'reader_report_narrative', 'school_rule_suggestion',
     ]
     model: str
     provider_provenance: Literal['synthetic_fixture', 'openai_live'] | None = None
@@ -65,12 +54,9 @@ class PublicCall(BaseModel):
     reconciliation: CallReconciliation
 
 
-class ProjectUsageView(BaseModel):
+class ModelUsageView(BaseModel):
     currency: Literal['USD']
     period: Literal['cumulative']
-    enforcement_scope: Literal['unified_only']
-    user_budget: BudgetView
-    project_budget: BudgetView
     estimated_micro_usd: Amount
     accounted_micro_usd: Amount
     reconciliation: ReconciliationSummary
@@ -82,15 +68,11 @@ class ProjectUsageView(BaseModel):
     page_size: Annotated[int, Field(strict=True, ge=1, le=50)]
 
 
-class TaskUsageView(ProjectUsageView):
-    task_budget: BudgetView
-
-
-@router.get('/projects/{project_id}/model-usage', response_model=ProjectUsageView)
+@router.get('/projects/{project_id}/model-usage', response_model=ModelUsageView)
 def project_usage(project_id: str, service: Service, page: Page = 1, page_size: PageSize = 10):
     return service.project_usage(project_id, page=page, page_size=page_size)
 
 
-@router.get('/tasks/{task_id}/model-usage', response_model=TaskUsageView)
+@router.get('/tasks/{task_id}/model-usage', response_model=ModelUsageView)
 def task_usage(task_id: str, service: Service, page: Page = 1, page_size: PageSize = 10):
     return service.task_usage(task_id, page=page, page_size=page_size)

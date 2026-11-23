@@ -4,7 +4,7 @@ import json
 
 from app.core.config import ExcelSettings, local_config
 from app.core.paths import BACKEND_ROOT
-from app.domain.admin_configuration.contracts import Basic, Bundle, CATEGORIES, Entry, PlotEntry, parse_bundle
+from app.domain.admin_configuration.contracts import Basic, Bundle, CATEGORIES, Entry, parse_bundle
 
 VALIDATOR_VERSION = 'admin-config-validator-v1'
 DOMAINS = ('models','prompts','ncbi','basic','journals','schools','review')
@@ -19,15 +19,14 @@ def digest(value): return hashlib.sha256(canonical(value).encode('utf-8')).hexdi
 
 
 def defaults():
-    from app.domain.manuscript_writing.policy import installed_policy as policy, MAX_INPUT, TASK_CAP
+    from app.domain.manuscript_writing.policy import installed_policy as policy, MAX_INPUT
     from app.domain.literature_live.batch06 import MODEL_POLICY
     from app.domain.review_rounds.planning import propose
     from app.domain.explanation_policy import _small_text
     config=local_config()
     models={'writing':dict(execution=dict(policy=policy().model_dump(mode='json'),
-        input_token_allowance=MAX_INPUT,task_limit_micro_usd=TASK_CAP),price_source='installed_code')}
-    models['literature']=dict(execution=dict(policy=MODEL_POLICY,input_token_allowance=12000,
-        task_limit_micro_usd=250000),price_source='installed_code')
+        input_token_allowance=MAX_INPUT),price_source='installed_code')}
+    models['literature']=dict(execution=dict(policy=MODEL_POLICY,input_token_allowance=12000),price_source='installed_code')
     sources={domain:'installed_code' for domain in DOMAINS}
     # Only deployment-selected known files, never user-provided paths; allowlist parse before storage.
     for name,key in [('explanation','PAPERASSIST_EXPLANATION_POLICY_FILE'),
@@ -36,7 +35,7 @@ def defaults():
         if not config.get(key): continue
         try:
             raw=json.loads(_small_text(config[key],65536))
-            entry=(PlotEntry if name=='plot' else Entry).model_validate(dict(execution=raw,price_source='deployment_policy'))
+            entry=Entry.model_validate(dict(execution=raw,price_source='deployment_policy'))
             models[name]=entry.model_dump(mode='json')
             sources['models']='installed_code_and_filtered_deployment'
         except (OSError,ValueError,TypeError):
@@ -106,7 +105,7 @@ def capabilities():
     installed_sources={name:hashlib.sha256((BACKEND_ROOT/'app'/name).read_bytes()).hexdigest() for name in installed_files}
     return dict(contract='admin-configuration-v1',models=list(INSTALLED_MODELS),tools=['code_interpreter'],
         installed_sources=installed_sources,
-        # Every business validator ceiling and cross-business budget default participates.
+        # Include each installed execution policy in the capability fingerprint.
         # This includes installed writing/literature policies, not just deployment files.
         model_baseline=baseline['models'],
         ncbi_identity=baseline['ncbi']['identity'],basic_ceiling=basic_ceiling)
@@ -140,7 +139,7 @@ def metadata():
             workflows=[dict(id='installed-v1',editable=False,nodes=['material','policy','authorization','admission','provider','validation'])],
             templates=['sci-writing-v1','sci-writing-v2','literature_assistance_v1',
                        'analysis_explanation_v1-v4','analysis_recommendation_v1-v5','openai_figure_workbench_v1-v4','figure_explanation_v1-v5'],
-            business_constraints={'recommendation':{'model':'gpt-6.1-sol','task_limit_micro_usd':500000,'tools':[]},
+            business_constraints={'recommendation':{'model':'gpt-6.1-sol','tools':[]},
                 'writing':{'model':'gpt-6.1-sol','prompt_version':'sci-writing-v2','output_format':'manuscript_writing_v2','tools':[]},
                 'literature':{'model':'gpt-6.1-sol','prompt_version':'literature_assistance_v1','output_format':'text','tools':[],
                               'real_provider_policy':'fixed_batch06_manifest','policy_editable':False,

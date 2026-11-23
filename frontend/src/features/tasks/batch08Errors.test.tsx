@@ -88,7 +88,7 @@ it.each([
   ['plot_result_mismatch', /核对/, /verification/i, /差异/, /differences/i],
   ['explanation_invalid', /事实核验/, /fact verification/i, /来源/, /source/i],
   ['model_submission_unknown', /未知/, /unknown/i, /不能重新发送/, /do not resend/i],
-  ['model_budget_exceeded', /预算不足/, /budget.*insufficient/i, /原任务/, /original task/i],
+  ['model_budget_exceeded', /确认是否继续/, /before continuing/i, /原任务/, /original task/i],
 ] as const)('shows %s guidance in the real task without creating a resend control', async (code, zh, en, actionZh, actionEn) => {
   const workspace = { ...workspaceFixture, task: { ...workspaceFixture.task, status: 'failed', display_status: 'failed', error_code: code }, wait: null, allowed_actions: [] }
   const fetch = vi.fn(async (url: string, _init?: RequestInit) => Response.json(url.endsWith('/workspace') ? workspace : url.includes('/events') ? eventsFixture : usageFixture))

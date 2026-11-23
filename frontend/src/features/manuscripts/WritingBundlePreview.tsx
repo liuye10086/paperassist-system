@@ -58,7 +58,7 @@ function ReadableWritingBundle({bundle,snapshot,wire,verified,failed,materialsOn
   {!materialsOnly&&<h4>{t('完整外发材料')}</h4>}
   <p>{snapshot.title} · {customerTitle?<VersionLabel revision={bundle.request_json.base_revision} savedAt={savedAt}/>:t('固定版本 {number}',{number:bundle.request_json.base_revision})}</p>
   {!materialsOnly&&<><p role={failed?'alert':'status'}>{t(failed?'发送材料未通过完整性核对，无法授权或执行。':verified?'已核对发送材料。此次预览未调用模型。':'正在核对发送材料……')}</p>
-  <p>{t('模型')} {bundle.policy_json.model} · {t('单次预留')} {dollars(bundle.reserved_micro_usd)}</p>
+  <p>{t('模型')} {bundle.policy_json.model} · {t('预计费用')} {bundle.reserved_micro_usd==null?t('待核对'):dollars(bundle.reserved_micro_usd)}</p>
   <p>{t('授权并提交后，后台响应会由模型服务商保存。')}</p></>}
   <nav className="manuscript-view-nav" aria-label={t('发送材料视图')}>
    {(materialsOnly?[['content','发送内容'],['omitted','未外发材料清单']] as const:[['content','发送内容'],['omitted','未外发材料清单'],['request','完整请求原文']] as const).map(([id,label])=>
@@ -85,6 +85,8 @@ function ReadableWritingBundle({bundle,snapshot,wire,verified,failed,materialsOn
      <h6>{label??t('来源 {number}',{number:index+1})}</h6>
      <WireText value={source.report_text}/>
      {source.report_text_truncated===true&&<p>{t('发送的是固定报告摘录。')}</p>}
+     <WireText value={source.document_excerpt}/>
+     {source.document_excerpt_truncated===true&&<p>{t('本次仅发送该文档的部分正文。')}</p>}
      {methods.map((method,position)=><div key={position}>
       <WireText value={method.title}/><WireText value={method.description}/>
       {method.parameters!==undefined&&<><strong>{t('方法参数')}</strong><MaterialTree value={method.parameters}/></>}
@@ -136,7 +138,7 @@ export default function WritingBundlePreview({bundle,onVerified,customerThesis=f
   ['omitted','未外发材料清单',<MaterialTree key="omitted" value={bundle.omitted_manifest}/>],
  ] as const
  if(readableSnapshot)return <ReadableWritingBundle bundle={bundle} snapshot={readableSnapshot} wire={wire} verified={verified} failed={failed} materialsOnly={materialsOnly} savedAt={savedAt}/>
- return <section aria-label={t('完整外发材料')}><h4>{t('完整外发材料')}</h4><p>{t('稿件')} {bundle.manuscript_id} · {t('基础版本')} {bundle.request_json.base_revision} · {bundle.request_json.output_language}</p><p>SHA-256: <code>{bundle.bundle_sha256}</code> · {bundle.wire_bytes} {t('字节')}</p><p role={failed?'alert':'status'}>{t(failed?'完整 wire 哈希校验失败，禁止授权或执行。':verified?'完整 wire 字节与 SHA 已核对。':'正在核对完整 wire……')}</p><p>{bundle.policy_json.model} · {price.version}</p><p>{t('每百万 token：输入 / 缓存输入 / 输出')} {dollars(price.input_micro_usd_per_million)} / {dollars(price.cached_input_micro_usd_per_million)} / {dollars(price.output_micro_usd_per_million)}</p><p>{t('输入保守上限')} {bundle.input_token_allowance} · {t('输出上限')} {bundle.policy_json.max_output_tokens} · {t('单次预留')} {dollars(bundle.reserved_micro_usd)}</p><p><code>https://api.openai.com/v1/responses</code></p><p>{t('固定官方端点；服务等级 default；无工具；不自动重试 POST。后台响应由供应商保存。账户模型可用性未验证。')}</p>{customerThesis?<>
+ return <section aria-label={t('完整外发材料')}><h4>{t('完整外发材料')}</h4><p>{t('稿件')} {bundle.manuscript_id} · {t('基础版本')} {bundle.request_json.base_revision} · {bundle.request_json.output_language}</p><p>SHA-256: <code>{bundle.bundle_sha256}</code> · {bundle.wire_bytes} {t('字节')}</p><p role={failed?'alert':'status'}>{t(failed?'完整 wire 哈希校验失败，禁止授权或执行。':verified?'完整 wire 字节与 SHA 已核对。':'正在核对完整 wire……')}</p><p>{bundle.policy_json.model} · {price.version}</p><p>{t('每百万 token：输入 / 缓存输入 / 输出')} {dollars(price.input_micro_usd_per_million)} / {dollars(price.cached_input_micro_usd_per_million)} / {dollars(price.output_micro_usd_per_million)}</p><p>{t('输入保守上限')} {bundle.input_token_allowance} · {t('输出上限')} {bundle.policy_json.max_output_tokens} · {t('预计费用')} {bundle.reserved_micro_usd==null?t('待核对'):dollars(bundle.reserved_micro_usd)}</p><p><code>https://api.openai.com/v1/responses</code></p><p>{t('固定官方端点；服务等级 default；无工具；不自动重试 POST。后台响应由供应商保存。账户模型可用性未验证。')}</p>{customerThesis?<>
   <nav className="manuscript-view-nav" aria-label={t('完整外发材料')}>{reviewViews.map(([key,label])=><button key={key} type="button" aria-pressed={reviewView===key} onClick={()=>setReviewView(key)}>{t(label)}</button>)}</nav>
   {reviewViews.find(([key])=>key===reviewView)?.[2]}
  </>:reviewViews.map(([key,label,content])=><details key={key}><summary>{t(label)}</summary>{content}</details>)}

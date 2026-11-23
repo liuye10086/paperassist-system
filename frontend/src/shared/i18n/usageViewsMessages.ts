@@ -11,7 +11,6 @@ export const usageViewsMessages:Record<string,string>={
  '请核对最新政策及配额审计，再继续编辑。':'Review the latest policies and quota audit before continuing to edit.',
  '用量工作视图':'Usage workspace views',
  '来源口径':'Source provenance',
- '预算额度':'Budget allowances',
  '费用核对':'Cost reconciliation',
  '项目用量工作视图':'Project usage views',
  '任务用量工作视图':'Task usage views',

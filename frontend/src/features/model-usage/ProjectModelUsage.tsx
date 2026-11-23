@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch, onApiSessionChanged } from '../../shared/api/client'
 import { apiError, safeError, useI18n } from '../../shared/i18n'
-import { formatMicroUsd, isProjectUsage, type Budget, type ModelCall, type ProjectUsage } from './modelUsageTypes'
-import { AccountedAmount, CallReconciliationDisplay, ReconciliationTotals } from './ReconciliationDisplay'
+import { formatMicroUsd, isProjectUsage, type ModelCall, type ProjectUsage } from './modelUsageTypes'
+import { CallReconciliationDisplay, ReconciliationTotals } from './ReconciliationDisplay'
 import { UsageViewTabs } from '../operations/UsageSummaryView'
 import '../operations/usageViews.css'
 import './modelUsage.css'
@@ -12,22 +12,10 @@ const purposes: Record<ModelCall['task_type'], string> = {
   manuscript_writing: '完整稿件写作', literature_assistance: '文献模型建议',
   figure_workbench: '配置图表生成', figure_explanation: '图表六节解释',
   analysis_recommendation: '受限分析建议', boxplot: '图表生成', explanation: 'AI 分析解释',
-  word_report: 'Word 报告导出', reader_report_narrative: '研究报告详细解读',
+  word_report: 'Word 报告导出', reader_report_narrative: '研究报告详细解读', school_rule_suggestion: '学校规范建议',
 }
-const states: Record<ModelCall['status'], string> = { reserved: '已预留', submitting: '提交待确认', submitted: '运行中',
+const states: Record<ModelCall['status'], string> = { reserved: '待提交', submitting: '提交待确认', submitted: '运行中',
   submission_unknown: '提交结果未知', completed: '已完成', failed: '失败', released: '已释放' }
-
-function BudgetCard({ title, budget }: { title: string; budget: Budget }) {
-  const { t } = useI18n()
-  return <div className="usage-budget-card"><h4>{t(title)}</h4>
-    <dl><div><dt>{t('累计上限')}</dt><dd>{budget.limit_micro_usd === null ? t('未配置') : formatMicroUsd(budget.limit_micro_usd)}</dd></div>
-      <div><dt>{t('内部估算')}</dt><dd>{formatMicroUsd(budget.estimated_micro_usd)}</dd></div>
-      <div><dt>{t('预算已计金额')}</dt><dd><AccountedAmount amount={budget.accounted_micro_usd} /></dd></div>
-      <div><dt>{t('预留金额')}</dt><dd>{formatMicroUsd(budget.reserved_micro_usd)}</dd></div>
-      <div><dt>{t('可用额度')}</dt><dd>{budget.available_micro_usd === null ? t('未配置') : formatMicroUsd(budget.available_micro_usd)}</dd></div></dl>
-    {budget.exceeded && <p className="usage-exceeded">{t('已超出额度')}</p>}
-  </div>
-}
 
 export default function ProjectModelUsage(props: Props) {
   return <Usage key={props.projectId} {...props} />
@@ -90,27 +78,24 @@ function Usage({ projectId, active = true, layered = false }: Props) {
     setLoading(true); setData(null); setError(''); setPage(nextPage); setAttempt(value => value + 1)
   }
   const pages = data ? Math.max(1, Math.ceil(data.total / 10)) : 1
-  return <section hidden={!active} className="model-usage-panel" aria-label={t('模型调用与预算')} aria-busy={loading}>
-    <div className="usage-heading"><div><h3>{t('模型调用与预算')}</h3><p>{t('累计额度 · USD')}</p></div>
+  return <section hidden={!active} className="model-usage-panel" aria-label={t('模型调用与用量')} aria-busy={loading}>
+    <div className="usage-heading"><div><h3>{t('模型调用与用量')}</h3><p>{t('累计用量 · USD')}</p></div>
       <button type="button" disabled={loading || sessionChanged} onClick={() => refresh()}>{t('刷新模型用量')}</button></div>
     <p className="usage-scope-note">{t('历史绘图和历史解释未计入统一账本；本面板统计新绘图和新解释等统一入口的调用。')}</p>
     {sessionChanged && <p role="alert" className="error-panel">{t('会话已失效，请重新登录。')}</p>}
     {loading && <p role="status" className="usage-empty">{t('正在读取模型用量……')}</p>}
     {error && <><p role="alert" className="error-panel">{t(error)}</p>
       <button type="button" onClick={() => refresh()}>{t('重试模型用量')}</button></>}
-    {layered && <UsageViewTabs label="项目用量工作视图" items={[['summary','综合汇总'],['budgets','预算额度'],['reconciliation','费用核对'],['calls','逐次调用']]} selected={view} onChange={setView}/>}
+    {layered && <UsageViewTabs label="项目用量工作视图" items={[['summary','综合汇总'],['reconciliation','费用核对'],['calls','逐次调用']]} selected={view} onChange={setView}/>}
     {data && <>
-      <p className="usage-scope-note">{t('账本可能包含离线模拟回执；演示用量与预算占用不代表实际付费。')}</p>
-      <div className="usage-budgets usage-layer" hidden={layered && view !== 'budgets'}><BudgetCard title="项目预算" budget={data.project_budget} /><BudgetCard title="用户预算" budget={data.user_budget} /></div>
+      <p className="usage-scope-note">{t('用量记录包含已标注来源的离线模拟回执。')}</p>
       <dl className="usage-totals usage-layer" hidden={layered && view !== 'summary'}><div><dt>{t('项目内部估算')}</dt><dd>{formatMicroUsd(data.estimated_micro_usd)}</dd></div>
-        <div><dt>{t('项目预算已计金额')}</dt><dd><AccountedAmount amount={data.accounted_micro_usd} /></dd></div>
-        <div><dt>{t('项目预留')}</dt><dd>{formatMicroUsd(data.reserved_micro_usd)}</dd></div>
         <div><dt>{t('估算待完善调用')}</dt><dd>{data.pending_count}</dd></div></dl>
       <p className="usage-scope-note">{t('内部估算，不是供应商账单。')}</p>
       <div className="usage-layer" hidden={layered && view !== 'reconciliation'}><ReconciliationTotals summary={data.reconciliation} /></div>
       <div className="usage-layer" hidden={layered && view !== 'calls'}>
       {data.items.some(item => item.status === 'submitting' || item.status === 'submission_unknown')
-        && <p className="usage-scope-note">{t('提交待确认或结果未知的调用保留预留预算，等待核对。')}</p>}
+        && <p className="usage-scope-note">{t('提交待确认或结果未知的调用需核对原始回执。')}</p>}
       <h4>{t('最近模型调用')}</h4>
       {data.total === 0 ? <p className="usage-empty">{t('尚无统一模型调用记录。')}</p> : <>
         <div className="usage-table-scroll"><table><caption className="visually-hidden">{t('最近模型调用')}</caption>
@@ -126,7 +111,7 @@ function Usage({ projectId, active = true, layered = false }: Props) {
               {item.provider_provenance === 'openai_live' && item.status !== 'released'
                 && (!item.reconciliation || item.reconciliation.actual_micro_usd === null) && <span>{t('实际费用未知')}</span>}
               <CallReconciliationDisplay reconciliation={item.reconciliation} />
-              {(item.status === 'submitting' || item.status === 'submission_unknown') && <small>{t('仍占预留额度，等待核对。')}</small>}
+              {(item.status === 'submitting' || item.status === 'submission_unknown') && <small>{t('请核对已有调用的提交结果。')}</small>}
             </>}</td>
             <td><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString(locale)}</time></td></tr>)}</tbody>
         </table></div>

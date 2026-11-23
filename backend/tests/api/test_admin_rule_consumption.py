@@ -23,16 +23,6 @@ def binding(task_id, kind='task'):
         return row['version_id'] if row else None
 
 
-def preserve_seeded_budgets(client,task):
-    from app.domain.model_usage.service import ModelUsageService
-    from tests.helpers.tasks import task_owner
-    owner=task_owner(client);service=ModelUsageService(owner)
-    for scope,key in [('user',owner),('project',task['project_id']),('task',task['id'])]:
-        with database_connection() as db:
-            old=db.execute('SELECT id FROM model_budgets WHERE user_id=%s AND scope_type=%s AND scope_key=%s',(owner,scope,key)).fetchone()
-        if not old:service.set_budget(scope,key,5000000,0)
-
-
 def test_journal_defaults_intent_replay_retry_and_future_rollback(admin):
     from app.domain.journals.execution import run_journal_task
     one = baseline(admin); activate(admin, one)
@@ -127,7 +117,6 @@ def test_school_alias_uses_actual_xml_properties_and_conflicts_survive_supplemen
 def test_review_round_defaults_documents_and_children_keep_ancestor(admin,monkeypatch):
     from tests.api.test_review_documents import completed_revision
     from app.domain.tasks.execution import run_task
-    monkeypatch.setattr('tests.api.test_manuscript_review_v2_bridge.budgets',preserve_seeded_budgets)
     one = baseline(admin); activate(admin, one)
     url, run = completed_revision(admin)
     assert binding(run['task']['id']) == one['id']
@@ -290,7 +279,6 @@ def test_binding_failure_rolls_back_task_object_and_outbox(admin,monkeypatch):
 def test_target_check_adaptation_and_public_exports_use_selected_ancestor(admin,monkeypatch):
     from app.domain.tasks.execution import run_task
     from tests.api.test_journal_adaptation import adaptation_ready
-    monkeypatch.setattr('tests.api.test_manuscript_review_v2_bridge.budgets',preserve_seeded_budgets)
     one=baseline(admin);activate(admin,one)
     root,base,version,body,_,_=adaptation_ready(admin)
     old_check=admin.get(base+'/checks/'+body['check_id']).json()

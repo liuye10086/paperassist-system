@@ -1,3 +1,4 @@
+import {chapterGroups} from './paperPlan'
 import LanguageItemLocation from './LanguageItemLocation'
 import {unlocatedEmptyImage,type ReviewFigure} from './languageImageLocation'
 import ReadableDetails from '../../shared/components/ReadableDetails'
@@ -86,7 +87,7 @@ export default function WritingLanguageReview({projectId,manuscriptId,baseRevisi
  function figureLanguage(identity:string){
   const candidate=review.candidate
   if(!school)return candidate.output_language
-  const owners=candidate.sections?.filter(c=>c.result_group_ids?.some(id=>candidate.results_groups.some(g=>g.id===id&&g.figures.some(f=>f.id===identity))))??[]
+  const owners=candidate.sections?.filter(c=>chapterGroups(candidate,c).some(g=>g.figures.some(f=>f.id===identity)))??[]
   return owners.length===1?owners[0].output_language:undefined
  }
  function figureCreated(version:FigureVersion){

@@ -8,27 +8,19 @@ _PAPER_ROUTES = {
     '/paper-materials': {'GET': ('', '/worksheets/{file_id}'), 'PUT': ('/{note_id}',)},
     '/manuscripts': {
         'GET': ('/config', '/candidates'),
-        'POST': ('', '/preview'),
+        'POST': ('', '/preview', '/selected-references'),
     },
     MANUSCRIPT: {
         'GET': ('/versions/{revision}/writing-materials',),
-        'POST': ('/versions', '/versions/{revision}/exports', '/versions/{revision}/exports/preview'),
+        'POST': ('/versions',),
     },
     MANUSCRIPT + '/writing-previews': {
         'GET': ('', '/{bundle_id}'),
         'POST': ('',),
     },
-    WRITING: {
-        'GET': (
-            '', '/{request_id}', '/{request_id}/review-context', '/{request_id}/reviews/{review_id}',
-            '/{request_id}/reviews/{review_id}/language-context', '/{request_id}/reviews/{review_id}/language-reviews',
-            '/{request_id}/language-reviews/{language_id}',
-        ),
-        'POST': (
-            '', '/{request_id}/publish', '/{request_id}/reviews',
-            '/{request_id}/reviews/{review_id}/language-context', '/{request_id}/language-reviews',
-        ),
-    },
+    WRITING: {'GET': ('', '/{request_id}', '/{request_id}/draft-reader', '/{request_id}/draft-reader/word',
+                      '/{request_id}/draft-reader/figures/{number}'),
+              'POST': ('', '/{request_id}/draft-feedback')},
     '/writing-authorizations': {
         'GET': ('', '/{authorization_id}'),
         'POST': ('', '/{authorization_id}/close'),
@@ -38,14 +30,18 @@ _PAPER_ROUTES = {
         'POST': ('',),
     },
     '': {
-        'GET': ('/external-evidence/{version_id}', '/files/{file_id}/external-evidence-source',
+        'GET': ('/sci-current-draft', '/draft-history', '/external-evidence/{version_id}', '/files/{file_id}/external-evidence-source',
                 '/files/{file_id}/image-preview'),
     },
-    '/manuscript-figure-language-versions': {
-        'GET': ('', '/{version_id}', '/{version_id}/download'),
-        'POST': ('',),
-    },
     '/layout-exports/{export_id}': {'GET': ('', '/download')},
+    '/literature': {
+        'GET': ('/config', '/searches', '/searches/{search_id}', '/references', '/references/{reference_id}', '/receipts/{receipt_id}/source'),
+        'POST': ('/searches',),
+        'PATCH': ('/references/{reference_id}',),
+    },
+}
+
+_THESIS_ROUTES = {
     '/reviews': {
         'GET': (
             '/inputs', '/rounds', '/rounds/{identity}', '/rounds/{identity}/science',
@@ -61,11 +57,6 @@ _PAPER_ROUTES = {
             '/documents/{document_id}/confirm', '/documents/{document_id}/exports',
             '/rounds/{identity}/returns', '/returns/{identity}/preview', '/returns/{identity}/adopt', '/progress',
         ),
-    },
-    '/literature': {
-        'GET': ('/config', '/searches', '/searches/{search_id}', '/references', '/references/{reference_id}', '/receipts/{receipt_id}/source'),
-        'POST': ('/searches',),
-        'PATCH': ('/references/{reference_id}',),
     },
     '/literature/checks': {
         'GET': ('/config', '/candidates', '/references/{project_reference_id}', '/references/{project_reference_id}/history'),
@@ -86,23 +77,22 @@ _PAPER_ROUTES = {
         ),
         'POST': ('/drafts', '/drafts/{draft_id}/versions', '/references/{project_reference_id}/metadata', '/materials/{material_id}/confirmations'),
     },
-}
-
-_SCI_ROUTES = {
-    '/journals': {
+    '/manuscript-figure-language-versions': {
+        'GET': ('', '/{version_id}', '/{version_id}/download'),
+        'POST': ('',),
+    },
+    WRITING: {
         'GET': (
-            '/config', '/profiles', '/profiles/{identity}', '/recommendations', '/recommendations/{identity}',
-            '/guides', '/guides/{identity}', '/targets', '/targets/{identity}', '/checks', '/checks/{identity}',
-            '/adaptations', '/adaptations/{identity}',
+            '/{request_id}/review-context', '/{request_id}/reviews/{review_id}',
+            '/{request_id}/reviews/{review_id}/language-context', '/{request_id}/reviews/{review_id}/language-reviews',
+            '/{request_id}/language-reviews/{language_id}',
         ),
         'POST': (
-            '/profiles', '/recommendations', '/recommendations/{identity}/retry', '/guides', '/guides/{identity}/fetch',
-            '/targets', '/checks', '/checks/{identity}/retry', '/adaptations/preview', '/adaptations', '/adaptations/{identity}/retry',
+            '/{request_id}/publish', '/{request_id}/reviews',
+            '/{request_id}/reviews/{review_id}/language-context', '/{request_id}/language-reviews',
+            '/{request_id}/draft-reader/word',
         ),
     },
-}
-
-_THESIS_ROUTES = {
     '/thesis-requirements': {'GET': ('',), 'PUT': ('',)},
     '/thesis-profile': {'GET': ('',), 'PUT': ('',)},
     '/thesis-template-binding': {'POST': ('', '/preview')},
@@ -113,6 +103,7 @@ _THESIS_ROUTES = {
     MANUSCRIPT: {
         'GET': ('/school-changes', '/school-changes/{change_id}', '/presentations', '/presentations/{presentation_id}'),
         'POST': (
+            '/versions/{revision}/exports', '/versions/{revision}/exports/preview',
             '/versions/{revision}/school-changes', '/school-changes/{change_id}/preview',
             '/school-changes/{change_id}/adopt', '/presentations', '/presentations/preview',
         ),
@@ -130,7 +121,6 @@ def operations(routes):
 
 
 PAPER_PROJECT_OPERATIONS = operations(_PAPER_ROUTES)
-SCI_PROJECT_OPERATIONS = operations(_SCI_ROUTES)
 THESIS_PROJECT_OPERATIONS = operations(_THESIS_ROUTES)
 
 REVIEW_TASK_TYPES = ('review_round_plan', 'review_revision', 'review_document_export')

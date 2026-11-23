@@ -11,7 +11,6 @@ from app.db.database import database_connection
 from app.domain.tasks.contracts import TaskCreateRequest
 from app.domain.tasks.service import TaskService
 from app.domain.tasks.execution import run_word_task
-from app.domain.model_usage.service import ModelUsageService
 from tests.api.test_analysis import client  # noqa: F401
 from tests.integration.test_boxplot_execution import queued, run as run_plot, SyntheticPlotProvider
 from tests.integration.test_explanation_execution import run as run_explanation, SyntheticProvider
@@ -77,7 +76,6 @@ def test_parsed_file_all_three_tasks_workspace_retry_and_download(client, monkey
     with database_connection(write=True) as db:
         db.execute("UPDATE tasks SET input_snapshot=jsonb_set(input_snapshot,'{explanation_policy}',%s) WHERE id=%s",
                    (Jsonb(frozen), explanation_task['id']))
-    ModelUsageService(owner).set_budget('task', explanation_task['id'], 1000000, 0)
     finished_explanation = run_explanation(explanation_task, SyntheticProvider())
     assert finished_explanation['status'] == 'succeeded', finished_explanation
     word_task, _ = service.create(plot_task['project_id'], TaskCreateRequest(

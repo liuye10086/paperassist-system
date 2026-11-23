@@ -114,7 +114,6 @@ def test_old_science_reads_replays_and_only_safe_history_gets_new_approval(clien
 def image_science(client):
     from tests.api.test_manuscript_figure_language import setup
     from tests.api.test_manuscript_writing_live import authorize,request_v2,LiveFixture
-    from tests.integration.test_literature_assistance import budgets
     from app.domain.tasks.execution import run_task
     from app.domain.manuscript_writing.execution import run_manuscript_writing_task
     project,file,figpath,request=setup(client);request['caption']='Temperature −5 C'
@@ -124,7 +123,7 @@ def image_science(client):
     assert response.status_code==201,response.text
     manuscript=response.json();root+='/'+manuscript['id'];assert run_task(manuscript['versions'][0]['task_id'],1)['status']=='succeeded'
     bundle=post(client,root+'/writing-previews',dict(schema_version=2,base_revision=1,mode='full_draft',output_language='en',selected_source_ids=[figure['id']],selected_evidence_ids=[]),'bundle').json()
-    _,auth=authorize(client,root,bundle);task=post(client,root+'/writing-requests',request_v2(bundle,auth),'write').json()['task'];budgets(client,task)
+    _,auth=authorize(client,root,bundle);task=post(client,root+'/writing-requests',request_v2(bundle,auth),'write').json()['task']
     assert run_manuscript_writing_task(task['id'],1,provider=LiveFixture())['status']=='succeeded'
     path=root+'/writing-requests/'+task['id'];ctx=client.get(path+'/review-context').json()
     science=post(client,path+'/reviews',decision(ctx),'science').json()
@@ -184,15 +183,13 @@ def rewrite_pending(client,root):
     import json
     from tests.api.test_manuscript_writing_live import request_v2,LiveFixture
     from app.domain.manuscript_writing.execution import run_manuscript_writing_task
-    from app.domain.model_usage.service import ModelUsageService
-    from tests.helpers.tasks import task_owner
     response=post(client,root+'/writing-previews',dict(schema_version=2,base_revision=2,mode='rewrite_section',target_section='discussion',output_language='en',selected_source_ids=[],selected_evidence_ids=[]),'rewrite-preview')
     assert response.status_code==201,response.text
     bundle=response.json();tasks=[dict(logical_task_id='rewrite-'+str(i),bundles=[dict(bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'])]) for i in range(4)]
     auth=post(client,root.split('/manuscripts/')[0]+'/writing-authorizations',dict(schema_version=2,confirmed=True,tasks=tasks),'rewrite-authorize').json()
     request=request_v2(bundle,auth);request['logical_task_id']='rewrite-0'
     response=post(client,root+'/writing-requests',request,'rewrite-request');assert response.status_code==202,response.text
-    task=response.json()['task'];ModelUsageService(task_owner(client)).set_budget('task',task['id'],5000000,1)
+    task=response.json()['task']
     class RewriteFixture(LiveFixture):
         def receipt(self):
             value=super().receipt();output=json.loads(value['response']['output'][0]['content'][0]['text'])

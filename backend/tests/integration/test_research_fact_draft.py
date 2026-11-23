@@ -39,7 +39,7 @@ def test_research_docx_renews_lease_during_candidate_reconciliation(client,tmp_p
 
 
 def test_published_research_uses_controlled_synthetic_provider_and_review_publish(client,tmp_path):
-    from tests.api.test_manuscript_writing_live import authorize,request_v2,LiveFixture,budgets
+    from tests.api.test_manuscript_writing_live import authorize,request_v2,LiveFixture
     from tests.api.test_manuscript_writing_live_review import decision
     from tests.api.test_manuscript_writing_language import approve
     from app.domain.manuscript_writing.execution import run_manuscript_writing_task
@@ -52,7 +52,7 @@ def test_published_research_uses_controlled_synthetic_provider_and_review_publis
     bundle=response.json();_,authorization=authorize(client,root,bundle)
     response=client.post(root+'/writing-requests',json=request_v2(bundle,authorization),headers={'Idempotency-Key':'live-request'})
     assert response.status_code==202,response.text
-    task=response.json()['task'];budgets(client,task);provider=LiveFixture()
+    task=response.json()['task'];provider=LiveFixture()
     completed=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
     assert completed['status']=='succeeded',completed
     path=root+'/writing-requests/'+task['id'];context=client.get(path+'/review-context')

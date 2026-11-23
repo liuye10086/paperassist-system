@@ -123,7 +123,7 @@
 | `compose.release.yml`、`infra/api/` | 本机内测独立部署、静态网页/API、维护与回退；使用[部署手册](docs/运行维护/本地内测部署与回退手册.md) |
 | `docs/` | [文档导航](docs/README.md)、需求/方案、阶段清单及交付记录 |
 
-应用启动入口仍为 `backend/app/main.py`；账号管理仍为 `backend/app/manage_users.py`，累计预算管理入口为 `backend/app/manage_model_budgets.py`，实际费用核对入口为 `backend/app/manage_model_reconciliation.py`；前端入口仍为 `frontend/src/main.tsx`。`backend/data/`、`backend/backups/`、`script/.runtime/` 和 `reference-projects/` 是 Git 忽略的本地资料，保持原位置。
+应用启动入口仍为 `backend/app/main.py`；账号管理仍为 `backend/app/manage_users.py`，实际费用核对入口为 `backend/app/manage_model_reconciliation.py`；前端入口仍为 `frontend/src/main.tsx`。`backend/data/`、`backend/backups/`、`script/.runtime/` 和 `reference-projects/` 是 Git 忽略的本地资料，保持原位置。
 
 ## 本地运行
 
@@ -275,13 +275,13 @@ python -m venv .\backend\.venv
 
 本轮已按用户确认完成跨阶段第一批并停服，阶段10为64/92、剩28项；阶段01—10合计698/793、剩95项。未完成项及核定范围见[本批收尾记录](docs/开发记录/跨阶段补齐/2026-10-27-第一批验收与收尾记录.md)。后续工作由用户另行选择范围；真实或付费调用、提交推送和实际发布仍按各自明确授权执行，不自动开始下一批。
 
-## 模型调用与预算
+## 模型调用与用量
 
-项目概览及任务详情的“模型调用与预算”面板只读显示累计美元额度、原内部估算、预算已计金额、预留、可用额度和实际核对分项/状态，支持刷新与分页。未核对金额保持未知，明确零金额须有凭证；界面无预算或核对编辑入口。本机管理员预算命令见[预算管理说明](script/README.md#本机模型预算管理)，实际费用的show/preview/apply及原件要求见[核对使用说明](docs/开发记录/阶段02/实际用量核对使用说明.md)。
+项目和任务的用量面板按调用展示内部估算、已核对费用及核对状态，支持刷新和分页。实际费用根据供应商凭证核对。[核对使用说明](docs/开发记录/阶段02/实际用量核对使用说明.md)
 
-`ModelUsageService`、统一文字 Responses 门面和绘图工具门面已交付，调用前必须满足用户、项目、任务三级预算及受信价格策略；缺少预算或价格时拒绝发送。预算按累计 USD 计算，不自动按日/月重置，没有自动默认额度或价格。未知提交保留预留且不自动重发；有已知响应时只续取。绘图还需明确工具费用预留，缺少实际费用证据时保持待核对。原内部估算与实际核对金额分别保存，预算按已计金额和预留控制；这不是收费账本，也不承诺远端账单绝对不超限。
+用户确认发送材料后，Worker 使用任务保存的模型策略执行。系统记录调用、用量和供应商回执。已有响应编号的任务续取原响应，提交结果未知的任务等待核对。
 
-此面板仅统计经新统一门面的调用。项目任务详情另显示任务、项目和用户三级预算，并关联本任务已保存的精确历史成果。新绘图和解释可在预算或配置补足后显式恢复原任务，已有调用沿用保存结果，尚未提交的模型调用按原策略和预算执行。旧绘图和旧解释不补造统一历史账本；实际费用核对由本机管理员CLI执行，网页只读；旧绘图/解释只读映射已通过用户验收。本机项目“测试”已配置 `gpt-5.6-sol` 私有策略，所属用户和项目累计额度各5美元，单绘图任务1美元、单解释任务0.5美元；这些是获授权的测试配置，不是默认值，本轮收尾未调整。配置与历史真实调用证据见[第五步交付记录](docs/开发记录/阶段02/绘图任务迁移交付记录.md)，等待和恢复范围见[第六步交付记录](docs/开发记录/阶段02/任务界面与等待恢复交付记录.md)。
+过去因金额限制暂停的任务可以从原任务的「待处理」页手动继续。已有成果可在原任务的「成果」页查看。
 
 ## 界面语言与项目默认输出语言
 
@@ -383,7 +383,7 @@ OPENAI_API_KEY=在本机填写你的API密钥
 PAPERASSIST_PLOT_POLICY_FILE=.env.plot-policy.json
 ```
 
-也可通过 `OPENAI_API_KEY_FILE` 指定密钥文件。新绘图使用独立策略中的模型，不从旧 `OPENAI_MODEL` 推导价格或预算。模型须支持 Responses、后台执行及 Code Interpreter；模板的必填金额为 `null`，不能直接启用。用户和项目累计预算还需通过[管理员命令](script/README.md#本机模型预算管理)明确设置；只有任务策略不足以准入。
+也可通过 `OPENAI_API_KEY_FILE` 指定密钥文件。绘图策略配置支持 Responses、后台执行及 Code Interpreter 的模型，并填写价格及输入 token 范围。
 
 后端读取 `backend/.env`，PowerShell 环境变量优先；文件已被 Git 忽略。API 创建任务时冻结策略，Worker 使用快照执行；密钥只单独挂载给 Worker，变更后重启项目服务。不要把密钥放入前端、`VITE_*` 变量或提交到 Git。`/api/v1/ai/plot-config` 只返回本地配置状态及模型名，不返回密钥，也不验证远端权限。缺配置仍能上传、执行本地统计及查看历史成果。用 `script/dev.cmd start` 同时启动前后端与Worker栈，配置细节见[Worker说明](infra/worker/README.md#绘图模型策略)。
 
@@ -393,7 +393,7 @@ PAPERASSIST_PLOT_POLICY_FILE=.env.plot-policy.json
 
 1. 选择已保存的字段配置，先完成第二步描述统计。
 2. 在流程导航“图表”点击“使用 OpenAI 生成箱线图”，先查看“发送前检查”中的范围、数量与名称，按需替换文字标签；确认后才提交生成请求。取消或仅打开页面不创建任务，单位文字修改不换算数值。
-3. API只保存统一任务并返回排队状态，Linux Worker重算材料、检查预算，再分片创建容器、上传数据、提交与续取响应。页面GET只读本地保存状态；切换文件或关闭网页不影响Worker执行，等待期间可继续浏览工作台。
+3. API只保存统一任务并返回排队状态，Linux Worker重算材料，再分片创建容器、上传数据、提交与续取响应。页面GET只读本地保存状态；切换文件或关闭网页不影响Worker执行，等待期间可继续浏览工作台。
 4. 云端结构化结果与本地总体/分组统计、样本数、分位数、须端、离群点及标签图注核对通过后保存 PNG。浮点量使用相对容差 `1e-10`，计数、来源及文字精确匹配。
 5. 查看图及图注，点击“下载箱线图 PNG”。图号、标题、坐标轴字段/单位、分组和 n、完整图注均要求在 PNG 内；无分组绘制总体，有分组只绘制各组。图 1 是每次分析内的编号。
 6. 刷新/重启后选择同一文件，可恢复已保存图；修改配置并重新统计后生成新图，旧图和旧结果保留。未保存字段或旧配置不能触发新生成。
@@ -406,8 +406,8 @@ PAPERASSIST_PLOT_POLICY_FILE=.env.plot-policy.json
 
 - 新任务确认后只上传所选完整有效数值/分组及确认标签（`labels/values/groups`），不上传其他列、整个Excel、文件/工作表名、项目研究主题或本地来源ID/hash。原始名称不会自动识别为敏感内容，需用户核对；旧无确认合同的任务沿用原接受约定。模型工具权限由后端固定。生成涉及OpenAI API与Code Interpreter费用。
 - 保存模型名、response/container ID、模型实际执行代码、token 用量、原文件哈希、统计结果版本、PNG 哈希及提示词版本。模型报告的 Python/Matplotlib/字体环境也作为来源记录保存。
-- 提交前建立统一任务并冻结来源和策略，相同结果重复点击复用进行中任务或已有图。SDK关闭自动重试；容器创建、文件上传、响应创建分别先记录开始标记，再保存回执。开始标记缺少回执时保留预算预留并等待核对，禁止通过重试盲目重发。
-- 超时先点“重新读取图表”。已有回执时继续原阶段；已有response ID时只续取原响应，预算补足后可显式继续原任务。终态内容失败或明确容器过期后，只有用户点击带额外费用提示的再次生成才创建新任务；未知提交不开放此入口。
+- 提交前建立统一任务并冻结来源和策略，相同结果重复点击复用进行中任务或已有图。SDK关闭自动重试；容器创建、文件上传、响应创建分别先记录开始标记，再保存回执。开始标记缺少回执时等待核对，禁止通过重试盲目重发。
+- 超时先点“重新读取图表”。已有回执时继续原阶段；已有response ID时只续取原响应。终态内容失败或明确容器过期后，只有用户点击带额外费用提示的再次生成才创建新任务；未知提交不开放此入口。
 - 使用 OpenAI 后台响应模式，远端响应按其策略留存；每次创建独立容器并设置 20 分钟闲置过期。若后端停机过久，尚未下载的容器文件可能过期且不可恢复。已下载 PNG 不依赖远端容器；任务恢复不等于永久云端保存。[后台模式](https://developers.openai.com/api/docs/guides/background)、[容器生命周期](https://developers.openai.com/api/docs/guides/tools-code-interpreter)
 - 新绘图由独立Worker执行，每片最多一个外部POST或一次响应续取，等待时释放租约。收到响应先记用量，再核对并下载成果；已验证的本地候选PNG可在租约恢复后发布，不必重做云端生成。来源变化、密钥失效、额度不足、模型不支持、结果不一致、图片损坏及存储失败均有反馈，失败不会覆盖旧图。旧绘图job仅兼容续取原响应，不补造统一调用或自动重新收费。
 
@@ -415,10 +415,10 @@ PAPERASSIST_PLOT_POLICY_FILE=.env.plot-policy.json
 
 对应需求 V0.13 §5.7。新解释已迁入统一队列，由独立策略指定支持 Responses 后台模式与 Structured Outputs 的模型，不采用旧 `OPENAI_MODEL`。此步由模型组织文字，不启用 Code Interpreter 或图片生成工具，也不重复计算统计量。[结构化输出官方说明](https://developers.openai.com/api/docs/guides/structured-outputs)
 
-管理员参考 [explanation-policy.example.json](backend/explanation-policy.example.json) 创建Git忽略的 `backend/.env.explanation-policy.json`，在 `.env` 设置 `PAPERASSIST_EXPLANATION_POLICY_FILE`，填入核实后的模型、价格、输入预留和任务额度；用户/项目累计额度用本机预算命令设置。密钥可用 `OPENAI_API_KEY_FILE`，否则使用 `OPENAI_API_KEY`；仅Worker挂载模型密钥，变更后须重启项目服务。示例必填金额为空，历史解释读取不依赖当前策略；本机项目“测试”的授权配置见上方绘图说明。单位和细节见[管理配置方式](docs/开发记录/阶段02/2026-10-08-解释任务迁移实施计划.md#管理配置方式)。
+管理员可参考 [explanation-policy.example.json](backend/explanation-policy.example.json) 配置模型、价格和输入 token 范围，在 `.env` 中设置 `PAPERASSIST_EXPLANATION_POLICY_FILE`。密钥使用 `OPENAI_API_KEY_FILE` 或 `OPENAI_API_KEY`。更换密钥后需重启项目服务。
 
 1. 选择已有配置，完成描述统计并生成、保存当前箱线图。
-2. 切换流程导航“分析解释”，配置完整后点击“使用 OpenAI 生成解释”，先核对发送范围和文字标签（含图标题），确认后才创建任务。API返回排队状态，由Worker检查预算后调用收费API；缺策略/价格时不接受可收费新任务，缺用户/项目额度时进入等待。
+2. 在「分析解释」点击「使用 OpenAI 生成解释」，核对发送范围和文字标签，确认后由 Worker 按任务保存的模型策略生成解释。
 3. 成功后显示**分析目的、使用数据、分析方法、主要结果、结果解释、论文描述文字**，每段可展开查看所引用的事实。分析目的仅描述本次统计任务；研究设计、实验步骤和样本背景不足时不补写。
 4. 核对文字与表格/图片，再查看“解释限制”和“解释来源与核对记录”。页面只展示语言、保存时间及可读核对说明；模型、响应编号、用量、哈希和来源关联仍保存在后端，不渲染在工作区。
 5. 刷新页面或重启服务后选择同一文件，恢复相同解释；重复点击复用已保存内容。修改并保存配置后，需依次重新统计、绘图、生成解释，旧解释仍绑定旧版本。
@@ -427,7 +427,7 @@ PAPERASSIST_PLOT_POLICY_FILE=.env.plot-policy.json
 
 **核验边界：**自动校验确认引用存在且数值来自已保存结果，不能证明整段语义、标签关联或比较方向正确，也不能覆盖所有变相推断。文字是 AI 初稿，须人工核对；不把引用核对标记等同于科学结论正确。未执行显著性检验，不生成 P 值、置信区间、因果/疗效结论或文献引用；本步没有对图片像素进行识别。
 
-**恢复和错误：**浏览器查询只读本地状态，Worker每片只做一次POST或GET，等待时释放租约并延迟续取。预算补足后显式恢复原任务；已有响应编号只GET。无编号的未知提交保留预留并等待核对，不允许盲目重试；已知响应404停止续取，不自动创建替代付费请求。坏输出先记用量再报失败，只有用户明确再次生成才创建可能收费的新任务。来源变化阻止挂接旧解释，但已知响应仍续取用量；历史已保存解释不依赖当前模型配置。
+**恢复和错误：**浏览器查询只读本地状态，Worker每片只做一次POST或GET，等待时释放租约并延迟续取。已有响应编号只GET。无编号的未知提交等待核对，不允许盲目重试；已知响应404停止续取，不自动创建替代付费请求。坏输出先记用量再报失败，只有用户明确再次生成才创建可能收费的新任务。来源变化阻止挂接旧解释，但已知响应仍续取用量；历史已保存解释不依赖当前模型配置。
 
 旧绘图job和旧 `explanation_jobs` 保留每轮完成后5秒的进程内兼容扫描，只续取已有响应；新绘图和解释由独立Worker执行。`PAPERASSIST_PLOT_WORKER_ENABLED=0` 只关闭前述历史扫描，不是新统一任务的总开关。自动测试另使用独立数据库schema、资产和队列，清空真实密钥/策略，以模拟供应商验证。
 
@@ -501,7 +501,7 @@ $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 
 ## 接口
 
-统一任务提供项目分页、工作区详情、增量事件、三级预算与业务专用异步创建/恢复。`POST /tasks/{id}/resume` 使用必填幂等键、任务版本与输入版本，在事务内完成等待消费、状态变更和排队；前端只显示服务端允许的操作。资料补充、研究计划与后续稿件/评审沿业务专用消费者接入，通用任意创建和任务取消边界见[阶段清单](docs/开发阶段/阶段02-统一任务与模型调用.md)。旧详情及Word GET/下载合同保持，精确成果沿固定任务来源读取；错误保留 `detail.code/message/params` 与 `request_id/details`。下表保留已有兼容接口，完整当前路由以运行环境 `/docs` 及 `backend/app/api/` 为准；运营、存储、配置和运行状态位置见[项目结构](docs/项目结构.md)。
+统一任务提供项目分页、工作区详情、增量事件、调用用量与业务专用异步创建/恢复。`POST /tasks/{id}/resume` 使用必填幂等键、任务版本与输入版本，在事务内完成等待消费、状态变更和排队；前端只显示服务端允许的操作。资料补充、研究计划与后续稿件/评审沿业务专用消费者接入，通用任意创建和任务取消边界见[阶段清单](docs/开发阶段/阶段02-统一任务与模型调用.md)。旧详情及Word GET/下载合同保持，精确成果沿固定任务来源读取；错误保留 `detail.code/message/params` 与 `request_id/details`。下表保留已有兼容接口，完整当前路由以运行环境 `/docs` 及 `backend/app/api/` 为准；运营、存储、配置和运行状态位置见[项目结构](docs/项目结构.md)。
 
 新绘图/解释分别增加只读`GET .../analysis-runs/{run_id}/boxplot/disclosure`和`GET .../analysis-runs/{run_id}/explanation/disclosure`；新模型任务POST携带`external_processing`版本、确认、来源摘要和标签。原键重放、历史成果与原任务恢复不强制补确认。冻结规则及新旧合同边界以[第九步交付记录](docs/开发记录/阶段02/外发资料说明与最小化交付记录.md#接口与代码位置)为准。
 
@@ -513,8 +513,8 @@ $env:PAPERASSIST_DATA_DIR = 'D:\PaperAssistData'
 | `GET /api/v1/tasks/{task_id}/workspace` | 只读任务、来源/配置版本、等待、允许操作及此任务的精确历史成果 |
 | `POST /api/v1/tasks/{task_id}/resume` | 必填`Idempotency-Key`；请求含`operation`（resume/retry）、`wait_id`、`expected_task_revision`和`input_version`，成功202；冲突后重新读取 |
 | `GET /api/v1/tasks/{task_id}/events` | 每任务增量事件，`after`缺省0、`limit`缺省50且最大100；不推进任务 |
-| `GET /api/v1/projects/{project_id}/model-usage` | 本人项目的累计美元预算、内部估算、预算已计金额、预留、实际核对及调用分页，只读；`page`从1、`page_size`为1–50 |
-| `GET /api/v1/tasks/{task_id}/model-usage` | 本人任务的调用和三级预算，只读；分页规则同项目查询，不触发模型请求 |
+| `GET /api/v1/projects/{project_id}/model-usage` | 本人项目的用量、内部估算、实际核对及调用分页，只读；`page`从1、`page_size`为1–50 |
+| `GET /api/v1/tasks/{task_id}/model-usage` | 本人任务的调用记录和费用统计，只读；分页规则同项目查询，不触发模型请求 |
 | `POST /api/v1/tasks/{task_id}/retry` | `{ "expected_revision": 当前任务修订号 }`；失败Word及允许恢复的绘图/解释，核对权限、来源、状态与版本；不允许未知提交盲目重发 |
 | `GET/PATCH /api/v1/auth/preferences` | 读取/更新当前账号 `ui_language`，仅 `zh-CN/en`；写入检查当前会话与CSRF |
 | `GET/PATCH /api/v1/projects/{project_id}/language` | 独立读取/更新项目 `default_output_language`，仅所有者可访问，返回完整Project |

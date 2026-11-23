@@ -15,6 +15,26 @@ const evidence={id:'ev1',claim_id:'claim7',claim_revision:1,project_reference_id
 const page=(items:unknown[])=>({project_id:'p1',items,total:items.length,page:1,page_size:10})
 const props={projectId:'p1',text:claim.content,context:claim.context,language:'en' as const,onBinding:vi.fn(),paragraphName:'讨论 · 段落 2'}
 
+it('shows the excerpt identified for this paragraph and lets the reviewer reuse its exact text', () => {
+ const fetcher=vi.fn()
+ vi.stubGlobal('fetch',fetcher)
+ const onBinding=vi.fn()
+ const record={evidence_id:'ev1',binding:{project_reference_id:'ref1',metadata_version_id:'meta1',metadata:{title:'Selected study'},evidence:[evidence]}}
+ const manifest={sources:{},evidence:{e1:record,e2:{...record,binding:{...record.binding,metadata:{title:'Other study'}}}}} as unknown as LocalManifest
+ render(<WritingClaimReview {...props} manifest={manifest} customerView suggestedEvidenceAliases={['e1']} onBinding={onBinding}/>)
+ const sources=screen.getByRole('region',{name:'初稿为本段标出的文献'})
+ expect(sources.textContent).toContain('Selected study')
+ expect(sources.textContent).toContain('摘要')
+ expect(sources.textContent).toContain(evidence.quote)
+ expect(sources.textContent).not.toContain('Other study')
+ fireEvent.click(screen.getByRole('button',{name:'用这段原文核对'}))
+ expect(screen.getByLabelText('选择实际公开证据与书目')).toHaveProperty('value','e1')
+ expect(screen.getByLabelText('新主张精确摘录')).toHaveProperty('value',evidence.quote)
+ expect(screen.getByLabelText('本次支持决定')).toHaveProperty('value','needs_review')
+ expect(onBinding).toHaveBeenCalledWith(null,[])
+ expect(fetcher).not.toHaveBeenCalled()
+})
+
 it('asks a customer to add literature when no excerpt can be chosen',()=>{
  vi.stubGlobal('fetch',vi.fn())
  const onNeedEvidence=vi.fn()

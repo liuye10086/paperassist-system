@@ -1,6 +1,21 @@
 import { expect,it } from 'vitest'
 import { validSnapshot, validManuscript, validCandidates } from './manuscriptTypes'
 import { snapshotFixture,manuscriptFixture,candidatesFixture } from './manuscriptFixtures'
+
+it('accepts only original review figures in native review sections outside the theme list', () => {
+ const source = {kind: 'original', id: 'illustration', file_id: 'illustration', role: 'image_observation'}
+ const material = {section_id: 'discussion', filename: 'overview.png', kind: 'figure', result: '', selection: source}
+ const plan = {kind: 'narrative_review', title: 'Review', keywords: [], sections: [], materials: [material]}
+ const candidates = (paperPlan: object) => ({...candidatesFixture, paper_plan: {...paperPlan, token:'a'.repeat(64), omitted_count:0}})
+ expect(validCandidates(candidates(plan), 'p1')).toBe(true)
+ expect(validSnapshot({...snapshotFixture, paper_plan: plan}, 'p1')).toBe(true)
+ for (const invalid of [
+   {...plan, kind: 'research'},
+   {...plan, materials: [{...material, kind: 'table'}]},
+   {...plan, materials: [{...material, section_id: 'abstract'}]},
+   {...plan, materials: [{...material, selection: {...source, kind: 'document_version'}}]},
+ ]) expect(validCandidates(candidates(invalid), 'p1')).toBe(false)
+})
 it('accepts frozen stable paragraph and table identities without exposing or rewriting them',()=>{
  expect(validSnapshot({...snapshotFixture,methods:[{...snapshotFixture.methods[0],id:'methods:research_question'}],results_groups:[{id:'group1',title:'Result',paragraphs:[{...snapshotFixture.methods[0],id:'results:run1',origin:'computed_result'}],tables:[{id:'table:run1',title:'Table',columns:['Value'],rows:[['1']],source_ids:['run1']}],figures:[]}]},'p1')).toBe(true)
 })

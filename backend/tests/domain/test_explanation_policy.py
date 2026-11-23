@@ -33,7 +33,7 @@ def configured(monkeypatch, tmp_path, **changes):
 
 def test_policy_is_explicit_strict_and_configuration_is_public(monkeypatch, tmp_path):
     target, _, _ = configured(monkeypatch, tmp_path)
-    assert target.get_execution_policy({'facts': 'synthetic'}) == execution_policy()
+    assert target.get_execution_policy({'facts': 'synthetic'}) == {k:v for k,v in execution_policy().items() if k!='task_limit_micro_usd'}
     public = target.configuration()
     assert public['configured'] and public['model'] == execution_policy()['policy']['model']
     assert not {'policy', 'price', 'api_key', 'path', 'task_limit_micro_usd'} & public.keys()
@@ -41,8 +41,8 @@ def test_policy_is_explicit_strict_and_configuration_is_public(monkeypatch, tmp_
 
 
 @pytest.mark.parametrize('change', [
-    {'unexpected': 1}, {'task_limit_micro_usd': True}, {'input_token_allowance': 0},
-    {'input_token_allowance': '20000'}, {'task_limit_micro_usd': -1},
+    {'unexpected': 1}, {'input_token_allowance': 0},
+    {'input_token_allowance': '20000'},
 ])
 def test_invalid_policy_is_safe_not_configured(monkeypatch, tmp_path, change):
     target, path, _ = configured(monkeypatch, tmp_path)

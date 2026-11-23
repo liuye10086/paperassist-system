@@ -114,6 +114,7 @@ class UploadLimitMiddleware:
             r"/api/v1/projects/[^/]+/(bio-imports/[^/]+/confirm|bio-upload-batches)", path
         ))
         is_upload = (path == "/api/v1/excel/preview" or re.fullmatch(r"/api/v1/projects/[^/]+/files", path)
+                     or re.fullmatch(r"/api/v1/projects/[^/]+/manuscripts/[^/]+/writing-requests/[^/]+/draft-feedback", path)
                      or re.fullmatch(r"/api/v1/projects/[^/]+/file-batches/[^/]+/items/[^/]+", path))
         if scope["type"] != "http" or scope["method"] != "POST" or not (is_upload or is_research_json or is_bio_json or is_auth_json or is_customer_feedback):
             return await self.app(scope, receive, send)

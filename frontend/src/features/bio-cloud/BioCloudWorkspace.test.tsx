@@ -22,12 +22,12 @@ it('blocks unconfigured uploads and submissions while stating evidence limits',a
 it('submits selected parameters and authorization with one explicit click',async()=>{
  const mock=network();render(<BioCloudWorkspace projectId="p" active onSelectMatrix={()=>{}}/>)
  await screen.findByText('STARsolo · human · ref')
- for(const [label,value] of [['云流程','profile'],['建库 chemistry','v3'],['样本 ID','S'],['文库 ID','L'],['R1 FASTQ','u1'],['R2 FASTQ','u2'],['预算上限（USD）','10.00']])fireEvent.change(screen.getByLabelText(label),{target:{value}})
+ for(const [label,value] of [['云流程','profile'],['建库 chemistry','v3'],['样本 ID','S'],['文库 ID','L'],['R1 FASTQ','u1'],['R2 FASTQ','u2']])fireEvent.change(screen.getByLabelText(label),{target:{value}})
  expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
  expect(screen.getByText(/点击提交即确认所选材料可交给该境外服务分析/)).toBeTruthy()
  fireEvent.click(screen.getByRole('button',{name:'提交云分析'}))
  await waitFor(()=>expect(mock.mock.calls.filter(c=>c[1]?.method==='POST')).toHaveLength(1))
- expect(JSON.parse(String(mock.mock.calls.find(c=>c[1]?.method==='POST')?.[1]?.body))).toMatchObject({sample_id:'S',library_id:'L',species:'human',chemistry:'v3',budget_approved:true,external_processing_confirmed:true})
+ expect(JSON.parse(String(mock.mock.calls.find(c=>c[1]?.method==='POST')?.[1]?.body))).toMatchObject({sample_id:'S',library_id:'L',species:'human',chemistry:'v3',external_processing_confirmed:true})
 })
 it('returns matrix output identities without automatically starting import',async()=>{
  const mock=network(capabilities,[{id:'run',status:'completed',sample_id:'S',library_id:'L',engine:'STARsolo',outputs}]);const select=vi.fn()
@@ -105,11 +105,11 @@ it('shows only administrator-verified estimated run fee and separates additional
  await screen.findByText('STARsolo · human · ref')
  fireEvent.change(screen.getByLabelText('云流程'),{target:{value:'profile'}})
  expect(screen.getByText('预计单次分析费：USD 12.50（管理员已核实报价）')).toBeTruthy()
- expect(screen.getByText(/只校验已核实的预计单次分析费；S3、网络和日志费用另计/)).toBeTruthy()
+ expect(screen.getByText(/S3、网络和日志费用另计/)).toBeTruthy()
 })
 it('does not invent estimated fee when profile quote is absent',async()=>{
  network();render(<BioCloudWorkspace projectId="p" active onSelectMatrix={()=>{}}/>)
  await screen.findByText('STARsolo · human · ref')
  fireEvent.change(screen.getByLabelText('云流程'),{target:{value:'profile'}})
- expect(screen.getByText('预计单次分析费：待核实；缺少已核实报价时服务端将阻塞提交。')).toBeTruthy()
+ expect(screen.getByText('预计单次分析费：待核实。')).toBeTruthy()
 })

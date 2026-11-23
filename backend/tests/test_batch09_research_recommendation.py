@@ -5,7 +5,6 @@ import pytest
 from tests.api.test_analysis import client
 from tests.integration.test_correlation_plan import prepared_correlations
 from tests.integration.test_analysis_recommendation import planning_policy,RecommendationProvider
-from tests.helpers.tasks import task_owner
 from tests.test_batch09_research_contracts import draft
 
 
@@ -23,7 +22,6 @@ class IntentProvider(RecommendationProvider):
 @pytest.mark.parametrize('missing',[False,True])
 def test_v4_one_call_recovers_both_intent_and_method_from_actual_edited_summary(client,monkeypatch,missing,tmp_path):
     from app.domain.tasks.recommendation_execution import run_recommendation_task
-    from app.domain.model_usage.service import ModelUsageService
     policy=planning_policy();policy['policy'].update(prompt_version='analysis_recommendation_v4',output_format='analysis_recommendation_v4')
     monkeypatch.setattr('app.domain.analysis_recommendation.policy.get_execution_policy',lambda payload:policy)
     base,_,prepared=prepared_correlations(client)
@@ -35,8 +33,7 @@ def test_v4_one_call_recovers_both_intent_and_method_from_actual_edited_summary(
     body['external_processing']=dict(version=1,confirmed=True,source_digest=preview.json()['source_digest'],labels=labels)
     response=seed_legacy_recommendation(client, base+'/analysis-recommendations',json=body,headers={'Idempotency-Key':'intent'})
     assert response.status_code==202,response.text
-    task=response.json();owner=task_owner(client);ledger=ModelUsageService(owner)
-    for scope,key in [('user',owner),('project',task['project_id'])]:ledger.set_budget(scope,key,5000000,0)
+    task=response.json()
     provider=IntentProvider(pending=True,missing=missing)
     pending=run_recommendation_task(task['id'],task['revision'],provider_factory=lambda:provider)
     assert pending['status']=='running'

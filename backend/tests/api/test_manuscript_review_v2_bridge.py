@@ -7,7 +7,6 @@ from tests.api.test_literature_evidence import post
 from tests.api.test_manuscript_writing_live import authorize,request_v2,LiveFixture
 from tests.api.test_manuscript_writing_live_review import decision
 from tests.api.test_manuscript_writing_language import approve
-from tests.integration.test_literature_assistance import budgets
 from app.domain.literature.service import digest
 from app.domain.tasks.execution import run_task
 from app.domain.manuscript_writing.execution import run_manuscript_writing_task
@@ -35,7 +34,7 @@ def published(client):
     response=post(client,root+'/writing-previews',dict(schema_version=2,base_revision=1,mode='full_draft',output_language='en',selected_source_ids=[result['id']],selected_evidence_ids=[]),'preview')
     assert response.status_code==201,response.text
     bundle=response.json();_,auth=authorize(client,root,bundle)
-    task=post(client,root+'/writing-requests',request_v2(bundle,auth),'write').json()['task'];budgets(client,task)
+    task=post(client,root+'/writing-requests',request_v2(bundle,auth),'write').json()['task']
     values={key:str(result['overall'][key]) for key in ('n','mean')}
     class NumericFixture(LiveFixture):
         def receipt(self):

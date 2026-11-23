@@ -9,25 +9,24 @@ import { WorkspaceFrame, WorkspaceIcon } from '../projects/WorkspaceShell'
 import WorkspaceSteps from '../projects/WorkspaceSteps'
 import { taskDetailViews } from '../projects/reviewViews'
 import { isTaskId } from '../tasks/taskTypes'
-import type { AnalysisPlace, ManuscriptPlace } from '../reviews/ReviewsWorkspace'
-import type { ManuscriptInput } from '../reviews/continuationTypes'
 import { projectBase } from '../research-intake/api'
 import { useResearchRead } from '../research-results/api'
 import CustomerDeliveries from './CustomerDeliveries'
 import CustomerLegacyTask from './CustomerLegacyTask'
-import CustomerMaterials from './CustomerMaterials'
+import CustomerMaterials, { ThesisMaterialOrganizer } from './CustomerMaterials'
 import CustomerProgress from './CustomerProgress'
 import CustomerProjectCreate from './CustomerProjectCreate'
-import CustomerReviewWorkflow from './CustomerReviewWorkflow'
 import CustomerRequirements from './CustomerRequirements'
 import CustomerSciSettings from './CustomerSciSettings'
 import CustomerSciWorkflow from './CustomerSciWorkflow'
-import CustomerThesisRequirements from './CustomerThesisRequirements'
-import CustomerThesisWorkflow from './CustomerThesisWorkflow'
+import CustomerThesisRequirements, { ThesisTemplateOrganizer } from './CustomerThesisRequirements'
+import CustomerWritingMaterials from './CustomerWritingMaterials'
+import { schoolTemplateViews } from '../projects/manuscriptViews'
+import SchoolTemplates from '../school-templates/SchoolTemplates'
 import { readLegacyCustomerRoute } from './customerLegacyNavigation'
-import { customerReviewParams, readCustomerReviewNavigation, validCustomerRouteId, type CustomerReviewNavigation } from './customerReviewNavigation'
+import { readCustomerReviewNavigation, validCustomerRouteId } from './customerReviewNavigation'
 import { readSummary, summaryRoute } from './customerWorkspaceApi'
-import { buildReturn, carryReturnParams, readReturn } from './returnToken'
+import { buildReturn, readReturn } from './returnToken'
 import './customerWorkspace.css'
 
 const steps = [
@@ -37,28 +36,17 @@ const steps = [
   ['progress', '任务进度'],
   ['deliveries', '查看交付'],
 ] as const
-const sciSteps = [
+const paperSteps = [
   ['details', '项目资料'],
-  ['materials', '写作资料与引用'],
-  ['manuscripts', '稿件与复核'],
-  ['journals', '期刊适配与 Word'],
-  ['reviews', '意见与返修'],
+  ['materials', '上传资料'],
+  ['manuscripts', '文献与初稿'],
 ] as const
-const thesisSteps = [
-  ['details', '项目资料'],
-  ['school', '学校模板'],
-  ['materials', '写作资料与引用'],
-  ['manuscripts', '章节与复核'],
-  ['word', '固定版本与 Word'],
-  ['reviews', '意见与返修'],
-] as const
-type SciStep = typeof sciSteps[number][0]
-type ThesisStep = typeof thesisSteps[number][0]
-type Step = typeof steps[number][0] | SciStep | ThesisStep | 'citations' | 'tasks'
+const thesisSteps = [paperSteps[0], paperSteps[1], ['school', '模板与资料整理'], paperSteps[2]] as const
+type Step = typeof steps[number][0] | typeof paperSteps[number][0] | 'school' | 'word' | 'reviews' | 'citations' | 'tasks' | 'journals'
 type Route = { projectId: string; step: Step; params?: URLSearchParams } | null
 type RouteOptions = { confirmed?: boolean; replace?: boolean }
-const allowedSteps = new Set<string>([...steps, ...sciSteps, ...thesisSteps].map(([key]) => key))
-allowedSteps.add('citations').add('tasks')
+const allowedSteps = new Set<string>([...steps, ...paperSteps].map(([key]) => key))
+for (const key of ['school', 'word', 'reviews', 'citations', 'tasks', 'journals']) allowedSteps.add(key)
 const navigationIndexKey = 'paperassistCustomerNavigationIndex'
 // Customers see about one screen of project cards per page (user decision 2026-11-20); analysts keep five.
 const customerPageSize = 12
@@ -98,11 +86,11 @@ export default function CustomerWorkspace() {
   const [creating, setCreating] = useState(false)
   const [query, setQuery] = useState<ProjectListQuery>({ page: 1, q: '', type: '' })
   const [search, setSearch] = useState('')
+  const [chapterRevision, setChapterRevision] = useState(0)
   // Summary landing for “打开项目” only (接口设计第一节 2); `failed` keeps the retry on project details.
   const [landing, setLanding] = useState<{ projectId: string; attempt: number; failed: boolean } | null>(null)
   const projectListHeading = useRef<HTMLHeadingElement | null>(null)
   const heading = useRef<HTMLHeadingElement | null>(null)
-  const manuscriptReviewOrigin = useRef<string | null>(null)
   const guards = useRef(new Map<LeaveGuard, () => boolean>())
   const registerLeaveGuard = useCallback<RegisterLeaveGuard>((guard, isDirty = () => true) => {
     guards.current.set(guard, isDirty)
@@ -112,8 +100,9 @@ export default function CustomerWorkspace() {
   const canLeave = useCallback((next?: Route) => {
     const current = currentRoute.current
     const samePage = current && next && current.projectId === next.projectId && current.step === next.step
-    const preserveDraft = !!samePage ||
-      !['upload', 'school', 'materials', 'citations', 'manuscripts', 'journals', 'word', 'reviews', 'tasks'].includes(current?.step ?? '')
+    const editingTemplate = current?.step === 'school' || current?.params?.has('schoolView')
+    const preserveDraft = !editingTemplate && (!!samePage ||
+      !['upload', 'school', 'materials', 'citations', 'manuscripts', 'journals', 'word', 'reviews', 'tasks'].includes(current?.step ?? ''))
     return [...guards.current.keys()].every(guard => guard(preserveDraft))
   }, [])
 
@@ -131,15 +120,33 @@ export default function CustomerWorkspace() {
   const isAnalysis = project?.project_type === 'research'
   const isSci = project?.project_type === 'sci'
   const isThesis = project?.project_type === 'thesis'
+  const writingSteps = isThesis ? thesisSteps : paperSteps
   const hasAnalysisHistory = project?.has_analysis_history === true
   const allowedStep = (step: Step) => step === 'details' || step === 'tasks' || step === 'deliveries' && hasAnalysisHistory ||
     (isAnalysis && steps.some(([key]) => key === step)) ||
-    (isSci && (sciSteps.some(([key]) => key === step) || step === 'word' || step === 'citations')) ||
-    (isThesis && (thesisSteps.some(([key]) => key === step) || step === 'citations'))
+    ((isSci || isThesis) && writingSteps.some(([key]) => key === step))
   const requestedStep = route?.step === 'upload' && (isSci || isThesis) ? 'materials' : route?.step
-  const activeStep = requestedStep && allowedStep(requestedStep) ? requestedStep : 'details'
   const routeParams = route?.params ?? new URLSearchParams()
-  const reviewNavigation = activeStep === 'reviews' ? readCustomerReviewNavigation(routeParams) : null
+  const oldLiterature = requestedStep === 'materials' &&
+    ['search', 'list', 'detail', 'history', 'evidence', 'citations'].includes(routeParams.get('view') ?? '')
+  const oldPaperPage = (isSci || isThesis) && (oldLiterature || ['citations', 'reviews', 'word'].includes(requestedStep ?? '') ||
+    isSci && (requestedStep === 'journals' || requestedStep === 'tasks'))
+  const legacySchool = isThesis && requestedStep === 'details' && routeParams.has('schoolView')
+  const activeStep = legacySchool ? 'school' : oldPaperPage ? 'manuscripts' : requestedStep && allowedStep(requestedStep) ? requestedStep : 'details'
+  const templateId = routeParams.get('template')
+  const templateView = schoolTemplateViews.find(view => view === (routeParams.get('schoolView') ?? routeParams.get('view')))
+  const schoolPanel = activeStep === 'school' && (!!templateView || !!templateId)
+  const manuscriptParams = new URLSearchParams(routeParams)
+  if (isThesis && requestedStep === 'word' && routeParams.has('manuscript') && !routeParams.has('writingRequest')) manuscriptParams.set('view', 'saved')
+  if (isThesis && requestedStep === 'reviews') {
+    const oldReview = readCustomerReviewNavigation(routeParams)
+    if (oldReview?.roundId) manuscriptParams.set('view', 'past-opinions')
+    else if (oldReview?.manuscriptId && oldReview.revision) {
+      manuscriptParams.set('manuscript', oldReview.manuscriptId)
+      manuscriptParams.set('revision', String(oldReview.revision))
+      manuscriptParams.set('view', 'feedback')
+    }
+  }
   // Wireframe 02: the supplement page is reached from progress with a token back to it, or directly from the summary.
   const supplementing = isAnalysis && activeStep === 'upload' && routeParams.get('mode') === 'supplement'
 
@@ -207,34 +214,7 @@ export default function CustomerWorkspace() {
     const target = projectId ? heading.current : projectListHeading.current
     target?.focus({ preventScroll: true })
     if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'instant' })
-  }, [projectId, activeStep, project?.id, reviewNavigation?.view, reviewNavigation?.taskId, reviewNavigation?.analysisResults, supplementing])
-
-  useLayoutEffect(() => {
-    const previousOrigin = manuscriptReviewOrigin.current
-    const params = route?.params
-    const label = params?.get('returnLabel')
-    manuscriptReviewOrigin.current = route?.step === 'manuscripts' && params &&
-      (label === 'review-round' || label === 'review-item') ? readReturn(params, route.projectId)?.href ?? null : null
-    if (route?.step !== 'reviews' || previousOrigin !== address(route)) return
-    const pageHeading = heading.current
-    const section = pageHeading?.closest('section')
-    if (!pageHeading || !section || document.activeElement !== pageHeading) return
-
-    // The fixed round is read asynchronously. Stop waiting as soon as the customer moves focus.
-    const restore = () => {
-      const target = section.querySelector<HTMLElement>('[data-review-return-focus]')
-      if (target && document.activeElement === pageHeading) {
-        observer.disconnect()
-        target.focus()
-      }
-    }
-    const observer = new MutationObserver(restore)
-    const stop = () => observer.disconnect()
-    pageHeading.addEventListener('blur', stop, { once: true })
-    observer.observe(section, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-review-return-focus'] })
-    restore()
-    return () => { stop(); pageHeading.removeEventListener('blur', stop) }
-  }, [route])
+  }, [projectId, activeStep, project?.id, schoolPanel, supplementing])
 
   // Read only here: refresh, Back/Forward and deep links restore from the address instead.
   const pendingLanding = landing && !landing.failed ? landing : null
@@ -281,53 +261,6 @@ export default function CustomerWorkspace() {
     else chooseStep(fallback, confirmed)
   }
 
-  // A review paragraph lacks a source (B03 task 7). The paragraph is written into the current address first, so
-  // the token and Back both lead to it; leaving is still guarded by a running or unknown submission.
-  function openWithReturn(kind: 'literature' | 'materials', place: Record<string, string>, location: { section: string; paragraph: number }) {
-    const current = currentRoute.current
-    if (!project || !current || current.projectId !== project.id) return
-    const origin = new URLSearchParams(current.params)
-    for (const [key, value] of Object.entries(place)) origin.set(key, value)
-    const here = { ...current, params: origin }
-    navigate(here, { confirmed: true, replace: true })
-    navigate({ projectId: project.id, step: kind === 'literature' ? 'citations' : 'materials', params: new URLSearchParams({
-      view: kind === 'literature' ? 'list' : 'files',
-      ...buildReturn(new URLSearchParams(address(here).slice(1)), 'paragraph', {
-        returnSection: location.section, returnParagraph: String(location.paragraph),
-      }),
-    }) })
-  }
-  // A thesis chapter lacks a school template (B04 task 8, wireframe 13b). As above, the chapter is written into the
-  // current address first (`focus=chapters` without one), so the token and Back both lead to it.
-  function openTemplateWithReturn(place: { chapter?: string; title: string }) {
-    const current = currentRoute.current
-    if (!project || !current || current.projectId !== project.id) return
-    const origin = new URLSearchParams(current.params)
-    origin.delete('chapter')
-    origin.delete('focus')
-    if (place.chapter) origin.set('chapter', place.chapter)
-    else origin.set('focus', 'chapters')
-    const here = { ...current, params: origin }
-    navigate(here, { confirmed: true, replace: true })
-    navigate({ projectId: project.id, step: 'school', params: new URLSearchParams(
-      buildReturn(new URLSearchParams(address(here).slice(1)), 'chapter', { returnChapter: place.title })) })
-  }
-  // An opinion needs an analysis result (B05 task 5, wireframe 17). The opinion's supplement view is written into the
-  // current address first, so the token and Back both lead to it. The paper project stays the workspace project.
-  function openAnalysisResults(place: AnalysisPlace) {
-    const current = currentRoute.current
-    if (!project || !current || current.projectId !== project.id || current.step !== 'reviews') return
-    const origin = carryReturnParams(current.params ?? new URLSearchParams(),
-      customerReviewParams({ view: 'supplements', roundId: place.roundId, itemId: place.itemId }))
-    const here = { ...current, params: origin }
-    navigate(here, { confirmed: true, replace: true })
-    navigate({ projectId: project.id, step: 'reviews', params: new URLSearchParams({
-      view: 'analysis-results',
-      ...buildReturn(new URLSearchParams(address(here).slice(1)), 'review-item', {
-        returnRound: String(place.roundNumber), returnItem: String(place.itemNumber),
-      }),
-    }) })
-  }
   // Writing materials take a published analysis result (B05 task 6, wireframe 18). The files view is written into the
   // current address first, so the token and Back both lead to it; the step and project stay the same.
   function openMaterialsAnalysisResults() {
@@ -342,28 +275,15 @@ export default function CustomerWorkspace() {
       view: 'analysis-results', ...buildReturn(new URLSearchParams(address(here).slice(1)), 'materials'),
     }) })
   }
-  // A fixed manuscript opened from a review (B05 task 7): the token leads back to the opinion, or to the round when no
-  // opinion is selected. Leaving the review step is still guarded by unsaved review work.
-  function openReviewManuscript(manuscript: ManuscriptInput, place: ManuscriptPlace) {
-    const current = currentRoute.current
-    if (!project || !current || current.projectId !== project.id || current.step !== 'reviews') return
-    const origin = new URLSearchParams(address(current).slice(1))
-    navigate({ projectId: project.id, step: 'manuscripts', params: new URLSearchParams({
-      manuscript: manuscript.id, revision: String(manuscript.revision), view: 'body',
-      ...(place.itemNumber
-        ? buildReturn(origin, 'review-item', { returnRound: String(place.roundNumber), returnItem: String(place.itemNumber) })
-        : buildReturn(origin, 'review-round', { returnRound: String(place.roundNumber) })),
-    }) })
-  }
   function finishSupplement() {
     if (returnTarget) followReturn(returnTarget.href, true)
     else chooseStep('progress', true)
   }
 
   // Choosing a step leaves the target page, so it deliberately drops any return token.
-  function chooseStep(step: Step, confirmed = false) {
+  function chooseStep(step: Step, confirmed = false, view?: string) {
     if (project && allowedStep(step)) {
-      navigate({ projectId: project.id, step }, { confirmed })
+      navigate({ projectId: project.id, step, params: view ? new URLSearchParams({ view }) : undefined }, { confirmed })
     }
   }
 
@@ -377,44 +297,6 @@ export default function CustomerWorkspace() {
       else next.delete(key)
     }
     navigate({ ...current, step: activeStep, params: next }, { confirmed, replace })
-  }
-
-  function openWordTask(task: string) {
-    const current = currentRoute.current
-    if (!current) return
-    navigate({ projectId: current.projectId, step: 'tasks', params: new URLSearchParams({
-      task, ...buildReturn(new URLSearchParams(address(current).slice(1)), 'word'),
-    }) })
-  }
-
-  // The Word page of one fixed version (B03). Adopting has already saved the version, so it leaves without a prompt.
-  function openWord(manuscriptId: string, revision: number, { adopted = false }: { adopted?: boolean } = {}) {
-    if (!project) return
-    navigate({ projectId: project.id, step: 'word', params: new URLSearchParams({
-      manuscript: manuscriptId, revision: String(revision), view: 'exports', ...(adopted ? { adopted: '1' } : {}),
-    }) }, { confirmed: adopted })
-  }
-
-  // The migration page of one version with the new template preselected (B04 task 9, D6). The template change has
-  // already been saved, so it leaves without a prompt; any chapter return token is dropped.
-  function openMigration(manuscriptId: string, revision: number, confirmationId: string) {
-    if (!project) return
-    navigate({ projectId: project.id, step: 'manuscripts', params: new URLSearchParams({
-      manuscript: manuscriptId, revision: String(revision), view: 'school', target: confirmationId,
-    }) }, { confirmed: true })
-  }
-
-  const updateReviewRoute = useCallback((update: (current: CustomerReviewNavigation) => CustomerReviewNavigation,
-    options?: RouteOptions) => {
-    const current = currentRoute.current
-    if (current?.projectId !== projectId || current.step !== 'reviews') return
-    const navigation = readCustomerReviewNavigation(current.params ?? new URLSearchParams())
-    if (navigation) navigate({ ...current, params: carryReturnParams(current.params ?? new URLSearchParams(), customerReviewParams(update(navigation))) }, options)
-  }, [projectId, navigate])
-
-  function startReview(manuscriptId: string, revision: number) {
-    if (project) navigate({ projectId, step: 'reviews', params: carryReturnParams(currentRoute.current?.params ?? new URLSearchParams(),
-      customerReviewParams({ view: 'create', manuscriptId, revision })) })
   }
 
   return <WorkspaceFrame className="customer-workbench" homeLabel="返回我的项目" onHome={() => navigate(null)}
@@ -464,9 +346,8 @@ export default function CustomerWorkspace() {
           title, action: () => chooseStep(key),
         }))} />}
         {(isSci || isThesis) && <nav className="customer-switches customer-manuscript-navigation" aria-label={t(isThesis ? '毕业论文项目步骤' : 'SCI 项目步骤')}>
-          {(isThesis ? thesisSteps : sciSteps).map(([key, title]) => <button key={key} type="button" className="button-quiet"
-            aria-current={activeStep === key || key === 'journals' && activeStep === 'word' ||
-              key === 'materials' && activeStep === 'citations' ? 'step' : undefined}
+          {writingSteps.map(([key, title]) => <button key={key} type="button" className="button-quiet"
+            aria-current={activeStep === key ? 'step' : undefined}
             onClick={() => chooseStep(key)}>{t(title)}</button>)}
         </nav>}
         <div key={project.id} className="customer-step-content">
@@ -477,22 +358,35 @@ export default function CustomerWorkspace() {
             </div>}
             <div className="customer-section-heading">
               <h1 ref={heading} tabIndex={-1}>{t('项目资料')}</h1>
-              {isAnalysis
-                ? <button type="button" className="button-primary" onClick={() => chooseStep('upload')}>{t('下一步 上传资料')}</button>
-                : <div className="sci-inline-controls">
-                  <span className="project-type-badge">{t(customerProjectTypeNames[project.project_type])}</span>
-                  {hasAnalysisHistory && <button type="button" className="button-quiet" onClick={() => chooseStep('deliveries')}>
-                    {t('历史分析交付')}
-                  </button>}
-                </div>}
+              <button type="button" className="button-primary" onClick={() => chooseStep(isAnalysis ? 'upload' : 'materials')}>{t('下一步 上传资料')}</button>
             </div>
             <ProjectDetails project={project} showHeading={false} showLanguage={!isThesis} onUpdated={details.refresh} registerLeaveGuard={registerLeaveGuard} />
+            {isThesis && hasAnalysisHistory && <button type="button" className="button-quiet" onClick={() => chooseStep('deliveries')}>{t('历史分析交付')}</button>}
             {project.project_type === 'sci' && <CustomerSciSettings projectId={project.id} registerLeaveGuard={registerLeaveGuard}
               onContinue={() => chooseStep('materials', true)} />}
-            {isThesis && <CustomerThesisRequirements projectId={project.id} onOpenTemplate={() => chooseStep('school')}
-              onContinue={adopted => chooseStep(adopted ? 'materials' : 'school', true)}
-              onLanguageChanged={details.refresh} registerLeaveGuard={registerLeaveGuard} />}
+            {isThesis && <CustomerThesisRequirements projectId={project.id}
+              onContinue={() => chooseStep('materials', true)} onLanguageChanged={details.refresh} registerLeaveGuard={registerLeaveGuard} />}
           </div>}
+          {isThesis && activeStep === 'school' && <section className="customer-section thesis-organizer">
+            <div className="customer-section-heading">
+              <h1 ref={heading} tabIndex={-1}>{t(schoolPanel ? '学校模板' : '模板与资料整理')}</h1>
+              {schoolPanel
+                ? <button type="button" className="button-quiet" onClick={() => chooseStep('school')}>{t('返回模板与资料整理')}</button>
+                : <button type="button" className="button-primary" onClick={() => chooseStep('manuscripts')}>{t('下一步 文献与初稿')}</button>}
+            </div>
+            {schoolPanel ? (templateId && !validCustomerRouteId(templateId) ? <p role="alert">{t('指定学校模板版本不可用。')}</p>
+              : <SchoolTemplates projectId={project.id} active customerView registerLeaveGuard={registerLeaveGuard}
+                  navigation={{view:templateView ?? 'detail', templateId:templateId ?? ''}}
+                  onNavigate={({view, templateId}) => updatePaperRoute({schoolView:view, view:undefined, template:templateId || undefined}, true)}
+                  onAdopted={() => chooseStep('school', true)}/>) : <div className="thesis-organizer-panels">
+              <ThesisTemplateOrganizer projectId={project.id} registerLeaveGuard={registerLeaveGuard}
+                onOpenProject={() => chooseStep('details')}
+                onSectionsSaved={() => setChapterRevision(value => value + 1)}
+                onOpenTemplate={hasTemplate => updatePaperRoute({schoolView:hasTemplate ? 'list' : 'upload'})}/>
+              <ThesisMaterialOrganizer projectId={project.id} registerLeaveGuard={registerLeaveGuard} chapterRevision={chapterRevision}
+                onUpload={() => chooseStep('materials')}/>
+            </div>}
+          </section>}
           {activeStep === 'upload' && <CustomerMaterials key={supplementing ? 'supplement' : 'upload'} projectId={project.id} headingRef={heading}
             onContinue={() => chooseStep('requirements')} onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard}
             supplement={supplementing ? {
@@ -512,24 +406,16 @@ export default function CustomerWorkspace() {
             onFollowReturn={href => followReturn(href, false, 'details')} onBack={() => chooseStep('details')}
             onOpenFiles={() => chooseStep(isAnalysis ? 'upload' : 'materials')}
             headingRef={heading} registerLeaveGuard={registerLeaveGuard} />}
-          {activeStep === 'reviews' && (project.project_type === 'sci' || project.project_type === 'thesis') && reviewNavigation &&
-            <CustomerReviewWorkflow project={project} projectType={project.project_type} navigation={reviewNavigation} onNavigate={updateReviewRoute}
-              headingRef={heading} registerLeaveGuard={registerLeaveGuard} returnTarget={returnTarget}
-              onFollowReturn={href => followReturn(href, false, 'reviews')} onOpenAnalysisResults={openAnalysisResults}
-              onOpenManuscript={openReviewManuscript} />}
-          {isSci && (activeStep === 'materials' || activeStep === 'citations' || activeStep === 'manuscripts' || activeStep === 'journals' || activeStep === 'word') &&
-            <CustomerSciWorkflow key={activeStep} project={project} step={activeStep} headingRef={heading}
-              registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} onNavigate={chooseStep}
-              params={routeParams} onUpdateRoute={updatePaperRoute} onStartReview={startReview} onOpenWord={openWord}
-              onOpenWordTask={openWordTask} onNeedSource={openWithReturn} onFollowReturn={href => followReturn(href, false, 'manuscripts')}
-              onOpenAnalysisResults={openMaterialsAnalysisResults} />}
-          {isThesis && (activeStep === 'school' || activeStep === 'materials' || activeStep === 'citations' || activeStep === 'manuscripts' || activeStep === 'word') &&
-            <CustomerThesisWorkflow key={activeStep} project={project} step={activeStep} headingRef={heading}
-              registerLeaveGuard={registerLeaveGuard} onUnavailable={onUnavailable} onNavigate={chooseStep}
-              params={routeParams} onUpdateRoute={updatePaperRoute} onStartReview={startReview} onOpenWord={openWord}
-              onOpenWordTask={openWordTask} onNeedSource={openWithReturn} onFollowReturn={(href, confirmed) => followReturn(href, !!confirmed, 'manuscripts')}
-              onOpenTemplateWithReturn={openTemplateWithReturn} onOpenMigration={openMigration}
-              onOpenAnalysisResults={openMaterialsAnalysisResults} />}
+          {isSci && activeStep === 'materials' && <CustomerMaterials key="sci-upload" projectId={project.id} forWriting="sci"
+            headingRef={heading} onContinue={() => chooseStep('manuscripts', false, 'select')} onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} />}
+          {isThesis && activeStep === 'materials' && <CustomerWritingMaterials project={project} params={routeParams} headingRef={heading}
+            onUpdateRoute={updatePaperRoute} onContinue={() => chooseStep('school')}
+            onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} onOpenAnalysisResults={openMaterialsAnalysisResults}
+            materialsReturn={returnTarget} onFollowReturn={href => followReturn(href, false, 'materials')} />}
+          {(isSci || isThesis) && activeStep === 'manuscripts' &&
+            <CustomerSciWorkflow key={project.id} project={project} headingRef={heading} params={manuscriptParams} onUpdateRoute={updatePaperRoute}
+              onDetails={() => chooseStep('details')} onMaterials={() => chooseStep('materials')} onOrganizer={() => chooseStep('school')}
+              openSearch={oldLiterature || requestedStep === 'citations'} />}
         </div>
       </>}
     </div>
@@ -537,7 +423,7 @@ export default function CustomerWorkspace() {
       setCreating(false)
       setQuery({ page: 1, q: '', type: '' })
       setSearch('')
-      navigate({ projectId: created.id, step: 'details' }, { confirmed: true })
+      navigate({ projectId: created.id, step: created.project_type === 'sci' ? 'materials' : 'details' }, { confirmed: true })
     }} />}
   </WorkspaceFrame>
 }

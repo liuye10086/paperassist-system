@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react'
 import { useI18n } from '../../shared/i18n'
+import { isSchoolContentsTitle } from '../manuscripts/paperDraftMaterials'
 import type { Chapter } from '../school-templates/contracts'
 import { thesisSectionLabels, type BoundThesisTemplate, type ThesisSection, type ThesisSectionPurpose } from './thesisProjectRequirements'
 
@@ -19,8 +20,8 @@ export default function ThesisChapterRequirements({ template, sections, onChange
   const { t } = useI18n()
   const chapters = chapterOptions(template.chapters, (title, number) => t('{title}（模板第 {number} 项）', { title, number }))
   const selected = new Map(sections.map(section => [section.chapter_id, section]))
-  const protectedPurposes = template.protected_chapter_purposes ?? {}
-  const available = chapters.filter(chapter => !selected.has(chapter.id) && !protectedPurposes[chapter.id])
+  const protectedChapter = (chapter:Chapter) => !!template.protected_chapter_purposes?.[chapter.id] || isSchoolContentsTitle(chapter.title)
+  const available = chapters.filter(chapter => !selected.has(chapter.id) && !protectedChapter(chapter))
   return <div className="thesis-chapter-groups">
     {purposes.map(purpose => {
       const items = chapters.flatMap(chapter => {
@@ -32,15 +33,15 @@ export default function ThesisChapterRequirements({ template, sections, onChange
         <h4>{title}</h4>
         {items.length ? <dl className="sci-settings-summary">{items.map(item =>
           <Fragment key={item.id}><dt>{item.label}</dt><dd>{item.content}
-            {protectedPurposes[item.id] && <p className="muted">{t('学校模板已固定此章用途，原需求仍可查看。')}</p>}
+            {protectedChapter(item) && <p className="muted">{t('学校模板已固定此章用途，原需求仍可查看。')}</p>}
           </dd></Fragment>)}</dl> : <p className="muted">{t('待填写')}</p>}
       </section>
       return <fieldset key={purpose} className="thesis-chapter-group" disabled={disabled}>
         <legend>{title}</legend>
         {items.map(item => <div key={item.id} className="thesis-section-row">
-          <label>{item.label}<textarea rows={3} required maxLength={20000} value={item.content} readOnly={!!protectedPurposes[item.id]}
+          <label>{item.label}<textarea rows={3} required maxLength={20000} value={item.content} readOnly={protectedChapter(item)}
             onChange={event => onChange(sections.map(section => section.chapter_id === item.id ? { ...section, content: event.target.value } : section))} /></label>
-          {protectedPurposes[item.id] && <p className="muted">{t('学校模板已固定此章用途，原需求仍可查看。')}</p>}
+          {protectedChapter(item) && <p className="muted">{t('学校模板已固定此章用途，原需求仍可查看。')}</p>}
           <button type="button" className="button-quiet" aria-label={t('移除章节 {title}', { title: item.label })}
             onClick={() => onChange(sections.filter(section => section.chapter_id !== item.id))}>{t('移除')}</button>
         </div>)}

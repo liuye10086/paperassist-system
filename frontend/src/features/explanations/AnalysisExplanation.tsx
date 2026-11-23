@@ -85,8 +85,8 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, canExp
   const running = !!state && needsPoll(state)
   const unknown = !state?.explanation && (task ? task.reason_code === 'submission_unknown' : state?.job?.status === 'uncertain')
   const unavailable = !state?.explanation && task?.error_code === 'model_response_not_found'
-  const budgetWait = !state?.explanation && task?.status === 'waiting_confirmation' && task.reason_code === 'budget_exceeded'
-  const resume = !state?.explanation && !unavailable && (budgetWait || (task?.status === 'failed' && !!task.error_code && task.error_code !== 'model_configuration_disabled' && !outputFailures.has(task.error_code)))
+  const legacyWait = !state?.explanation && task?.status === 'waiting_confirmation' && task.reason_code === 'budget_exceeded'
+  const resume = !state?.explanation && !unavailable && (legacyWait || (task?.status === 'failed' && !!task.error_code && task.error_code !== 'model_configuration_disabled' && !outputFailures.has(task.error_code)))
   const retry = !state?.explanation && (task ? task.status === 'failed' && !resume && !unavailable : state?.job?.status === 'failed')
   const busy = submitting || previewing
   const explanation = state?.explanation
@@ -220,11 +220,10 @@ function ExplanationPanel({ base, runId, revision, figureId, canGenerate, canExp
     {retry && task?.error_code === 'explanation_invalid' && task.project_id && <a href={`#project=${encodeURIComponent(task.project_id)}&section=tasks&task=${encodeURIComponent(task.id)}`}>{t('查看任务进度与恢复')}</a>}
     {unknown && !unconfirmed && <p className="warning-panel">{t('提交结果尚未核实，已停止再次调用。请联系管理员核对。')}</p>}
     {unavailable && <p className="warning-panel">{t('已提交的解释无法恢复，请联系管理员核对。')}</p>}
-    {budgetWait && <p className="warning-panel">{t('解释正在等待预算或模型配置；请联系管理员配置后继续。')}</p>}
     {unconfirmed && <p className="warning-panel">{t('上次提交尚未确认。请先重新读取，再确认上次提交；确认不会另建一次生成。')}</p>}
     <div className="analysis-actions">
       {unconfirmed && <button type="button" disabled={!ready} onClick={() => void generate()}>{t('确认上次提交')}</button>}
-      {resume ? <button type="button" disabled={!ready || unknown || unconfirmed} onClick={() => void generate()}>{t(budgetWait ? '预算已配置，继续生成解释' : '继续解释任务')}</button>
+      {resume ? <button type="button" disabled={!ready || unknown || unconfirmed} onClick={() => void generate()}>{t('继续解释任务')}</button>
         : <button type="button" disabled={!allowed || !!review} onClick={() => void generate()}>{retry ? t("重试生成解释（再次调用 API）") : t("使用 OpenAI 生成解释")}</button>}
       <button type="button" disabled={loading || submitting || reportBusy} onClick={reload}>{t("重新读取解释")}</button>
     </div>

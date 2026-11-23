@@ -66,12 +66,11 @@ export default function BioCloudWorkspace({projectId,active,onSelectMatrix,regis
   <ul aria-label="已登记 FASTQ">{uploads.map(upload=><li key={upload.id}>{upload.filename} · {statusNames[upload.status]??upload.status}{upload.error_code?' · 上传存在错误，请核对后续传或取消。':''}</li>)}</ul>
   <fieldset disabled={blocked||!enabled}><legend>单样本单文库云分析</legend><p>本批支持 L001 的一对 R1/R2；不宣称完整多 lane 支持。仅使用已核验 profile。</p>
    <label>云流程<select value={draft.profile_id} onChange={e=>setDraft(previous=>({...previous,profile_id:e.target.value,chemistry:''}))}><option value="">选择流程</option>{cap?.profiles.filter(p=>p.account_verified).map(p=><option key={p.id} value={p.id}>{p.name??p.id} · {p.species} · {p.reference_id??'参考未配置'}</option>)}</select></label>
-   {profile&&<p>{profile.estimated_run_cost_usd?`预计单次分析费：USD ${profile.estimated_run_cost_usd.toFixed(2)}（管理员已核实报价）`:'预计单次分析费：待核实；缺少已核实报价时服务端将阻塞提交。'}</p>}{profile&&<p>物种：{profile.species} · 引擎：{profile.engine} · 参考：{profile.reference_id}</p>}
+   {profile&&<p>{profile.estimated_run_cost_usd!=null?`预计单次分析费：USD ${profile.estimated_run_cost_usd.toFixed(2)}（管理员已核实报价）`:'预计单次分析费：待核实。'}</p>}{profile&&<p>物种：{profile.species} · 引擎：{profile.engine} · 参考：{profile.reference_id}</p>}
    <label>建库 chemistry<select value={draft.chemistry} onChange={e=>change('chemistry',e.target.value)}><option value="">选择已支持的建库</option>{profile?.chemistries.map(value=><option key={value}>{value}</option>)}</select></label>
    {([['sample_id','样本 ID'],['library_id','文库 ID'],['donor_id','供者 ID'],['group','组别']] as const).map(([key,label])=><label key={key}>{label}<input value={draft[key]} onChange={e=>change(key,e.target.value)}/></label>)}
    {(['r1','r2'] as const).map((key,index)=><label key={key}>R{index+1} FASTQ<select value={draft[key]} onChange={e=>change(key,e.target.value)}><option value="">选择完成上传</option>{complete.map(upload=><option key={upload.id} value={upload.id}>{upload.filename}</option>)}</select></label>)}
-   <label>预算上限（USD）<input inputMode="decimal" value={draft.budget_limit_usd} onChange={e=>change('budget_limit_usd',e.target.value)}/></label>
-   <p>应用预算只校验已核实的预计单次分析费；S3、网络和日志费用另计，供应商账单没有实时硬封顶。取消请求不代表云端已取消，也不保证免费。</p>
+   <p>S3、网络和日志费用另计。取消请求后，仍可能产生已执行部分的费用。</p>
   </fieldset>
   <p>点击提交即确认所选材料可交给该境外服务分析，并按显示报价及附加费用计费。</p>
   <button type="button" disabled={blocked||!enabled||!body||!complete.some(u=>u.id===draft.r1)||!complete.some(u=>u.id===draft.r2)} onClick={()=>{if(body&&profile)void action(async c=>{const run=await client.create<CloudRun>('run',runBody(draft,profile),c.signal);if(!c.signal.aborted){setRuns(items=>[run,...items.filter(item=>item.id!==run.id)]);setDraft(newRunDraft())}})}}>提交云分析</button>

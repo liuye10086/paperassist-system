@@ -54,8 +54,12 @@ class ManuscriptService:
                         allowed_roles=roles or ['methods','user_results','literature','image_observation'],download_url=url or prefix+'/download'))
                 item('original',file['id'],file['filename'],roles=['methods','user_results','literature']+(['image_observation'] if file['file_type'] in ('png','jpeg','tiff') else []))
                 for kind,table in (('document_version','file_parse_results'),('ocr_review_version','ocr_review_versions')):
+                    if self.assets.customer and (kind=='ocr_review_version' or file['file_type'] not in ('docx','xlsx')):
+                        continue
                     rows=db.execute('SELECT v.id,v.version FROM '+table+" v JOIN tasks t ON t.id=v.task_id WHERE v.file_id=%s AND t.user_id=%s AND t.project_id=%s AND t.status='succeeded' ORDER BY v.version DESC",(file['id'],self.store.user_id,project)).fetchall()
-                    for row in rows: item(kind,row['id'],file['filename']+' — '+('文档解析 / Parsed document' if kind=='document_version' else '人工核对 / Human reviewed')+' v'+str(row['version']),row['version'])
+                    for row in rows:
+                        roles=['methods','user_results','literature'] if file['file_type']=='xlsx' else None
+                        item(kind,row['id'],file['filename']+' — '+('文档解析 / Parsed document' if kind=='document_version' else '人工核对 / Human reviewed')+' v'+str(row['version']),row['version'],roles)
                 for row in db.execute("SELECT id,snapshot_json->>'title' AS title,version FROM external_evidence_versions WHERE file_id=%s AND project_id=%s AND user_id=%s ORDER BY version DESC",(file['id'],project,self.store.user_id)).fetchall(): item('external_evidence_version',row['id'],row['title'],row['version'])
                 if include_analysis:
                     for row in db.execute('SELECT id,setup_revision,engine_version FROM analysis_runs WHERE file_id=%s ORDER BY completed_at DESC,id',(file['id'],)).fetchall():

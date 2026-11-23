@@ -1,4 +1,4 @@
-"""Integer-only effective budget and safe actual-cost projections."""
+"""Integer-only model cost projections, including historical holds."""
 
 
 def tool_applicable(call):
@@ -33,6 +33,8 @@ def accounting_projection(call, reservation):
     if state == 'reconciled':
         return (call.get('actual_token_micro_usd') or 0) + (call.get('actual_tool_micro_usd') or 0), 0
     estimate = call['estimated_cost_micro_usd'] or 0
+    if reservation is None:
+        return estimate, 0
     original = reservation['reserved_micro_usd']
     tools = tool_applicable(call)
     tool_reserve = call['policy_snapshot'].get('tool_reserve_micro_usd', 0) if tools else 0

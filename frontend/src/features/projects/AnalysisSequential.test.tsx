@@ -2,11 +2,28 @@ import {cleanup,fireEvent,render,screen,within} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import AnalysisGuide from './AnalysisGuide'
 import {entryMethods} from './analysisEntryState'
+import {singleCellMtxFiles} from '../bioinformatics/singleCellMtxFiles'
 import type {Version} from '../research-intake/contracts'
 
 afterEach(()=>{cleanup();sessionStorage.clear()})
 const version:Version={id:'r1',version:1,operation:'save',created_at:'',sha256:'x',content:{schema_version:1,scope_items:['multiomics','candidates'].map(kind=>({id:'questionnaire.analysis.'+kind,title:kind,delivery_kind:'analysis',status:'planned'}))}}
 const props={version,files:[],loading:false,error:'',filesLoading:false,filesError:'',imports:[],importsUnknown:false,importsError:'',onRefresh:vi.fn(),onReloadFiles:vi.fn(),onNavigate:vi.fn(),onFile:vi.fn()}
+it('shows one starting point for the four-file single-cell workflow and resumes a matching import',()=>{
+ const files=['matrix.mtx.gz','features.tsv.gz','barcodes.tsv.gz','cell_mapping.csv'].map((filename,i)=>({
+   id:'f'+i,filename,file_type:'bio_component',size_bytes:1024,uploaded_at:'',error:null,parse_status:'stored' as const}))
+ const matrixIds=singleCellMtxFiles(files).map(file=>file.id)
+ expect(matrixIds).toEqual(['f0','f1','f2'])
+ expect(singleCellMtxFiles([...files,{...files[0],id:'other'}])).toEqual([])
+ const submitted={...version,operation:'confirm' as const,content:{...version.content,scope_items:['customer.type.single_cell','customer.figure.single_cell.umap','customer.delivery.word'].map(id=>({id,title:id,delivery_kind:'analysis',status:'planned'}))}}
+ const act={...props,files,version:submitted,assigned:true,alternateQuality:<p>独立质控工具</p>}
+ const view=render(<AnalysisGuide {...act}/>)
+ expect(screen.getByRole('button',{name:'导入并核对单细胞矩阵'})).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'查看 UMAP 来源'})).toBeNull()
+ expect(screen.queryByRole('button',{name:/组学与生信数据/})).toBeNull()
+ view.rerender(<AnalysisGuide {...act} imports={[{parser:'single_cell_import_v1',id:'import1',status:'succeeded',datasetId:'d1',versionId:'v1',fileIds:matrixIds,createdAt:''}]}/>)
+ fireEvent.click(screen.getByRole('button',{name:'继续使用已发布矩阵'}))
+ expect(act.onNavigate).toHaveBeenCalledWith({view:'bio-dataset',datasetId:'d1',versionId:'v1',fileId:'',intent:'single_cell_import',entry:{requirementVersionId:'r1',scopeItemId:'customer.type.single_cell'}})
+})
 it('focuses one saved task and separates existing analyses without new computation',()=>{
  render(<AnalysisGuide {...props}/>);
  expect(screen.getByRole('article',{name:'multiomics'})).toBeTruthy()

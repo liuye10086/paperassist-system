@@ -41,6 +41,22 @@ def test_reservation_rounds_up_and_uses_integer_micro_dollars():
     assert reserve_micro_usd(cheap, 1, 3) == 4
 
 
+def test_quote_can_exceed_the_former_budget_ceiling():
+    from app.domain.model_usage.pricing import reserve_micro_usd
+    expensive = policy().model_copy(update={'price': price().model_copy(update={
+        'input_micro_usd_per_million': 1_000_000_000_000})})
+    assert reserve_micro_usd(expensive, 2_000_000) > 1_000_000_000_000
+
+
+def test_call_request_discards_obsolete_tool_reservation_settings():
+    from app.domain.model_usage.contracts import CallRequest
+    request = CallRequest(task_id='plot', expected_task_revision=1, call_key='plot-v1',
+        input_digest='a' * 64, policy=policy(), input_token_allowance=100,
+        tool_reserve_micro_usd=3_000_000_000_000, tool_reserve_version='old')
+    assert 'tool_reserve_micro_usd' not in request.model_dump()
+    assert 'tool_reserve_version' not in request.model_dump()
+
+
 def test_cached_and_reasoning_tokens_are_not_counted_twice():
     from app.domain.model_usage.pricing import estimate_usage
     observed = {'input_tokens': 100, 'output_tokens': 10, 'total_tokens': 110,

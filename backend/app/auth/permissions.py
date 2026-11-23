@@ -10,7 +10,7 @@ from app.auth.middleware import COOKIE_NAME
 from app.auth.revocations import session_expiry_reason
 from app.auth.sci_access import (PAPER_PROJECT_OPERATIONS, PAPER_READ_ONLY_TASK_TYPES, PAPER_RECOVERY_TASK_TYPES,
                                 PAPER_TASK_TYPES, REVIEW_TASK_TYPES,
-                                SCI_PROJECT_OPERATIONS, SCI_TASK_TYPES, THESIS_PROJECT_OPERATIONS, THESIS_TASK_TYPES)
+                                SCI_TASK_TYPES, THESIS_PROJECT_OPERATIONS, THESIS_TASK_TYPES)
 from app.auth.service import digest, resolve_session
 from app.core.exceptions import StorageError
 
@@ -236,8 +236,6 @@ async def require_customer_permission(request: Request) -> None:
         return
     if operation in CUSTOMER_ANALYSIS_OPERATIONS:
         await run_in_threadpool(require_customer_project_kind, user['id'], request.path_params['project_id'], ('research',))
-    elif operation in SCI_PROJECT_OPERATIONS:
-        await run_in_threadpool(require_customer_project_kind, user['id'], request.path_params['project_id'], ('sci',))
     elif operation in THESIS_PROJECT_OPERATIONS:
         await run_in_threadpool(require_customer_project_kind, user['id'], request.path_params['project_id'], ('thesis',))
     elif operation in PAPER_PROJECT_OPERATIONS or operation in CUSTOMER_MANUSCRIPT_READS:

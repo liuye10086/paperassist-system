@@ -26,13 +26,13 @@ it('shows only the selected detail view and reads events and usage on demand', a
   const props = { projectId: 'p1', taskId: 't1', onChanged: vi.fn(), onViewChange: change }
   const view = render(<TaskDetail {...props} view="overview" />)
   await screen.findByText('分析配置 v1')
-  expect(screen.queryByRole('button', { name: '预算或配置已调整，继续任务' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '继续原任务' })).toBeNull()
   expect(screen.queryByRole('region', { name: '此任务的成果' })).toBeNull()
   expect(fetch.mock.calls.every(([url]) => url.endsWith('/workspace'))).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: '待处理' }))
   expect(change).toHaveBeenCalledWith('actions')
   view.rerender(<TaskDetail {...props} view="actions" />)
-  expect(screen.getByRole('button', { name: '预算或配置已调整，继续任务' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '继续原任务' })).toBeTruthy()
   expect(screen.queryByText('分析配置 v1')?.closest('[hidden]')).toBeTruthy()
   view.rerender(<TaskDetail {...props} view="events" />)
   await screen.findByRole('region', { name: '执行记录' })
@@ -85,7 +85,7 @@ it('stops hidden polling without aborting a submitted action and retains its err
   const props = { projectId: 'p1', selectedTaskId: 't1', onSelectTask: vi.fn(), detailView: 'actions' as const, onDetailViewChange: vi.fn(), registerLeaveGuard: register }
   const view = render(<ProjectTasks {...props} active />)
   await act(async () => {})
-  fireEvent.click(screen.getByRole('button', { name: '预算或配置已调整，继续任务' }))
+  fireEvent.click(screen.getByRole('button', { name: '继续原任务' }))
   expect([...guards].every(guard => guard())).toBe(false)
   const post = fetch.mock.calls.find(([, init]) => init?.method === 'POST')!
   view.rerender(<ProjectTasks {...props} active={false} />)

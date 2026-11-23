@@ -10,7 +10,7 @@ type Preview = {
   bundle_sha256: string
   binding_sha256: string
   model: string
-  reserved_micro_usd: number
+  reserved_micro_usd?: number | null
   fact_count: number
   facts?: ReportDisclosureMaterial
   figures: {number: number; title: string; source_caption?: string; caption_facts?: ReportDisclosureFact[]}[]

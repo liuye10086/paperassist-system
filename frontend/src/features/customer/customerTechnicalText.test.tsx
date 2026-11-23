@@ -409,75 +409,36 @@ it('shows the customer language check without the advanced read-back or folded s
   expect(document.body.textContent).not.toMatch(/DOCX/)
 })
 
-// B03 task 11: end to end through CustomerWorkspace on an SCI project — the manuscript step, the writing view and the
-// Word step — every page scans clean and keeps the customer wording (no 事实稿 / 受控 / DOCX / occurrence, nothing folded).
-it('walks the SCI manuscript, writing and Word steps without identifiers, old wording or folds', async () => {
-  const { createHash, webcrypto } = await import('node:crypto')
-  const { candidatesFixture, exportFixture, manuscriptFixture, snapshotFixture } = await import('../manuscripts/manuscriptFixtures')
-  const { bundleFixture } = await import('../manuscripts/writingLiveFixtures')
-  vi.stubGlobal('crypto', webcrypto)
-  const manuscriptId = '0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e', versionId = '1e2d3c4b-5a69-4877-9685-a4b3c2d1e0f9'
-  const taskId = '2d3c4b5a-6978-4786-a594-b3c2d1e0f9a8', bundleId = '3c4b5a69-7887-4695-b4a3-c2d1e0f9a8b7'
-  const exportId = '4b5a6978-8796-4a4b-83b2-d1e0f9a8b7c6', failedId = '5a697887-96a5-4b3c-92c1-e0f9a8b7c6d5'
-  const exportTask = '69788796-a5b4-4c2d-a1d0-f9a8b7c6d5e4'
-  const runId = '7887a5b4-c3d2-4e1f-90a8-b7c6d5e4f3a2', citationId = '8796b4c3-d2e1-4f0a-9fb7-c6d5e4f3a2b1'
-  const token = '7c3e9a1f5b2d8064c9e3a7f1b5d2c8e4a6f0b9d3c7e1a5f2b8d4c0e6a3f9b7d1'
-  const wordSha = createHash('sha256').update('word').digest('hex')
-  const sciProject = { ...project, project_type: 'sci', research_topic: '比较病例与对照的血清指标' }
-  const settings = { article_type: 'narrative_review', proposed_title: '血清指标综述', target_journal: { choice: 'undecided', name: null },
-    keywords: ['血清'], review_sections: [{ id: 'section-1', heading: '文献主题', content: '描述领域现状。' }] }
-  const snapshot = { ...snapshotFixture, project_id: projectId, title: '血清指标综述', notice: '本地整理的写作材料',
-    methods: [{ ...snapshotFixture.methods[0], text: '病例组与对照组按年龄匹配。' }], issues: [] }
-  const version = { ...manuscriptFixture.versions[0], id: versionId, task_id: taskId, created_at: time, snapshot, exports: [] }
-  const manuscript = { ...manuscriptFixture, id: manuscriptId, project_id: projectId, title: '血清指标综述', created_at: time, updated_at: time, versions: [version] }
-  const writing = `${base}/manuscripts/${manuscriptId}`
-  const wire = JSON.stringify({ model: 'gpt-5.4-2026-03-05', input: JSON.stringify({ instructions: '比较病例与对照的血清指标', sources: [], evidence: [] }) })
-  const digest = createHash('sha256').update(wire).digest('hex')
-  const word = (id: string, extra: object) => ({ ...exportFixture, id, version_id: versionId, task_id: exportTask, created_at: time, ...extra })
-  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === base) return Response.json(sciProject)
-    if (url === base + '/sci-settings') return Response.json({ settings, revision: 2 })
-    if (url === base + '/manuscripts') return Response.json({ items: [manuscript] })
-    if (url === base + '/manuscripts/candidates') return Response.json({ ...candidatesFixture, project_type: 'sci',
-      items: [{ ...candidatesFixture.items[0], id: runId, file_id: fileId, label: '血清指标分组比较', download_url: null }],
-      citation_drafts: [{ id: citationId, revision: 1, title: '已核验引用', usable: true }],
-      paper_plan: { kind: 'narrative_review', title: '血清指标综述', keywords: ['血清'], sections: [], materials: [], token, omitted_count: 0 } })
-    if (init?.method === 'POST' && url === writing + '/writing-previews') return Response.json({
-      ...bundleFixture(bundleId, manuscriptId), project_id: projectId, base_version_id: versionId, request_json: JSON.parse(String(init.body)),
-      wire_json: wire, bundle_sha256: digest, wire_sha256: digest, wire_bytes: new TextEncoder().encode(wire).length })
-    if (url === writing + '/writing-previews') return Response.json({ items: [], capabilities: { real_calls_enabled: true } })
-    if (url === writing + '/versions/1/exports') return Response.json({ items: [
-      word(exportId, { sha256: wordSha, filename: 'serum_review.docx', download_url: `${writing}/exports/${exportId}/download` }),
-      word(failedId, { status: 'failed', error_code: 'task_failed', filename: null, download_url: null, sha256: null, size_bytes: null }),
-    ] })
-    return Response.json({ items: [], total: 0, page: 1, page_size: 5 })
-  }))
-  const ids = { systemIds: [...systemIds, manuscriptId, versionId, taskId, bundleId, exportId, failedId, exportTask, runId, citationId, token, wordSha, digest] }
+it('shows the SCI draft, Word download and revision form without internal identifiers or retired review actions', async () => {
+  const { fireEvent } = await import('@testing-library/react')
+  const draft = { manuscript_id: submissionId, revision: 1, request_id: feedbackId }
+  const reader = base + '/manuscripts/' + draft.manuscript_id + '/writing-requests/' + draft.request_id + '/draft-reader'
+  const fetch = vi.fn(async (url: string) => {
+    if (url === base) return Response.json({ ...project, project_type: 'sci' })
+    if (url === base + '/sci-current-draft') return Response.json({draft})
+    if (url === reader + '?revision=1') return Response.json({project_id: projectId, ...draft, status: 'succeeded',
+      error_code: null, can_revise: true, previous_request_id: null, changes: [], draft: {title: '血清指标综述', output_language: 'zh-CN',
+        sections: [{id: 'title', heading: '标题', level: 1, groups: [],
+          paragraphs: [{id: memberId, parts: [{text: '血清指标综述', citations: []}]}]}], keywords: [], references: [], acknowledgements: ''}})
+    return new Response(null, {status: 404})
+  })
+  vi.stubGlobal('fetch', fetch)
+  window.history.replaceState(null, '', '#customer-project=' + projectId + '&step=word')
+  render(<CustomerWorkspace />)
+  await screen.findByRole('heading', {name: '血清指标综述'})
   const check = () => {
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(findTechnicalText(document.body, ids)).toEqual([])
-    expect(document.body.textContent).not.toMatch(/事实稿|受控模型写作|受控写作|DOCX|occurrence/)
-    expect(document.querySelector('details')).toBeNull()
-    // The shell's menu buttons may expand; nothing inside the step content expands in place.
-    expect(document.querySelector('.customer-step-content [aria-expanded]')).toBeNull()
-    expect(screen.queryByRole('button', { name: /另建稿件|以此版本编辑新稿|用当前要求另建/ })).toBeNull()
+    expect(scan()).toEqual([])
+    expect(document.body.textContent).not.toMatch(/事实稿|受控模型写作|逐条回复|DOCX|occurrence/)
+    expect(screen.queryByRole('button', {name: '以此版本处理意见'})).toBeNull()
   }
-  const visit = (hash: string) => {
-    cleanup()
-    window.history.replaceState(null, '', `#customer-project=${projectId}&${hash}`)
-    render(<CustomerWorkspace />)
-  }
-  visit('step=manuscripts')
-  await screen.findByRole('heading', { name: '稿件与复核', level: 1 })
-  await screen.findAllByText('血清指标综述')
   check()
-  visit(`step=manuscripts&manuscript=${manuscriptId}&revision=1&view=writing`)
-  await screen.findByText('本次将使用以下材料生成正文')
+  const word = screen.getByRole('link', {name: /下载.*Word/})
+  expect(word.getAttribute('href')).toBe(reader + '/word?revision=1')
+  fireEvent.click(screen.getByRole('button', {name: '修改初稿'}))
+  expect(await screen.findByLabelText('审稿意见')).toBeTruthy()
   check()
-  visit(`step=word&manuscript=${manuscriptId}&revision=1&view=exports`)
-  await screen.findByRole('link', { name: '下载这份 Word' })
-  await screen.findByText('这一版 Word 没有生成成功。请先查看任务结果。')
-  check()
+  expect(fetch.mock.calls.map(([url]) => url).some(url => /\/reviews|\/exports|\/writing-authorizations/.test(url))).toBe(false)
 })
 
 // B04 task 14: end to end through CustomerWorkspace on a thesis project — the template list, upload page, single adoption
@@ -485,8 +446,8 @@ it('walks the SCI manuscript, writing and Word steps without identifiers, old wo
 // with only the identified Word and with a historical blind export; and the supervisor's returned Word. Every page
 // scans clean, keeps the customer wording and folds nothing. A probe puts a fixture ID and an XML part back on the
 // page and expects the scan to turn red, so a page that renders nothing cannot pass.
-it('walks the thesis template, materials, chapter, writing, migration, Word and return pages without identifiers, old wording or folds', async () => {
-  const { fireEvent, waitFor } = await import('@testing-library/react')
+it('shows thesis details, template rules and uploads without internal identifiers', async () => {
+  const { fireEvent } = await import('@testing-library/react')
   const { createHash, webcrypto } = await import('node:crypto')
   const { manuscriptFixture, snapshotFixture, exportFixture } = await import('../manuscripts/manuscriptFixtures')
   const { bundleFixture } = await import('../manuscripts/writingLiveFixtures')
@@ -616,29 +577,29 @@ it('walks the thesis template, materials, chapter, writing, migration, Word and 
     expect(screen.queryByRole('alert')).toBeNull()
     expect(findTechnicalText(document.body, ids)).toEqual([])
     expect(document.body.textContent).not.toMatch(banned)
-    expect(document.querySelectorAll('details')).toHaveLength(0)
-    // The shell's menu buttons may expand; nothing inside the step content expands in place.
-    expect(document.querySelector('.customer-step-content [aria-expanded]')).toBeNull()
+    if (!document.querySelector('.thesis-organizer-panels')) {
+      expect(document.querySelectorAll('details')).toHaveLength(0)
+      expect(document.querySelector('.customer-step-content [aria-expanded]')).toBeNull()
+    }
   }
   const visit = (hash: string) => {
     cleanup()
     window.history.replaceState(null, '', `#customer-project=${projectId}&${hash}`)
     render(<CustomerWorkspace />)
   }
-  const fixed = `manuscript=${id.manuscript}&revision=2`
-  // Project details with and without an adopted template (B04 task 8): “采用”, never “绑定” or DOCX.
-  visit('step=details')
+  // The organizer uses customer-facing language whether or not a template is adopted.
+  visit('step=school')
   await screen.findByText('已采用学校模板 · 学校 2025 模板')
   check()
   expect(document.body.textContent).not.toMatch(/绑定/)
   state.adopted = false
-  visit('step=details')
-  await screen.findByText('请上传学校 Word 模板，确认规则并采用后填写章节内容。')
+  visit('step=school')
+  await screen.findByRole('button', { name: '上传学校模板' })
   check()
   expect(document.body.textContent).not.toMatch(/绑定/)
   state.adopted = true
   // Template list, the upload page and the single adoption view (B04 tasks 5, 6).
-  visit('step=school')
+  visit('step=school&view=list')
   await screen.findByRole('heading', { name: '学校模板', level: 1 })
   await screen.findAllByText('学校 2026 模板')
   check()
@@ -652,7 +613,7 @@ it('walks the thesis template, materials, chapter, writing, migration, Word and 
   fireEvent.click(screen.getByRole('radio', { name: /四号/ }))
   fireEvent.click(screen.getByRole('button', { name: '改用这份模板' }))
   await screen.findByRole('heading', { name: '改用后会影响这些章节和格式' })
-  expect(screen.getByText('已下载的 Word 保持原样；第 2 版要按新模板导出，需要先把稿件迁移到新模板。')).toBeTruthy()
+  expect(screen.getByText('第 2 版使用原模板。之后生成的初稿将使用新模板。')).toBeTruthy()
   check()
   // Probe against a false green: a fixture ID or an XML part put back on the page turns the scan red.
   const probe = document.createElement('p')
@@ -665,41 +626,8 @@ it('walks the thesis template, materials, chapter, writing, migration, Word and 
   check()
   // Writing materials and literature (B04 task 7).
   visit('step=materials')
-  await screen.findByRole('heading', { name: '写作资料与引用', level: 1 })
+  await screen.findByRole('heading', { name: '上传资料', level: 1 })
   await screen.findAllByText('学校论文模板.docx')
-  check()
-  visit('step=citations')
-  await screen.findByText('尚无检索记录。')
-  check()
-  // Chapters, writing and template migration of the fixed version (B04 tasks 7–9).
-  visit(`step=manuscripts&${fixed}&view=materials`)
-  await screen.findByText('学校章节配置')
-  await screen.findAllByText('第 3 章 研究设计')
-  check()
-  visit(`step=manuscripts&${fixed}&view=writing`)
-  await screen.findByText('本次将使用以下材料生成正文')
-  await screen.findByRole('region', { name: '本次可生成的章节' })
-  check()
-  visit(`step=manuscripts&${fixed}&view=school&target=${id.confirmB}`)
-  await screen.findByLabelText('选择新模板')
-  check()
-  // Word page: only the identified Word (B04 tasks 0.5f, 10, 11) …
-  visit(`step=word&${fixed}&view=exports`)
-  await screen.findByRole('link', { name: '下载这份 Word' })
-  await screen.findByText('封面与目录')
-  expect(screen.queryByText('历史盲审稿')).toBeNull()
-  check()
-  // … and a version with a historical blind export, which shows only the read-only label beside its download.
-  exportsWith.blind = true
-  visit(`step=word&${fixed}&view=exports`)
-  await screen.findByText('历史盲审稿')
-  expect(screen.getAllByRole('link', { name: '下载这份 Word' })).toHaveLength(2)
-  expect(screen.queryByRole('button', { name: /重试|派生/ })).toBeNull()
-  check()
-  // The supervisor's returned Word (B04 tasks 12, 13).
-  visit(`step=reviews&view=continuation&round=${id.round}`)
-  const returned = await screen.findByRole('region', { name: '导师返回的 Word' })
-  await waitFor(() => expect(returned.textContent).toContain('（已带入）'))
   check()
 }, 30000)
 
@@ -818,57 +746,12 @@ function visitB05(hash: string) {
   render(<CustomerWorkspace />)
 }
 
-describe.each(['sci', 'thesis'] as const)('B05 cross-module customer pages (%s)', projectType => {
+describe('thesis cross-module customer pages', () => {
+  const projectType = 'thesis'
   beforeEach(() => {
     vi.stubGlobal('URL', class extends URL { static createObjectURL = vi.fn(() => 'blob:x'); static revokeObjectURL = vi.fn() })
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   })
-
-  it('walks the review trip to the analysis results and back without identifiers, old wording or folds', async () => {
-    const { fireEvent, waitFor, within } = await import('@testing-library/react')
-    const state = { results: true, projects: true, uploaded: false }
-    serveB05(projectType, state)
-    visitB05(`customer-project=${projectId}&step=reviews&view=science&round=${b05.round}`)
-    await screen.findByRole('heading', { name: '分析材料补充' })
-    checkB05()
-    // The round heading offers the round's task in customer words.
-    expect(screen.getByRole('button', { name: '查看本轮任务' })).toBeTruthy()
-    expect(screen.queryByText(/本地计划/)).toBeNull()
-    fireEvent.click(await screen.findByRole('button', { name: '去分析项目取结果' }))
-    // With results: the list of published analysis results.
-    const row = await screen.findByRole('button', { name: /血清分析项目 · 血清指标比较/ })
-    await screen.findByText('正在为“第 1 轮 · 意见 1”取分析结果')
-    checkB05()
-    // Probe against a false green: a fixture ID put back on the page turns the scan red.
-    const probe = document.createElement('p')
-    probe.textContent = '来源 ' + b05.snapshot
-    document.querySelector('.customer-analysis-results')!.append(probe)
-    expect(checkB05).toThrow()
-    probe.remove()
-    checkB05()
-    // One result chosen: Word first, the table marked, and the note after a download.
-    fireEvent.click(row)
-    const files = await screen.findByRole('list', { name: '成果文件' })
-    expect(within(files).getAllByRole('listitem')[0].textContent).toContain('生存分析.docx')
-    expect(files.textContent).toContain('需放进 Word 后再上传')
-    checkB05()
-    fireEvent.click(screen.getByRole('link', { name: '下载 生存分析.docx' }))
-    await screen.findByText('下载所需文件后，可以返回 第 1 轮 · 意见 1 继续上传。')
-    checkB05()
-    // Back on the opinion: the supplement page says where the file came from.
-    fireEvent.click(screen.getByRole('link', { name: '返回 第 1 轮 · 意见 1' }))
-    await screen.findByText('为 第 1 轮 · 意见 1 上传 · 来自 血清分析项目 · 血清指标比较')
-    await waitFor(() => expect(window.location.hash).toContain('view=supplements'))
-    checkB05()
-    // Empty: no published analysis result yet, with the way back.
-    state.results = false
-    const token = new URLSearchParams({ return: `customer-project=${projectId}&step=reviews&view=supplements&round=${b05.round}&item=${encodeURIComponent(`${b05.source}:1`)}`,
-      returnLabel: 'review-item', returnRound: '1', returnItem: '1' })
-    visitB05(`customer-project=${projectId}&step=reviews&view=analysis-results&${token}`)
-    await screen.findByText('还没有已发布的分析成果。分析完成后会在这里出现。')
-    expect(screen.getByRole('button', { name: '返回 第 1 轮 · 意见 1' })).toBeTruthy()
-    checkB05()
-  }, 30000)
 
   it('walks the writing materials trip to the analysis results and back without identifiers, old wording or folds', async () => {
     const { fireEvent, within } = await import('@testing-library/react')
@@ -892,18 +775,10 @@ describe.each(['sci', 'thesis'] as const)('B05 cross-module customer pages (%s)'
     checkB05()
   }, 30000)
 
-  it('shows the manuscripts step reached from a review round without identifiers, old wording or folds', async () => {
-    serveB05(projectType, { results: true, projects: true, uploaded: false })
-    const token = new URLSearchParams({ return: `customer-project=${projectId}&step=reviews&view=continuation&round=${b05.round}`,
-      returnLabel: 'review-round', returnRound: '1' })
-    visitB05(`customer-project=${projectId}&step=manuscripts&${token}`)
-    await screen.findByRole('link', { name: '返回 第 1 轮' })
-    await screen.findAllByText('血清指标论文')
-    checkB05()
-  })
+
 })
 
-describe.each(['research', 'sci'] as const)('B05 old task page (%s)', projectType => {
+describe.each(['research', 'thesis'] as const)('B05 old task page (%s)', projectType => {
   it('shows the customer task page without identifiers, internal wording or folds', async () => {
     const { fireEvent } = await import('@testing-library/react')
     serveB05(projectType, { results: true, projects: true, uploaded: false })

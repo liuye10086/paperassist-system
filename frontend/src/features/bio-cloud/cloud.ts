@@ -6,8 +6,8 @@ export type Profile={id:string;name?:string;species:string;chemistries:string[];
 export type Capabilities={enabled:boolean;provider:string;region?:string;profiles:Profile[];blockers:string[];part_size:number;evidence:{documentation_supported:boolean;code_integrated:boolean;real_data_verified:boolean}}
 export type Output={role:string;file_id:string;filename?:string;size_bytes?:number;sha256?:string}
 export type CloudRun={id:string;status:string;sample_id:string;library_id:string;engine:string;error_code?:string;cancel_requested?:boolean;provider_run_id?:string;provider_state?:string;outputs:Output[];task?:{id:string;revision:number;status:string};verification?:unknown}
-export type RunDraft={profile_id:string;sample_id:string;library_id:string;donor_id:string;group:string;chemistry:string;r1:string;r2:string;budget_limit_usd:string}
-export const newRunDraft=():RunDraft=>({profile_id:'',sample_id:'',library_id:'',donor_id:'',group:'',chemistry:'',r1:'',r2:'',budget_limit_usd:''})
+export type RunDraft={profile_id:string;sample_id:string;library_id:string;donor_id:string;group:string;chemistry:string;r1:string;r2:string}
+export const newRunDraft=():RunDraft=>({profile_id:'',sample_id:'',library_id:'',donor_id:'',group:'',chemistry:'',r1:'',r2:''})
 export const cloudStorageKey=(owner:string,project:string)=>`paperassist.bio-cloud.v1:${encodeURIComponent(owner)}:${encodeURIComponent(project)}`
 export const cloudBase=(project:string)=>`${projectBase(project)}/bio-cloud`
 type Pending={key:string;kind:'upload'|'run'}
@@ -33,8 +33,8 @@ export class CloudClient {
  async lookup<T>(signal?:AbortSignal):Promise<T>{if(!this.pending)throw Error('没有待查请求。');const {key,kind}=this.pending;const value=await this.request<T>(`/requests/${encodeURIComponent(key)}?kind=${kind}`,{signal});this.checkSession();requireReceipt(value,kind);this.save(null);return value}
 }
 export function runBody(draft:RunDraft,profile:Profile){
- if(!profile.account_verified||!draft.sample_id.trim()||!draft.library_id.trim()||!draft.r1||!draft.r2||draft.r1===draft.r2||!profile.chemistries.includes(draft.chemistry)||!/^\d+(\.\d{1,2})?$/.test(draft.budget_limit_usd)||Number(draft.budget_limit_usd)<=0)throw Error('请核对文库、FASTQ配对、流程和正数预算。')
- return {profile_id:profile.id,sample_id:draft.sample_id.trim(),library_id:draft.library_id.trim(),species:profile.species,chemistry:draft.chemistry,donor_id:draft.donor_id.trim(),group:draft.group.trim(),fastqs:[{upload_id:draft.r1,read:'R1',lane:'L001',chunk:1},{upload_id:draft.r2,read:'R2',lane:'L001',chunk:1}],external_processing_confirmed:true,budget_approved:true,budget_limit_usd:draft.budget_limit_usd}
+ if(!profile.account_verified||!draft.sample_id.trim()||!draft.library_id.trim()||!draft.r1||!draft.r2||draft.r1===draft.r2||!profile.chemistries.includes(draft.chemistry))throw Error('请核对文库、FASTQ 配对和流程。')
+ return {profile_id:profile.id,sample_id:draft.sample_id.trim(),library_id:draft.library_id.trim(),species:profile.species,chemistry:draft.chemistry,donor_id:draft.donor_id.trim(),group:draft.group.trim(),fastqs:[{upload_id:draft.r1,read:'R1',lane:'L001',chunk:1},{upload_id:draft.r2,read:'R2',lane:'L001',chunk:1}],external_processing_confirmed:true}
 }
 export function matrixOutputs(outputs:Output[]){const roles=['matrix','features','barcodes'] as const;const selected=Object.fromEntries(roles.map(role=>[role,outputs.find(o=>o.role===role)?.file_id]));return roles.every(role=>selected[role])?selected as Record<typeof roles[number],string>:null}
 type Request=<T>(path:string,init?:RequestInit)=>Promise<T>

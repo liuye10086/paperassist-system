@@ -1,4 +1,4 @@
-"""Atomic task policy budgets and model admission fencing in isolated schemas."""
+"""Atomic task policies and model admission fencing in isolated schemas."""
 from datetime import timedelta
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
@@ -15,7 +15,7 @@ from tests.api.test_boxplot import cloud  # noqa: F401
 from tests.api.test_explanation_tasks import persistence_counts
 from tests.domain.test_explanation_policy import execution_policy
 from tests.integration.test_explanations import ready
-from tests.integration.test_model_usage import context, configure, request  # noqa: F401
+from tests.integration.test_model_usage import context, request  # noqa: F401
 
 
 def install_lease(task_id, *, attempt=1, expired=False):
@@ -31,7 +31,7 @@ def install_lease(task_id, *, attempt=1, expired=False):
 
 
 def test_valid_successor_lease_can_submit_reserved_call_at_current_revision(context):
-    service = configure(context)
+    service = context[0]
     saved = service.reserve_call(request(context[3]))
     lease = install_lease(context[3], attempt=2)
     with database_connection(write=True) as db:
@@ -43,7 +43,7 @@ def test_valid_successor_lease_can_submit_reserved_call_at_current_revision(cont
 
 @pytest.mark.parametrize('damage', ['expired', 'token', 'attempt', 'task'])
 def test_invalid_lease_cannot_reserve_budget(context, damage):
-    service = configure(context)
+    service = context[0]
     lease = install_lease(context[3], expired=damage == 'expired')
     if damage == 'token':
         lease = TaskLease(lease.task_id, lease.attempt_no, 'stale')
@@ -58,7 +58,7 @@ def test_invalid_lease_cannot_reserve_budget(context, damage):
 
 
 def test_lost_lease_after_reservation_cannot_begin_submission(context):
-    service = configure(context)
+    service = context[0]
     lease = install_lease(context[3])
     saved = service.reserve_call(request(context[3]), execution_lease=lease)
     with database_connection(write=True) as db:
@@ -69,7 +69,7 @@ def test_lost_lease_after_reservation_cannot_begin_submission(context):
 
 
 def test_lease_does_not_bypass_expected_revision(context):
-    service = configure(context)
+    service = context[0]
     lease = install_lease(context[3])
     saved = service.reserve_call(request(context[3]), execution_lease=lease)
     with pytest.raises(StorageError) as error:
@@ -78,7 +78,7 @@ def test_lease_does_not_bypass_expected_revision(context):
 
 
 def test_old_snapshot_defaults_are_normalized_during_idempotent_replay(context):
-    service = configure(context)
+    service = context[0]
     saved = service.reserve_call(request(context[3]))
     assert saved['policy_snapshot']['output_format'] == 'text'
     original = saved['policy_snapshot'].copy()
@@ -98,23 +98,23 @@ def create_input(client):
     return TaskService(task_owner(client)), base.split('/')[4], request
 
 
-def test_task_policy_and_budget_are_frozen_in_creation_transaction(client, cloud):
+def test_task_policy_is_frozen_without_creating_a_budget(client, cloud):
     service, project, value = create_input(client)
     config = execution_policy()
     task, created = service.create(project, value, idempotency_key='policy', explanation_policy=config)
     assert created
-    config['task_limit_micro_usd'] += 1
+    config['input_token_allowance'] += 1
     with database_connection() as db:
         stored = db.execute('SELECT input_snapshot FROM tasks WHERE id=%s', (task['id'],)).fetchone()['input_snapshot']
         budget = db.execute('SELECT * FROM model_budgets WHERE task_id=%s', (task['id'],)).fetchone()
-    assert stored['explanation_policy'] == execution_policy()
-    assert budget['limit_micro_usd'] == execution_policy()['task_limit_micro_usd'] and budget['revision'] == 1
+    assert stored['explanation_policy'] == {k:v for k,v in execution_policy().items() if k!='task_limit_micro_usd'}
+    assert budget is None
     assert 'explanation_policy' not in task
     repeated, created = service.create(project, value, idempotency_key='policy', explanation_policy={'invalid': True})
     assert not created and repeated['id'] == task['id']
 
 
-def test_task_budget_rolls_back_if_outbox_creation_fails(client, cloud, monkeypatch):
+def test_task_creation_rolls_back_if_outbox_creation_fails(client, cloud, monkeypatch):
     from app.adapters.task_store import TaskStore
     service, project, value = create_input(client)
     before = persistence_counts()
@@ -157,7 +157,8 @@ def test_source_admission_is_atomic_across_request_headers(client, cloud, same_h
     assert sum(created for _, created in accepted) == 1
     assert len({task['id'] for task, _ in accepted}) == 1
     after = persistence_counts()
-    for table in ('tasks', 'task_outbox', 'model_budgets'):
+    assert after['model_budgets'] == before['model_budgets']
+    for table in ('tasks', 'task_outbox'):
         assert after[table] == before[table] + 1
 
 

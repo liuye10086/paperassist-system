@@ -1,4 +1,4 @@
-"""Deployment-selected reader policy; prices and budgets are never guessed."""
+"""Deployment-selected reader policy and prices."""
 import json
 
 from app.core.config import local_config
@@ -24,12 +24,12 @@ def configuration():
             raise ValueError('Reader prose may not execute tools')
         raw.update(prompt_version=STANDARD_VERSION, output_format='reader_report_v1')
         parsed = ModelPolicy.model_validate(raw)
-        allowance, cap = value['input_token_allowance'], value['task_limit_micro_usd']
-        if type(allowance) is not int or not 1 <= allowance <= MAX_MICRO_USD or type(cap) is not int or not 1 <= cap <= MAX_MICRO_USD:
-            raise ValueError('Invalid reader budget')
-        return {'policy': parsed.model_dump(mode='json'), 'input_token_allowance': allowance, 'task_limit_micro_usd': cap}
+        allowance = value['input_token_allowance']
+        if type(allowance) is not int or not 1 <= allowance <= MAX_MICRO_USD:
+            raise ValueError('Invalid reader input allowance')
+        return {'policy': parsed.model_dump(mode='json'), 'input_token_allowance': allowance}
     except (OSError, ValueError, KeyError, TypeError):
-        raise StorageError('reader_report_not_configured', '详细报告的模型策略、输入上限或预算尚未配置，请联系管理员。', 503) from None
+        raise StorageError('reader_report_not_configured', '详细报告的模型策略或输入上限尚未配置，请联系管理员。', 503) from None
 
 
 def policy():
@@ -39,16 +39,12 @@ def policy():
 def bundle(material):
     config = configuration()
     prompt = instructions(material['language'])
-    # An explicit deployment allowance is reserved in full. The byte estimate
-    # and per-image margin only reject oversized requests; they are not a token
-    # measurement or a claim about provider billing.
+    # The byte estimate and image margin reject oversized requests before transmission.
     minimum = len(prompt.encode('utf-8')) + input_text_bytes(material) + 8192 * len(material['figures']) + 4096
     if minimum > config['input_token_allowance']:
         raise StorageError('reader_report_input_limit', '选定结果与图片超出详细报告的输入额度，请减少选择或由管理员调整配置。', 422)
     parsed = ModelPolicy.model_validate(config['policy'])
     reserved = reserve_micro_usd(parsed, config['input_token_allowance'], 0)
-    if reserved > config['task_limit_micro_usd']:
-        raise StorageError('reader_report_budget_limit', '详细报告的单任务预算不足以覆盖已配置的输入和输出上限。', 422)
     value = {**config, 'schema_version': 1, 'instructions': prompt, 'material': material,
              'input_digest': input_digest(instructions=prompt, payload=material),
              'reserved_micro_usd': reserved, 'real_calls_enabled': real_calls_enabled()}

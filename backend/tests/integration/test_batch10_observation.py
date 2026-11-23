@@ -8,11 +8,11 @@ from psycopg.types.json import Jsonb
 from app.db.database import database_connection
 from app.domain.model_usage.gateway import ModelGateway, ModelGatewayError
 from app.core.exceptions import StorageError
-from tests.integration.test_model_usage import context, configure, request, response  # noqa: F401
+from tests.integration.test_model_usage import context, request, response  # noqa: F401
 
 
 def test_first_submission_persists_window_and_restart_does_not_reset_it(context):
-    service = configure(context)
+    service = context[0]
     saved = service.reserve_call(request(context[3]))
     assert service.begin_submission(saved['id'])
     first = service.get_call(saved['id'])['provider_state']['observation']
@@ -23,7 +23,7 @@ def test_first_submission_persists_window_and_restart_does_not_reset_it(context)
 
 
 def expired(context):
-    service = configure(context)
+    service = context[0]
     saved = service.reserve_call(request(context[3]))
     service.begin_submission(saved['id'])
     saved = response(service, saved, status='in_progress', usage=None)
@@ -45,7 +45,7 @@ def test_expiry_preserves_receipt_and_reservation_without_network_or_resend(cont
         ModelGateway(service, provider).refresh(saved['id'])
     assert error.value.code == 'model_observation_expired'
     assert service.get_call(saved['id']) == before
-    assert service.project_usage(context[2])['reserved_micro_usd'] > 0
+    assert service.project_usage(context[2])['reserved_micro_usd'] == 0
 
 
 def test_explicit_original_response_continuation_is_atomic_idempotent_and_preserves_first_start(context):
@@ -173,8 +173,7 @@ def test_expired_continuation_authorizes_exactly_one_get_and_never_renews_window
     assert observed['retrieval_grant']['consumed_at'] is not None
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 1
-        assert db.execute('SELECT count(*) AS n FROM budget_reservations').fetchone()['n'] == 3
-        assert all(row['status'] == 'held' for row in db.execute('SELECT status FROM budget_reservations').fetchall())
+        assert db.execute('SELECT count(*) AS n FROM budget_reservations').fetchone()['n'] == 0
 
 
 def test_parallel_resume_and_refresh_cannot_duplicate_the_single_get_grant(context):

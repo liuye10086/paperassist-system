@@ -29,8 +29,7 @@ def queued_version(client,monkeypatch,version):
     body['external_processing']=dict(version=1,confirmed=True,source_digest=value['source_digest'],labels={i['key']:i['value'] for i in value['labels']})
     response=seed_legacy_recommendation(client,endpoint,json=body,headers={'Idempotency-Key':'recovery-version'})
     assert response.status_code==202,response.text
-    task=response.json();owner=task_owner(client);ledger=ModelUsageService(owner)
-    for scope,key in [('user',owner),('project',task['project_id'])]: ledger.set_budget(scope,key,5000000,0)
+    task=response.json()
     return task
 
 

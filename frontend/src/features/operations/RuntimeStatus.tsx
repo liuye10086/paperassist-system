@@ -16,7 +16,7 @@ export default function RuntimeStatus({onForbidden,active=true}:{onForbidden:()=
  const fact=(label:string,content:ReactNode)=><div><dt>{t(label)}</dt><dd>{content}</dd></div>
  const state=(health:RuntimeHealth|undefined)=>fresh&&health&&freshRuntimeStamp(health.observed_at,now)?t(({healthy:'健康',unavailable:'不可用',unknown:'未知'} as const)[health.status]):unknown
  const healthTime=(health:RuntimeHealth|undefined)=>health?.observed_at??unknown
- const q=fresh?data?.queue:null,f=fresh?data?.failures:null,b=fresh?data?.budgets:null,d=fresh?data?.disk:null
+ const q=fresh?data?.queue:null,f=fresh?data?.failures:null,d=fresh?data?.disk:null
  const e=fresh&&data?.external_limits&&freshRuntimeStamp(data.external_limits.observed_at,now)?data.external_limits:null
  const n=responseFresh?data?.concurrency:null
  const workerProven=fresh&&data?.services.worker.status==='healthy'&&freshRuntimeStamp(data.services.worker.observed_at,now)
@@ -36,7 +36,6 @@ export default function RuntimeStatus({onForbidden,active=true}:{onForbidden:()=
     <section aria-label={t('任务队列')}><h3>{t('任务队列')}</h3><dl className="runtime-facts">{fact('排队任务数',value(q?.queued_count))}{fact('最老等待时长（秒）',q?.queued_count===0?t('无排队任务'):value(q?.oldest_pending_age_seconds))}</dl></section>
     <section aria-label={t('任务失败覆盖')}><h3>{t('任务失败覆盖')}</h3><dl className="runtime-facts">{fact('失败数 / 终态任务数',f?`${f.failed} / ${f.denominator}`:unknown)}{fact('失败比例',f?.ratio==null?unknown:`${(f.ratio*100).toFixed(2)}%`)}{fact('窗口（秒）',value(f?.window_seconds))}{fact('窗口开始',f?.window_start??unknown)}{fact('窗口结束',f?.window_end??unknown)}</dl><p>{t('仅统计窗口内最后更新的终态任务；历史缺失不代表零。')}</p></section>
     <section aria-label={t('外部限流观测')}><h3>{t('外部限流观测')}</h3><dl className="runtime-facts">{fact('已记录 429 / 响应数',e?`${e.observed_429} / ${e.observed_calls}`:unknown)}{fact('观测窗口（秒）',value(e?.window_seconds))}{fact('外部响应采样时间',e?.observed_at??unknown)}</dl><p>{t('仅已记录的供应商响应；不是供应商公布的限流上限。')}</p></section>
-    <section aria-label={t('用户预算观测')}><h3>{t('用户预算观测')}</h3><dl className="runtime-facts">{fact('已登记用户预算数',value(b?.registered_user_budgets))}{fact('预算上限（微美元）',b?.status==='known'?value(b.limit_micro_usd):unknown)}{fact('当前预留（微美元）',b?.status==='known'?value(b.reserved_micro_usd):unknown)}{fact('已记账（微美元）',b?.status==='known'?value(b.accounted_micro_usd):unknown)}</dl><p>{t('仅登记的用户预算；不是全局余额或供应商账单。')}</p></section>
     <section aria-label={t('磁盘观测')}><h3>{t('磁盘观测')}</h3><dl className="runtime-facts">{fact('可用字节',value(d?.free_bytes))}{fact('总字节',value(d?.total_bytes))}</dl><p>{t('仅数据所在文件系统。')}</p></section>
    </div>
    <section aria-label={t('Worker 并发与配置')}><h3>{t('Worker 并发与配置')}</h3><dl className="runtime-facts">

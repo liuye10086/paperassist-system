@@ -6,6 +6,7 @@ from starlette.responses import JSONResponse
 
 
 PUBLIC_CODES = frozenset('''
+draft_feedback_incomplete draft_feedback_too_long
 analysis_quality_required customer_sample_information_read_only
 bio_design_sample_mismatch
 presentation_citation_unresolved presentation_consistency_conflict presentation_language_unavailable
@@ -52,6 +53,8 @@ figure_language_unsupported figure_language_invalid_image figure_language_not_fo
 ncbi_not_configured ncbi_unavailable ncbi_request_rejected ncbi_response_invalid
 literature_not_found literature_source_conflict literature_revision_conflict literature_supplement_limit
 literature_citation_conflict manuscript_not_found manuscript_revision_conflict
+selected_reference_excluded selected_reference_metadata_incomplete selected_reference_quote_invalid
+selected_reference_abstract_unusable selected_reference_abstract_limit
 journal_adaptation_invalid journal_adaptation_preview_conflict journal_adaptation_no_changes
 manuscript_review_input_invalid manuscript_review_not_found manuscript_review_blocked manuscript_review_v2_workflow_required
 authentication_configuration authentication_required csrf_invalid database_configuration
@@ -156,6 +159,11 @@ def safe_params(code, params=None):
         'thesis_chapter_protected': {'position': (1, 300)},
         'manuscript_review_heading_language': {'position': (1, 300)},
         'manuscript_finding_figure_reference': {'position': (1, 10_000)},
+        'selected_reference_excluded': {'position': (1, 20)},
+        'selected_reference_metadata_incomplete': {'position': (1, 20)},
+        'selected_reference_quote_invalid': {'position': (1, 20)},
+        'selected_reference_abstract_unusable': {'position': (1, 20), 'pmid': (1, 999999999999)},
+        'selected_reference_abstract_limit': {'position': (1, 20), 'pmid': (1, 999999999999)},
         'plot_label_too_long': {'max_chars': (1, 10000)},
         'openai_request_failed': {'provider_status': (400, 599)},
     }

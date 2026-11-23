@@ -20,9 +20,9 @@ def identity(task,operation,request,source_kind):
     return operation_key,source,key
 
 
-def admit(db,root,task,lease,operation,request,source_kind):
+def admit(db,root,task,lease,operation,request,source_kind,*,progress=None):
     op,source,key=identity(task,operation,request,source_kind)
-    row=local.lookup(db,root,task['project_id'],op,kind='literature',task_id=task['id'])
+    row=local.lookup(db,root,task['project_id'],op,kind='literature',task_id=task['id'],progress=progress)
     if row:
         if row['candidate_json']['source_identity']!=source or row['object_key']!=key:
             raise s.invalid()
@@ -36,7 +36,7 @@ def admit(db,root,task,lease,operation,request,source_kind):
             return row,(raw,dict(object_key=key,sha256=row['sha256'],size_bytes=row['size_bytes'],
                 attempted_at=datetime.fromisoformat(value['attempted_at']),_storage_id=row['id']))
     row=s.admit_candidate(db,root,task['project_id'],op,Path(root)/key,CAPACITY,
-        task_id=task['id'],source_identity=source,kind='literature')
+        task_id=task['id'],source_identity=source,kind='literature',progress=progress)
     return row,None
 
 
@@ -54,12 +54,12 @@ def capture(db,root,task,lease,row,raw,operation,request,source_kind,attempted_a
     return dict(object_key=key,sha256=sha256(raw).hexdigest(),size_bytes=len(raw),attempted_at=attempted_at,_storage_id=row['id'])
 
 
-def publish(db,root,task,lease,evidence):
+def publish(db,root,task,lease,evidence,*,progress=None):
     if evidence.get('_storage_id'):
         row=c._row(db,evidence['_storage_id'])
         if (row['project_id'],row['owner_id'],row['task_id'],row['kind'])!=(task['project_id'],task['user_id'],task['id'],'literature'):
             raise s.invalid()
-        s.publish_candidate(db,root,row['id'],explicit_recovery=authorized(db,row,task,lease))
+        s.publish_candidate(db,root,row['id'],explicit_recovery=authorized(db,row,task,lease),progress=progress)
     else:
         # Existing scoped cache bytes are already attributable from the receipt.
         # This also closes admission gaps for old typed cache objects before A2e scan.

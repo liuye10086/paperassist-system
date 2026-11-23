@@ -76,14 +76,21 @@ class ReaderReportService(ResearchResultsStore):
         content, files, figures = self._base(db, project, report, check_revision=True)
         return binding_digest(content), files, bundle(_material(content, figures))
 
-    def _lock_binding(self, db, project, binding, bundle_sha):
-        self.lock(db, project, 'reader-report-binding:' + digest([binding, bundle_sha]))
+    def _lock_binding(self, db, project, binding):
+        self.lock(db, project, 'reader-report-binding:' + binding)
 
-    def _reusable(self, db, project, binding, bundle_sha, *, exclude_id=None, reuse_reservation=False,
-                  ignore_unreserved_budget_wait=False):
+    def _reusable(self, db, project, binding, bundle, *, exclude_id=None, reuse_reservation=False,
+                  ignore_unreserved_budget_wait=False, confirmed_sha=None):
+        # Old hashes include the retired cap. Match the immutable policy, instructions and
+        # material digest across that change, including the exact image bytes via input_digest.
+        ignored = ['bundle_sha256', 'task_limit_micro_usd', 'real_calls_enabled']
+        comparable = {k: v for k, v in bundle.items() if k not in ignored}
+        comparable['material'] = public_material(comparable['material'])
         return db.execute("""SELECT n.id,t.status FROM reader_report_narratives n JOIN tasks t ON t.id=n.task_id
             LEFT JOIN model_calls c ON c.task_id=t.id AND c.project_id=t.project_id AND c.user_id=t.user_id AND c.call_key=%s
-            WHERE n.project_id=%s AND n.user_id=%s AND n.binding_sha256=%s AND n.bundle_sha256=%s
+            WHERE n.project_id=%s AND n.user_id=%s AND n.binding_sha256=%s AND
+              (n.bundle_sha256=%s OR (n.input_snapshot->'bundle') - %s::text[] = %s)
+              AND (%s::text IS NULL OR n.bundle_sha256=%s)
               AND n.id IS DISTINCT FROM %s
               AND NOT (%s AND t.status='waiting_confirmation' AND t.reason_code IS NOT DISTINCT FROM 'budget_exceeded'
                        AND c.id IS NULL)
@@ -94,12 +101,13 @@ class ReaderReportService(ResearchResultsStore):
                        AND c.status='reserved' AND c.provider_response_id IS NULL))
             ORDER BY (t.status='succeeded') DESC,(c.status='reserved' AND t.status='failed') ASC NULLS FIRST,
                      n.created_at,n.id LIMIT 1""",
-            (CALL_KEY, project, self.store.user_id, binding, bundle_sha, exclude_id, ignore_unreserved_budget_wait,
+            (CALL_KEY, project, self.store.user_id, binding, bundle['bundle_sha256'], ignored, Jsonb(comparable), confirmed_sha, confirmed_sha, exclude_id, ignore_unreserved_budget_wait,
              sorted(TERMINAL), reuse_reservation, list(RETRYABLE_FAILURES))).fetchone()
 
     def require_no_replacement(self, db, row, *, has_reservation):
-        project, binding, bundle = (row[key] for key in ('project_id', 'binding_sha256', 'bundle_sha256'))
-        self._lock_binding(db, project, binding, bundle)
+        project, binding = row['project_id'], row['binding_sha256']
+        bundle = row['input_snapshot']['bundle']
+        self._lock_binding(db, project, binding)
         # A legacy replacement waiting for a second reservation must not trap the original hold.
         if self._reusable(db, project, binding, bundle, exclude_id=row['id'],
                           ignore_unreserved_budget_wait=has_reservation):
@@ -109,7 +117,7 @@ class ReaderReportService(ResearchResultsStore):
         with self.store.connection() as db:
             binding, _, frozen = self._prepare(db, project, report)
             config = resolve(db)
-            reusable = self._reusable(db, project, binding, frozen['bundle_sha256'])
+            reusable = self._reusable(db, project, binding, frozen)
             cached = bool(reusable and reusable['status'] == 'succeeded')
             if cached:
                 self._result_call(db, *self.row(db, project, reusable['id']))
@@ -140,14 +148,14 @@ class ReaderReportService(ResearchResultsStore):
                     raise invalid('research_idempotency_conflict')
                 return self.view(db, project, existing['narrative_id']), 200
             binding, files, full_bundle = self._prepare(db, project, request.report)
-            if full_bundle['bundle_sha256'] != request.bundle_sha256:
-                raise source_conflict()
             from app.domain.storage_governance.guards import require_scope_open
             require_scope_open(db, project, file_ids=files)
-            self._lock_binding(db, project, binding, request.bundle_sha256)
-            # A retry can reuse a pre-submit hold. Creating another task would
-            # require a second reservation for the same confirmed material.
-            old = self._reusable(db, project, binding, request.bundle_sha256, reuse_reservation=True)
+            self._lock_binding(db, project, binding)
+            # A retry can reuse the existing provider call identity before submission.
+            previous_sha = request.bundle_sha256 if request.bundle_sha256 != full_bundle['bundle_sha256'] else None
+            old = self._reusable(db, project, binding, full_bundle, reuse_reservation=True, confirmed_sha=previous_sha)
+            if previous_sha and not old:
+                raise source_conflict()
             if old:
                 identifier, status = old['id'], 200
             else:
@@ -174,10 +182,6 @@ class ReaderReportService(ResearchResultsStore):
                     reason_code=None, created_at=moment, updated_at=moment)
         self.store.insert_task(db, task, validated_file_ids=files)
         bind(db, kind='task', object_id=task_id, version=configuration)
-        db.execute('''INSERT INTO model_budgets
-            (id,user_id,scope_type,scope_key,project_id,task_id,limit_micro_usd,revision,created_at,updated_at)
-            VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)''',
-            (str(uuid4()), self.store.user_id, task_id, project, task_id, frozen['task_limit_micro_usd'], moment, moment))
         db.execute('''INSERT INTO reader_report_narratives
             (id,project_id,user_id,task_id,request_json,request_digest,input_snapshot,input_digest,
              binding_sha256,bundle_sha256,created_at)

@@ -96,7 +96,6 @@ def test_computed_boxplot_language_version_full_writing_science_language_export_
     from tests.api.test_boxplot import prepared,generate
     from tests.domain.test_figure_language_renderer import labels
     from tests.api.test_manuscript_writing_live import authorize,request_v2,LiveFixture
-    from tests.integration.test_literature_assistance import budgets
     from app.domain.manuscript_writing.execution import run_manuscript_writing_task
     from app.domain.tasks.execution import run_task
     from app.db.database import database_connection
@@ -126,7 +125,7 @@ def test_computed_boxplot_language_version_full_writing_science_language_export_
     bundle=response.json();_,auth=authorize(client,root,bundle)
     response=post(client,root+'/writing-requests',request_v2(bundle,auth),'write')
     assert response.status_code==202,response.text
-    task=response.json()['task'];budgets(client,task)
+    task=response.json()['task']
     class Fixture(LiveFixture):
         def receipt(self):
             import json
@@ -173,7 +172,6 @@ def test_computed_boxplot_language_version_full_writing_science_language_export_
 def test_unknown_image_replacement_language_asset_and_final_docx_are_exact(client):
     from tests.api.test_manuscript_figure_language import setup,uploaded
     from tests.api.test_manuscript_writing_live import authorize,request_v2,LiveFixture
-    from tests.integration.test_literature_assistance import budgets
     from app.domain.manuscript_writing.execution import run_manuscript_writing_task
     from app.domain.tasks.execution import run_task
     from app.adapters.storage import get_project_store
@@ -187,7 +185,7 @@ def test_unknown_image_replacement_language_asset_and_final_docx_are_exact(clien
     root+='/'+created['id'];assert run_task(created['versions'][0]['task_id'],1)['status']=='succeeded'
     bundle=post(client,root+'/writing-previews',dict(schema_version=2,base_revision=1,mode='full_draft',output_language='en',selected_source_ids=[file['id']],selected_evidence_ids=[]),'bundle').json()
     _,auth=authorize(client,root,bundle)
-    task=post(client,root+'/writing-requests',request_v2(bundle,auth),'write').json()['task'];budgets(client,task)
+    task=post(client,root+'/writing-requests',request_v2(bundle,auth),'write').json()['task']
     assert run_manuscript_writing_task(task['id'],1,provider=LiveFixture())['status']=='succeeded'
     path=root+'/writing-requests/'+task['id'];ctx=client.get(path+'/review-context').json()
     science=post(client,path+'/reviews',decision(ctx),'science').json()

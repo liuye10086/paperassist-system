@@ -15,7 +15,7 @@ export default function useEntryImports(projectId:string,active:boolean,location
    do{
     const value=await researchRequest<TaskPage>(`${projectBase(projectId)}/tasks?task_type=bio_import&page=${page}&page_size=50`,{signal:controller.signal})
     if(!live)return
-    for(const {task} of value.items){const input=task.input_version;if(task.project_id===projectId&&input.kind==='bio_import')entries.push({id:input.import_id,status:task.status,fileIds:input.source_file_ids,datasetId:input.dataset_id,versionId:task.result_bio_dataset_version_id??undefined,createdAt:task.created_at})}
+    for(const {task} of value.items){const input=task.input_version;if(task.project_id===projectId&&input.kind==='bio_import')entries.push({parser:input.parser_version,id:input.import_id,status:task.status,fileIds:input.source_file_ids,datasetId:input.dataset_id,versionId:task.result_bio_dataset_version_id??undefined,createdAt:task.created_at})}
     total=value.total;page++
    }while((page-1)*50<total)
    if(live)setData(entries)

@@ -1,4 +1,7 @@
 export const literatureMessages: Record<string,string> = {
+  'PubMed 使用这里的检索式，并应用下方的年份和文献类型条件。研究主题和来源文本用于记录检索背景。':'PubMed uses this query and the year and publication type filters below. The research topic and source text are saved as context.',
+  '已匹配 {count} 篇，正在获取文献详情。候选列表会自动更新。':'PubMed matched {count} articles. Fetching their details. The candidate list will update automatically.',
+  '检索正在进行，候选列表会自动更新。':'Search in progress. The candidate list will update automatically.',
   '检索将使用以下英文词组': 'The search will use these English terms',
   '检索保存失败，请核对后重试。': 'The search could not be saved. Check the inputs and try again.',
   '请为这些手填关键词补充英文写法（{keywords}）。': 'Provide English terms for these keywords ({keywords}).',

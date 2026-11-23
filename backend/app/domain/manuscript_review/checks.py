@@ -196,6 +196,7 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
     reference_texts=[]
     if 'sections' in snapshot:
         from app.domain.manuscript_writing.article_contract import illustration_groups
+        from app.domain.manuscripts.school import chapter_groups
 
         sections=snapshot['sections']
         if snapshot.get('journal_display_context'):
@@ -209,7 +210,7 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
             role=section.get('purpose',section['id'])
             if role!='references': reference_texts.extend(section['paragraphs'])
             if snapshot.get('thesis_context'):
-                groups=[g for g in snapshot.get('results_groups',[]) if g['id'] in section['result_group_ids']] if role=='results' else []
+                groups=chapter_groups(snapshot,section)
             else:
                 groups=illustration_groups(snapshot,section)
             selected={f['id'] for group in groups for f in group.get('figures',[])}

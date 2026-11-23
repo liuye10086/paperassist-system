@@ -1,5 +1,6 @@
 import {isTabularRaw} from './tabularContracts'
 import BioRepresentation from './BioRepresentation'
+import BioObservationMapping from './BioObservationMapping'
 import BioNewAnalysis from './BioNewAnalysis'
 import {isRawBioSource} from './spatialContracts'
 import type {AnalysisNavigation} from '../projects/analysisViews'
@@ -14,10 +15,12 @@ import {BioChecks,BioCounts,BioMembers} from './BioDetails'
 import ModuleViews,{ModuleView} from '../../shared/components/ModuleViews'
 import useResearchDraft from '../research-results/useResearchDraft'
 import './bioLayout.css'
-export default function BioDatasetDetail({allowNewAnalysis=true,projectId,datasetId,versionId,onNavigate,registerLeaveGuard}:{allowNewAnalysis?:boolean;projectId:string;datasetId:string;versionId:string;onNavigate?:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}){
+export default function BioDatasetDetail({sampleDesignId,mappingFiles,allowNewAnalysis=true,projectId,datasetId,versionId,onNavigate,registerLeaveGuard}:{sampleDesignId?:string;mappingFiles?:{id:string;filename:string}[];allowNewAnalysis?:boolean;projectId:string;datasetId:string;versionId:string;onNavigate?:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}){
  const {t}=useI18n();const [data,setData]=useState<BioVersion|null>(null);const [error,setError]=useState('');const [attempt,setAttempt]=useState(0);const [valid,setValid]=useState(true);const [image,setImage]=useState('');const [matrix,setMatrix]=useState<Record<string,unknown>|null>(null)
  const [panel,setPanel]=useResearchDraft<string>(projectId,`bio-dataset-panel:${datasetId}:${versionId}`,()=> 'overview')
  const singleCell=!!data&&isRawBioSource(data.source,projectId)&&data.source.parser_version==='single_cell_import_v1'
+ const guided=singleCell&&mappingFiles!==undefined
+ const [mapping,setMapping]=useResearchDraft<{id:string;setId:string;designId?:string|null}|null>(projectId,`cell-table:${datasetId}:${versionId}`,()=>null)
  const tabular=!!data&&isRawBioSource(data.source,projectId)&&isTabularRaw(data.source)
  const base=`${projectBase(projectId)}/bio-datasets/${encodeURIComponent(datasetId)}/versions/${encodeURIComponent(versionId)}`
  useEffect(()=>onApiSessionChanged(()=>{setValid(false);setData(null);setMatrix(null);setImage('')}),[])
@@ -27,15 +30,20 @@ export default function BioDatasetDetail({allowNewAnalysis=true,projectId,datase
  return <section className="bio-workspace bio-module-workspace">
   <header className="bio-workspace-header"><h2>{t('生信数据集')}</h2>{data&&<span>{t('数据已保存')}</span>}<button type="button" disabled={!valid} onClick={()=>setAttempt(v=>v+1)}>{t('重新读取')}</button></header>
   {error&&<p className="error-panel" role="alert">{t(error)}</p>}
-  {data&&<ModuleViews label={t('数据集模块')} value={panel} onChange={setPanel}>
+  {data&&<ModuleViews lazy={guided} label={t('数据集模块')} value={panel} onChange={setPanel}>
    <ModuleView id="overview" title={t('数据概况')}><BioCounts summary={data.shape}/></ModuleView>
    <ModuleView id="checks" title={t('结构检查')}><BioChecks checks={data.checks} singleCell={singleCell}/>{!tabular&&!singleCell&&<BioRepresentation summary={data.summary} checks={data.checks}/>}</ModuleView>
    <ModuleView id="files" title={t('数据文件')}><BioMembers projectId={projectId} members={data.members}/></ModuleView>
    {(!tabular&&!singleCell||image)&&<ModuleView id="coordinates" title={t('坐标与图像')}>{!tabular&&!singleCell&&<BioCoordinates projectId={projectId} datasetId={datasetId} versionId={versionId} members={data.members}/>}{image&&<figure><img className="bio-coordinate-preview" src={image} alt={t('组织原图核对')}/><figcaption>{t('原组织图，用于配套核对；不表示空间表达或细胞类型。')}</figcaption></figure>}</ModuleView>}
    <ModuleView id="matrix" title={t('矩阵预览')}><button type="button" disabled={!valid} onClick={()=>void preview()}>{t('读取有界矩阵预览')}</button>{matrix&&<MatrixPreview value={matrix}/>}</ModuleView>
-   {onNavigate&&isRawBioSource(data.source,projectId)&&<ModuleView id="analysis" title={t('分析入口')}><BioNewAnalysis allowNewAnalysis={allowNewAnalysis} projectId={projectId} source={data.source} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/></ModuleView>}
+   {guided&&isRawBioSource(data.source,projectId)&&<ModuleView id="mapping" title={t('关联细胞分组表')}>
+     <BioObservationMapping sampleDesignId={sampleDesignId} tableFiles={mappingFiles} disabled={!allowNewAnalysis} projectId={projectId} source={data.source} designVersionId={null}
+       currentVersionId={mapping?.id??null} currentSetId={mapping?.setId} registerLeaveGuard={registerLeaveGuard}
+       onSaved={map=>{setMapping({id:map.id,setId:map.set_id,designId:map.design_version_id});setPanel('analysis')}}/>
+   </ModuleView>}
+   {onNavigate&&isRawBioSource(data.source,projectId)&&<ModuleView id="analysis" title={t('分析入口')}><BioNewAnalysis guided={guided} observationMapVersionId={guided?mapping?.id:undefined} designVersionId={guided?mapping?.designId:undefined} allowNewAnalysis={allowNewAnalysis} projectId={projectId} source={data.source} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}/></ModuleView>}
   </ModuleViews>}
-  {data&&onNavigate&&isRawBioSource(data.source,projectId)&&panel!=='analysis'&&<footer className="bio-confirmation-actions"><p>{t('矩阵已就绪，下一步选择参数并检查分析设置。')}</p><button type="button" className="button-primary" onClick={()=>setPanel('analysis')}>{t('下一步：配置分析')}</button></footer>}
+  {data&&onNavigate&&isRawBioSource(data.source,projectId)&&panel!=='analysis'&&(!guided||panel!=='mapping')&&<footer className="bio-confirmation-actions"><p>{t(guided&&!mapping&&mappingFiles?.length?'矩阵已就绪。关联分组表后，运行时可使用每个细胞的样本和供者信息。':'矩阵已就绪，下一步选择参数并检查分析设置。')}</p><button type="button" className="button-primary" onClick={()=>setPanel(guided&&!mapping&&mappingFiles?.length?'mapping':'analysis')}>{t(guided&&!mapping&&mappingFiles?.length?'下一步：关联分组表':'下一步：配置分析')}</button></footer>}
  </section>
 }
 function MatrixPreview({value}:{value:Record<string,unknown>}){const {t}=useI18n();const features=(value.features??[]) as unknown[];const observations=(value.observations??[]) as unknown[];const values=(value.values??value.matrix??[]) as unknown[][];const label=(v:unknown)=>typeof v==='object'&&v?String((v as Record<string,unknown>).id??(v as Record<string,unknown>).sample_id??(v as Record<string,unknown>).barcode??(v as Record<string,unknown>).feature_id??''):String(v);const symbol=(v:unknown)=>v&&typeof v==='object'&&typeof (v as Record<string,unknown>).symbol==='string'?String((v as Record<string,unknown>).symbol):'';return <div className="bio-table-scroll"><table><caption>{t('少量原始矩阵值；保留稳定标识，未标准化或筛选。')}</caption><thead><tr><th>{t('观测 / 特征')}</th>{features.slice(0,40).map((f,i)=><th key={i} scope="col"><span>{label(f)}</span>{symbol(f)&&<><br/><span>{symbol(f)}</span></>}</th>)}</tr></thead><tbody>{observations.slice(0,20).map((o,i)=><tr key={i}><th>{label(o)}</th>{features.slice(0,40).map((_,j)=><td key={j}>{typeof values[i]?.[j]==='number'?String(values[i][j]):'—'}</td>)}</tr>)}</tbody></table></div>}

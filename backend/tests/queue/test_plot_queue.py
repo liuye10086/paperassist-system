@@ -9,7 +9,6 @@ import pytest
 from tests.queue.external_confirmation import confirm
 
 from app.db.database import database_connection
-from app.domain.model_usage.service import ModelUsageService
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_boxplot import cloud, prepared  # noqa: F401
 from tests.integration.test_explanations import writer  # noqa: F401
@@ -40,12 +39,6 @@ def test_plot_effect_boundaries_and_png_crash_recovery(client, cloud, writer, is
     for mode in modes:
         base, _, result, url = prepared(client)
         project_id = base.split('/')[4]
-        with database_connection() as db:
-            owner_id = db.execute('SELECT owner_id FROM projects WHERE id=%s', (project_id,)).fetchone()['owner_id']
-        service = ModelUsageService(owner_id)
-        if service.get_budget('user', owner_id)['limit_micro_usd'] is None:
-            service.set_budget('user', owner_id, 10000000, 0)
-        service.set_budget('project', project_id, 10000000, 0)
         confirmation = confirm(client, url)
         confirmation['labels'] = {key: ('测量值' if key == 'numeric_name' else
             '分组' if key == 'group_name' else '组' + key.split(':')[1] if key.startswith('group:') else value)
@@ -123,7 +116,7 @@ def test_plot_effect_boundaries_and_png_crash_recovery(client, cloud, writer, is
             if saved:
                 assert saved['title'] == '图 1. 测量值箱线图'
             reservations = db.execute('SELECT status FROM budget_reservations WHERE call_id=%s', (calls[0]['id'],)).fetchall()
-            assert len(reservations) == 3 and {row['status'] for row in reservations} == {'held'}
+            assert not reservations
             if mode in unknown:
                 assert calls[0]['status'] in {'submitting', 'submission_unknown'}
                 assert calls[0]['provider_response_id'] is None

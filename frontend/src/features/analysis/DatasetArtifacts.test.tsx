@@ -54,7 +54,7 @@ test('resume sends the complete dataset input and rejects a response rebound to 
  vi.stubGlobal('fetch', fetch)
  const workspace = { ...workspaceFixture, task: { ...taskFixture, input_version: input }, source: { ...workspaceFixture.source, dataset_source: source }, wait: { ...workspaceFixture.wait, input_version: input } } as TaskWorkspace
  render(<TaskPendingAction workspace={workspace} blocked={false} onChanged={vi.fn()} />)
- fireEvent.click(screen.getByRole('button', { name: '预算或配置已调整，继续任务' }))
+ fireEvent.click(screen.getByRole('button', { name: '继续原任务' }))
  await act(async () => {})
  expect(screen.getByRole('alert')).toBeTruthy()
  expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).input_version).toEqual(input)

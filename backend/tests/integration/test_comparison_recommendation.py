@@ -7,7 +7,6 @@ from tests.api.test_analysis import client
 from tests.integration.test_comparison_plan import independent_rows,make_plan
 from tests.integration.test_correlation_plan import prepared_correlations
 from tests.integration.test_analysis_recommendation import preview_request,planning_policy,RecommendationProvider,queued_recommendation
-from tests.helpers.tasks import task_owner
 
 
 def policy_v2():
@@ -48,9 +47,6 @@ def queued_v2(client,monkeypatch):
     response=seed_legacy_recommendation(client, base+'/analysis-recommendations',json=body,headers={'Idempotency-Key':'recommendation-v2'})
     assert response.status_code==202,response.text
     task=response.json()
-    from app.domain.model_usage.service import ModelUsageService
-    owner=task_owner(client);ledger=ModelUsageService(owner)
-    for scope,key in [('user',owner),('project',task['project_id'])]:ledger.set_budget(scope,key,5000000,0)
     return base,prepared,task
 
 

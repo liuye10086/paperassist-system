@@ -11,6 +11,13 @@ def purpose(section):
     return section.get('purpose', section['id'])
 
 
+def chapter_groups(snapshot, chapter):
+    chapter_id = chapter.get('chapter_id') or chapter['id']
+    assigned = chapter.get('result_group_ids', [])
+    return [group for group in snapshot.get('results_groups', [])
+            if group['id'] in assigned or group.get('illustration_chapter_id') == chapter_id]
+
+
 def pending(chapter):
     text = ('Missing chapter content; researcher material and review required.'
             if chapter['output_language'] == 'en' else '本章正文待补充；须提供研究资料并由研究人员核对。')
@@ -108,7 +115,7 @@ def school_issues(snapshot):
                             severity='error', actual=[s.get('id') for s in actual], expected=[s['id'] for s in expected]))
     assigned = set()
     for chapter in actual:
-        assigned.update(chapter.get('result_group_ids', []))
+        assigned.update(g['id'] for g in chapter_groups(snapshot, chapter))
         paragraphs = chapter.get('paragraphs', [])
         if (not paragraphs or any(p.get('id', '').startswith('school:') and p.get('id', '').endswith(':pending') for p in paragraphs)) and purpose(chapter) != 'references':
             issues.append(issue('material', 'section:'+chapter['id'], 'School chapter content is missing or remains a supplied-material placeholder.' if en else '学校章节正文缺失或仍为待补充资料占位。', expected=chapter['title']))

@@ -363,9 +363,9 @@ def preview_intents(db,root,*,user_id=None,project_id=None):
     return dict(unresolved=unresolved,reserved_bytes=sum(pending.values()),unknown_reservation_count=unknown_count,reservation_count=reservation_count)
 
 
-def recover_reservation(db,root,reservation_id):
+def recover_reservation(db,root,reservation_id,*,progress=None):
     """Explicit local-only recovery; verifies original identity and bytes, no provider call."""
-    if reconcile_intents(db,root):raise invalid()
+    if reconcile_intents(db,root,progress=progress):raise invalid()
     row=db.execute('SELECT * FROM storage_reservations WHERE id=%s',(reservation_id,)).fetchone()
     if not row or row['state'] not in ('unknown','reserved','settled'):raise invalid()
     if row.get('capacity_bytes') is not None:raise invalid()

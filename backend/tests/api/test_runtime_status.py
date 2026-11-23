@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.db.database import database_connection, get_database_config
 from app.main import app
-from tests.api.test_admin_operations import accounts, admin, login, seed_task, seed_call
+from tests.api.test_admin_operations import accounts, admin, login, seed_task
 
 PUBLIC = '/api/v1/runtime/status'
 ADMIN = '/api/v1/admin/runtime/status'
@@ -86,7 +86,7 @@ def test_fresh_collector_receipt_stale_malformed_wrong_environment_and_db_unavai
     receipt = runtime.collect(observation, now=now)
     assert receipt['queue']['queued_count'] == 0
     assert receipt['failures']['denominator'] == 0 and receipt['failures']['ratio'] is None
-    assert receipt['budgets']['status'] == 'unknown'
+    assert 'budgets' not in receipt
     runtime.write_status(receipt)
     assert admin.get(PUBLIC).json()['status'] == 'normal'
     body = admin.get(ADMIN).json()
@@ -132,14 +132,14 @@ def test_collector_db_aggregates_and_nested_stale_values_are_not_healthy(admin, 
     receipt=runtime.collect(observation,now=now)
     assert receipt['queue']['queued_count']==1
     assert receipt['queue']['oldest_pending_age_seconds'] >= 0
-    assert receipt['budgets']['status']=='known' and receipt['budgets']['limit_micro_usd']==500000
+    assert 'budgets' not in receipt
     receipt['database']['observed_at']=(now-timedelta(seconds=46)).isoformat()
     receipt['services']['worker']['observed_at']=(now-timedelta(seconds=46)).isoformat()
     runtime.write_status(receipt)
     result=admin.get(ADMIN).json()
     assert result['database']['status']=='unknown'
     assert result['services']['worker']['status']=='unknown'
-    assert result['queue'] is None and result['budgets'] is None
+    assert result['queue'] is None and 'budgets' not in result
 
 
 def test_collector_unavailable_db_does_not_invent_zero_and_observations_cannot_cross_bindings(admin, control, monkeypatch):
@@ -152,7 +152,7 @@ def test_collector_unavailable_db_does_not_invent_zero_and_observations_cannot_c
         patch.setattr(runtime,'database_connection',lambda **kw: (_ for _ in ()).throw(RuntimeError('PRIVATE-DB')))
         receipt=runtime.collect(observation,now=now)
     assert receipt['database']['status']=='unavailable'
-    assert receipt['queue'] is None and receipt['failures'] is None and receipt['budgets'] is None
+    assert receipt['queue'] is None and receipt['failures'] is None and 'budgets' not in receipt
     runtime.write_status(receipt)
     assert admin.get(PUBLIC).json()['status']=='service_unavailable'
     assert admin.get(ADMIN).json()['external_limits']['observed_429']==1
@@ -164,25 +164,18 @@ def test_collector_unavailable_db_does_not_invent_zero_and_observations_cannot_c
     assert admin.get(ADMIN).json()['coverage']['status']=='unknown'
 
 
-def test_budget_aggregates_reuse_effective_accounting_not_original_reserve(admin, accounts, control):
+def test_status_can_read_an_existing_receipt_with_retired_budget_data(admin, control):
     from app.domain import runtime_status as runtime
-    from uuid import uuid4
-    project,task=seed_task(accounts[0]['id'])
-    call=seed_call(accounts[0]['id'],project,task,cost=2500)
-    now=datetime.now(timezone.utc)
-    budget=str(uuid4())
-    with database_connection(write=True) as db:
-        db.execute("""INSERT INTO model_budgets(id,user_id,scope_type,scope_key,limit_micro_usd,revision,created_at,updated_at)
-            VALUES(%s,%s,'user',%s,500000,1,%s,%s)""",(budget,accounts[0]['id'],accounts[0]['id'],now,now))
-        db.execute("""INSERT INTO budget_reservations(call_id,budget_id,reserved_micro_usd,accounted_micro_usd,status,updated_at)
-            VALUES(%s,%s,100000,2500,'settled',%s)""",(call,budget,now))
-    observation=control('observations.json',observed_at=now.isoformat(),worker_startup_id=None,external_limits=None,
-        services={n:dict(status='unknown',observed_at=None) for n in ('worker','dispatcher','broker')})
-    receipt=runtime.collect(observation,now=now)
-    assert receipt['budgets']['reserved_micro_usd']==0
-    assert receipt['budgets']['accounted_micro_usd']==2500
-    assert receipt['failures']['failed']==receipt['failures']['denominator']==1
-    assert receipt['failures']['ratio']==1.0
+    now = datetime.now(timezone.utc)
+    observation = control('observations.json', observed_at=now.isoformat(), worker_startup_id=None,
+        external_limits=None, services={name:dict(status='healthy', observed_at=now.isoformat())
+            for name in ('worker', 'dispatcher', 'broker')})
+    receipt = runtime.collect(observation, now=now)
+    receipt['budgets'] = {'status': 'unknown', 'registered_user_budgets': 0}
+    (runtime.control_directory()/'status.json').write_text(json.dumps(receipt), encoding='utf-8')
+    body = admin.get(ADMIN).json()
+    assert body['coverage']['status'] == 'observed'
+    assert 'budgets' not in body
 
 
 def test_legacy_storage_summary_does_not_claim_effective_worker_pool(admin):
@@ -216,7 +209,7 @@ def test_stale_receipt_preserves_only_valid_last_observation_times(admin, contro
     assert body['database'] == dict(status='unknown', observed_at=old)
     for name in ('dispatcher', 'broker'):
         assert body['services'][name] == dict(status='unknown', observed_at=None)
-    assert all(body[field] is None for field in ('queue', 'failures', 'budgets', 'disk', 'external_limits'))
+    assert all(body[field] is None for field in ('queue', 'failures',  'disk', 'external_limits'))
     assert body['concurrency']['effective'] is None
     assert admin.get(PUBLIC).json()['status'] == 'service_unavailable'
     for invalid in ('malformed', (now+timedelta(seconds=60)).isoformat()):

@@ -15,6 +15,7 @@ from lxml import etree as E
 
 from app.core.exceptions import StorageError
 from app.domain.document_layout import LayoutOptions
+from app.domain.manuscripts.school import chapter_groups
 from app.domain.manuscripts.school_export import MANUAL_LABELS, validate_school_export
 from app.domain.school_templates import bsu_gs501
 from .document_layout.package import NS, encode, parse, read_package, write_package
@@ -140,8 +141,23 @@ class Footnotes:
         self.document=document;self.enabled=enabled;self.entries=[]
         self.references={str(r['number']):r for r in snapshot['references']}
 
-    def paragraph(self,item,bookmark,plan):
+    def paragraph(self,item,bookmark,plan,draft_parts=None):
         from .manuscript_docx import _paragraph
+        if draft_parts:
+            _paragraph(self.document, dict(id=item['id'], text=''), bookmark)
+            paragraph = self.document.paragraphs[-1]
+            end = paragraph._p.find(qn('w:bookmarkEnd'))
+            paragraph._p.remove(end)
+            for part in draft_parts:
+                paragraph.add_run(_rewrite_labels(part['text'], plan))
+                for citation in part['citations']:
+                    number = str(citation['number'])
+                    if self.enabled:
+                        self.add_note(paragraph, [number])
+                    else:
+                        paragraph.add_run('[' + number + ']')
+            paragraph._p.append(end)
+            return paragraph
         supplied=deepcopy(item);supplied['text']=_rewrite_labels(item['text'],plan)
         _paragraph(self.document,supplied,bookmark);paragraph=self.document.paragraphs[-1]
         if not self.enabled:return paragraph
@@ -160,14 +176,20 @@ class Footnotes:
         cursor=0
         for match,numbers in matches:
             paragraph.add_run(supplied['text'][cursor:match.start()])
-            note_id=len(self.entries)+1
-            self.entries.append((note_id,'\n'.join('['+n+'] '+self.references[n]['text'] for n in numbers)))
-            run=paragraph.add_run();run.font.superscript=True
-            ref=OxmlElement('w:footnoteReference');ref.set(qn('w:id'),str(note_id));run._r.append(ref)
+            self.add_note(paragraph,numbers)
             cursor=match.end()
         paragraph.add_run(supplied['text'][cursor:])
         paragraph._p.append(end)
         return paragraph
+
+    def add_note(self, paragraph, numbers):
+        note_id = len(self.entries) + 1
+        self.entries.append((note_id, '\n'.join('[' + n + '] ' + self.references[n]['text'] for n in numbers)))
+        run = paragraph.add_run()
+        run.font.superscript = True
+        reference = OxmlElement('w:footnoteReference')
+        reference.set(qn('w:id'), str(note_id))
+        run._r.append(reference)
 
     def finish(self,content):
         if not self.entries:return content
@@ -221,13 +243,17 @@ class _SchoolPagination2:
     def __init__(self,document,*,gs501=False):
         self.document=document;self.seen=set();self.active_spec=None
         self.gs501=gs501;self.running_title=None
+        self.restarted_formats=set()
 
     def apply(self,section,spec):
         applied=deepcopy(spec)
-        if spec['id'] in self.seen:
+        number_format=applied.get('page_number',{}).get('format') or 'decimal'
+        if (number_format in self.restarted_formats if self.gs501 else spec['id'] in self.seen):
             applied['page_number']=dict(applied.get('page_number',{}),start=None,mode='continue_or_default')
         _section_settings(self.document,section,applied,gs501=self.gs501,running_title=self.running_title)
         self.seen.add(spec['id']);self.active_spec=spec
+        if applied.get('page_number',{}).get('start') is not None:
+            self.restarted_formats.add(number_format)
 
     def new_section(self,spec):
         # The template forms already close their own fourth section.
@@ -239,7 +265,7 @@ CUSTOMER_SCHOOL_LAYOUT_VERSION = 'school_customer_layout_v1'
 
 
 def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_ids=frozenset(),customer_revision=False,
-                      school_template=None):
+                      school_template=None,draft_paragraphs=None,draft_edits=None):
     from .manuscript_docx import _document,_table,_figure,_save_document
     validate_school_export(plan,snapshot)
     if not plan['report']['can_export']:raise StorageError('manuscript_review_blocked','学校导出存在一致性硬错误。',409)
@@ -315,9 +341,10 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
     for chapter_index,chapter in enumerate(snapshot['sections']):
         if chapter['id'] in excluded_chapter_ids or chapter['id'] in skipped:continue
         role=chapter['purpose'];en=chapter['output_language']=='en'
+        chapter_title=draft_edits.chapter_titles.get(chapter['id'],chapter['title']) if draft_edits else chapter['title']
         toc_just_inserted=False
         pending_id = 'school:' + chapter['id'] + ':pending'
-        template_toc = (planned and role == 'manual' and not manual.get(chapter['id'])
+        template_toc = (role == 'manual' and not manual.get(chapter['id'])
                         and re.sub(r'\s+', '', chapter['title']).casefold() in ('目录', 'contents', 'tableofcontents')
                         and all(item['id'] == pending_id for item in chapter['paragraphs']))
         if template_toc and (toc_inserted or not plan['toc']['enabled']):
@@ -348,7 +375,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
         starts_running_section=running_headers and (chapter['level']==1 or role in ('abstract','references','acknowledgements'))
         if starts_running_section:
             title_style=_running_title_style(document,'School Running Heading '+str(chapter_index+1),category)
-            pagination.running_title=(title_style.name,chapter['title'],chapter['output_language'])
+            pagination.running_title=(title_style.name,chapter_title,chapter['output_language'])
         current_spec=sections[chapter['id']]
         chapter_page_break=False
         if pagination:
@@ -357,7 +384,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
         elif chapter['level']==1 or previous_spec is None or current_spec['id']!=previous_spec['id']:
             section=document.add_section(WD_SECTION_START.NEW_PAGE);_section_settings(document,section,current_spec)
         previous_spec=current_spec
-        heading=document.add_paragraph(chapter['title'],style=title_style)
+        heading=document.add_paragraph(chapter_title,style=title_style)
         if chapter_page_break:heading.paragraph_format.page_break_before=True
         # References/acknowledgements enter the TOC; front matter and manual
         # declarations retain their school heading appearance without outline.
@@ -384,7 +411,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
         for item in paragraphs:
             if planned and role == 'manual' and item['id'] == pending_id:
                 item = {**item, 'text': 'To be supplied by the author.' if en else '待作者填写。'}
-            bookmark+=1;paragraph=notes.paragraph(item,bookmark,plan)
+            bookmark+=1;paragraph=notes.paragraph(item,bookmark,plan,(draft_paragraphs or {}).get(item['id']))
             if gs501 and role=='abstract' and en:paragraph.style=GS501_TEXT_STYLES['abstract_body_en']
         if front is not None:
             last=_front_fields(document,plan,chapter['id'],current_spec['id'],mark=lambda p,identity=False:mark(p,chapter,identity),
@@ -398,8 +425,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
                 paragraph.add_run(': ')
             else:paragraph.add_run('Keywords: ' if en else '关键词：').bold=True
             paragraph.add_run(('; ' if en else '；').join(values) if values else ('Pending user input' if en else '待用户提供'))
-        for group in snapshot['results_groups']:
-            if group['id'] not in chapter.get('result_group_ids',[]):continue
+        for group in chapter_groups(snapshot, chapter):
             for table in group['tables']:
                 item=deepcopy(table)
                 label=plan['label_map']['tables'].get(str(table['number']),str(table['number']))
@@ -415,6 +441,8 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
                             for run in paragraph.runs:run.font.size=Pt(10.5)
             for figure in group['figures']:
                 item=deepcopy(figure);item['number']=plan['label_map']['figures'].get(str(figure['number']),str(figure['number']))
+                if draft_edits:
+                    item['title']=draft_edits.figure_titles.get(figure['id'],item['title'])
                 before=len(document.paragraphs);_figure(document,item,images,en)
                 # Inline drawings need their actual height. A fixed body-text
                 # line height clips the bitmap in Word, WPS and LibreOffice.

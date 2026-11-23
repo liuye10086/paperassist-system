@@ -8,7 +8,7 @@ from psycopg.types.json import Jsonb
 
 from app.core.exceptions import StorageError
 from app.db.database import database_connection
-from tests.integration.test_model_usage import context, configure, request, response  # noqa: F401
+from tests.integration.test_model_usage import context, request, response, seed_historical_holds  # noqa: F401
 from tests.domain.test_model_pricing import policy
 
 
@@ -26,10 +26,11 @@ def evidence(component='token', amount=1000, revision=0, key='proof', **changes)
         operator='local-test-admin', **changes)
 
 
-def plot(context, usage=True):
-    service = configure(context, 10000)
-    saved = service.reserve_call(request(context[3], policy=policy(tools=['code_interpreter']),
-        tool_reserve_micro_usd=300))
+def plot(context, usage=True, *, historical=False):
+    service = context[0]
+    saved = service.reserve_call(request(context[3], policy=policy(tools=['code_interpreter'])))
+    if historical:
+        seed_historical_holds(saved, amount=420, tool_reserve=300)
     service.begin_submission(saved['id'])
     with database_connection(write=True) as db:
         db.execute('UPDATE model_calls SET provider_state=%s WHERE id=%s',
@@ -40,7 +41,7 @@ def plot(context, usage=True):
 
 
 def test_partial_preserves_unreconciled_excess_full_and_correction(context):
-    service, saved = plot(context)
+    service, saved = plot(context, historical=True)
     recon = reconciliation(context)
     before = service.get_call(saved['id'])
     receipt = recon.preview(saved['id'], evidence('tool', 600))
@@ -127,7 +128,7 @@ def test_replay_conflict_revision_race_and_owner(context):
 
 def test_failure_rolls_back_event_call_and_budgets(context, monkeypatch):
     from app.db.database import DatabaseConnection
-    service, saved = plot(context)
+    service, saved = plot(context, historical=True)
     recon = reconciliation(context)
     original = DatabaseConnection.execute
     def reject(db, sql, parameters=()):
@@ -155,7 +156,7 @@ def test_late_observation_preserves_actual_accounting(context):
 
 
 def test_token_zero_full_and_unknown_released_projection(context):
-    service = configure(context, 10000)
+    service = context[0]
     saved = service.reserve_call(request(context[3]))
     service.begin_submission(saved['id'])
     response(service, saved)
@@ -172,16 +173,13 @@ def test_token_zero_full_and_unknown_released_projection(context):
     assert states[released['id']]['status'] == 'not_applicable'
 
 
-def test_large_actual_excess_is_preserved_and_prevents_admission(context):
+def test_large_historical_hold_and_overflow_preserve_evidence_and_allow_admission(context):
     from app.domain.model_usage.contracts import MAX_ACCOUNTED_MICRO_USD
-    service, saved = plot(context)
+    service, saved = plot(context, historical=True)
     recon = reconciliation(context)
     partial = recon.reconcile(saved['id'], evidence('tool', 2_000_000_000_000))
     assert partial['reserved_after_micro_usd'] == 2_000_000_000_000
-    assert service.get_budget('task', context[3])['exceeded']
-    with pytest.raises(StorageError) as error:
-        service.reserve_call(request(context[3], call_key='blocked'))
-    assert error.value.code == 'model_budget_exceeded'
+    assert service.reserve_call(request(context[3], call_key='new'))['id'] != saved['id']
     with pytest.raises(StorageError) as error:
         recon.reconcile(saved['id'], evidence('token', MAX_ACCOUNTED_MICRO_USD, 1, 'overflow'))
     assert error.value.code == 'model_reconciliation_input_invalid'
@@ -189,7 +187,7 @@ def test_large_actual_excess_is_preserved_and_prevents_admission(context):
 
 
 def test_partial_corrections_rebuild_original_hold_without_accumulation(context):
-    service, saved = plot(context)
+    service, saved = plot(context, historical=True)
     recon = reconciliation(context)
     recon.reconcile(saved['id'], evidence('tool', 600))
     reduced = recon.reconcile(saved['id'], evidence('tool', 100, 1, 'reduced'))
@@ -197,11 +195,11 @@ def test_partial_corrections_rebuild_original_hold_without_accumulation(context)
     assert reduced['reserved_after_micro_usd'] == 300
     increased = recon.reconcile(saved['id'], evidence('tool', 600, 2, 'increased'))
     assert increased['reserved_after_micro_usd'] == 600
-    assert service.get_budget('task', context[3])['reserved_micro_usd'] == 600
+    assert service.task_usage(context[3])['reserved_micro_usd'] == 600
 
 
 def test_tool_inapplicable_and_no_evidence_are_rejected(context):
-    service = configure(context, 10000)
+    service = context[0]
     saved = service.reserve_call(request(context[3]))
     service.begin_submission(saved['id'])
     response(service, saved)
@@ -213,7 +211,7 @@ def test_tool_inapplicable_and_no_evidence_are_rejected(context):
 
 
 def test_late_evidence_does_not_rewrite_final_original_estimate(context):
-    service = configure(context, 10000)
+    service = context[0]
     saved = service.reserve_call(request(context[3]))
     service.begin_submission(saved['id'])
     response(service, saved)
@@ -223,7 +221,33 @@ def test_late_evidence_does_not_rewrite_final_original_estimate(context):
     after = service.get_call(saved['id'])
     assert after['estimated_cost_micro_usd'] == before['estimated_cost_micro_usd'] == 60
     assert after['usage_status'] == before['usage_status'] == 'estimated'
-    assert service.get_budget('task', context[3])['accounted_micro_usd'] == 1000
+    assert service.task_usage(context[3])['accounted_micro_usd'] == 1000
     with database_connection() as db:
         event = db.execute("SELECT * FROM usage_events WHERE event_key='late'").fetchone()
         assert event['estimated_cost_micro_usd'] == 2000 and event['usage_status'] == 'pending'
+
+def test_partial_reconciliation_and_late_usage_without_reservations(context):
+    service, saved = plot(context, usage=False)
+    recon = reconciliation(context)
+    partial = recon.reconcile(saved['id'], evidence('tool', 600))
+    assert partial['reconciliation_status'] == 'partial' and partial['reserved_after_micro_usd'] == 0
+    response(service, saved, event_key='late', usage={'input_tokens': 120, 'output_tokens': 0})
+    view = service.task_usage(context[3])
+    assert view['accounted_micro_usd'] == view['estimated_micro_usd'] == 120
+    assert view['reserved_micro_usd'] == 0
+    complete = recon.reconcile(saved['id'], evidence('token', 100, 1, 'token'))
+    assert complete['accounted_after_micro_usd'] == 700 and complete['reserved_after_micro_usd'] == 0
+    assert service.task_usage(context[3])['accounted_micro_usd'] == 700
+    with database_connection() as db:
+        assert db.execute('SELECT count(*) AS n FROM budget_reservations').fetchone()['n'] == 0
+
+
+def test_incomplete_historical_holds_cannot_be_settled_as_a_new_call(context):
+    service, saved = plot(context, historical=True)
+    with database_connection(write=True) as db:
+        db.execute("""DELETE FROM budget_reservations WHERE call_id=%s AND budget_id IN (
+            SELECT id FROM model_budgets WHERE scope_type='user')""", (saved['id'],))
+    with pytest.raises(StorageError) as error:
+        reconciliation(context).reconcile(saved['id'], evidence('tool', 600))
+    assert error.value.code == 'model_reconciliation_accounting_invalid'
+    assert service.get_call(saved['id'])['reconciliation_revision'] == 0

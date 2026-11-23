@@ -11,6 +11,37 @@ const source={...rawFixture,parser_version:'single_cell_import_v1'}
 const posts=()=>vi.mocked(apiFetch).mock.calls.filter(([,init])=>init?.method==='POST')
 afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
 
+it('links all rows of the customer CSV to the guided run after review, without requiring a registered sample design',async()=>{
+ const table={file_id:'metadata',sha256:'f'.repeat(64),sheet:0,mapping:{barcode:'barcode',donor:'donor',group:'group'}}
+ const counts={mapped:960,unmapped:0,total:960}
+ let errors=[{row:2,message:'Unknown barcode'}]
+ vi.mocked(apiFetch).mockImplementation(async(url,init)=>{
+  if(url.endsWith('table-previews'))return Response.json({table_source:table,valid:errors.length?959:960,errors,total:960,counts,preview_rows:[]})
+  if(url.endsWith('/bio-observation-maps'))return Response.json({id:'mapping-v1',set_id:'mapset',revision:1,design_version_id:null,raw_source:source,rows:[],counts,total:960})
+  if(url.endsWith('/single-cell-analysis-runs'))return Response.json({id:'run',task:{id:'task'}})
+  if(url.includes('bio-analysis-capabilities'))return Response.json({...capabilitiesFixture,requires_qc_confirmation:true})
+  if(init?.method)throw Error(String(url))
+  return Response.json({id:'v1',source,shape:{features:12667,observations:960},checks:[],members:[],summary:{}})
+ })
+ render(<BioDatasetDetail projectId="p1" datasetId="d1" versionId="v1" onNavigate={vi.fn()} mappingFiles={[{id:'metadata',filename:'cell_mapping.csv'}]}/>)
+ fireEvent.click(await screen.findByRole('button',{name:'下一步：关联分组表'}))
+ expect(screen.getByLabelText('映射来源文件')).toHaveProperty('value','metadata')
+ expect(screen.queryByLabelText('样本列')).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'检查条码是否匹配'}))
+ expect(await screen.findByRole('button',{name:'使用这份分组表，继续分析'})).toHaveProperty('disabled',true)
+ errors=[]
+ fireEvent.click(screen.getByRole('button',{name:'检查条码是否匹配'}))
+ fireEvent.click(await screen.findByRole('button',{name:'使用这份分组表，继续分析'}))
+ await screen.findByText('已关联细胞分组表。')
+ expect(posts().map(([,init])=>JSON.parse(String(init?.body)))).toEqual([
+   expect.objectContaining({mapping:table.mapping}),expect.objectContaining({mapping:table.mapping}),
+   expect.objectContaining({table_source:table,rows:[],design_version_id:null}),
+ ])
+ fireEvent.click(await screen.findByRole('button',{name:'下一步：检查并运行'}))
+ fireEvent.click(screen.getByRole('button',{name:'开始单细胞质控'}))
+ await waitFor(()=>expect(JSON.parse(String(posts().at(-1)?.[1]?.body))).toMatchObject({observation_map_version_id:'mapping-v1',raw_source:source}))
+})
+
 it('reviews parameters without submitting and restores the same draft and step after reload',async()=>{
  vi.mocked(apiFetch).mockImplementation(async(_url,init)=>Response.json(init?.method==='POST'?{id:'run-next',task:{id:'task-next'}}:capabilitiesFixture))
  const navigate=vi.fn(),first=render(<SingleCellDirectStart projectId="p1" source={source} onNavigate={navigate}/>)

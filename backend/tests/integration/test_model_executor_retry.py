@@ -71,7 +71,7 @@ def test_fourth_temporary_read_failure_stops_after_10_30_90(client, cloud, kind,
     assert execute(current, provider) is None and len(provider.posts) == posts
     with database_connection() as db:
         assert db.execute('SELECT provider_response_id FROM model_calls').fetchone()['provider_response_id']
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'held'}
+        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == set()
 
 
 @pytest.mark.parametrize('kind', ['explanation', 'boxplot'])
@@ -181,7 +181,7 @@ def test_unknown_post_outcome_waits_without_spending_read_retry_budget(client, c
     assert current['retry_count'] == 0
     assert execute(current, provider) is None and len(provider.posts) == 1
     with database_connection() as db:
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'held'}
+        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == set()
 
 
 @pytest.mark.parametrize('kind', ['explanation', 'boxplot'])
@@ -283,7 +283,7 @@ def test_manual_retry_reuses_known_response_and_preserves_single_settlement(clie
         calls = db.execute('SELECT id FROM model_calls').fetchall()
         assert len(calls) == 1
         reservations = db.execute('SELECT * FROM budget_reservations ORDER BY budget_id').fetchall()
-        assert len(reservations) == 3
+        assert not reservations
         observations = db.execute('SELECT count(*) AS n FROM usage_events').fetchone()['n']
         assert observations == 2  # One pending and one terminal observation.
     from app.domain.model_usage.gateway import ModelGateway

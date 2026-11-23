@@ -12,7 +12,7 @@ def readiness(service,db,project):
     schools=SchoolTemplateService(service.assets)
     profile=schools.profile_view(db,project)
     result=dict(ready=False,blocking_reasons=[],profile=profile,confirmation_id=profile['bound_confirmation_id'],
-                chapters=[],purposes=list(SCHOOL_PURPOSES),template_source_file_ids=[],protected_chapter_purposes={})
+                chapters=[],purposes=list(SCHOOL_PURPOSES),template_source_file_ids=[],template_source_filenames=[],protected_chapter_purposes={})
     if not profile['bound_confirmation_id']:
         result['blocking_reasons'].append('school_template_not_bound')
         return result
@@ -25,6 +25,7 @@ def readiness(service,db,project):
     result['chapters']=confirmation['chapters']
     result['protected_chapter_purposes']=content_purposes(confirmation.get('front_matter'))
     result['template_source_file_ids']=[s['file_id'] for s in sources if s['role'] in ('template','supplement')]
+    result['template_source_filenames']=[s['filename'] for s in sources if s['role'] in ('template','supplement')]
     if task['status']!='succeeded':result['blocking_reasons'].append('school_template_not_ready')
     if schools.current_changes(db,row,sources):result['blocking_reasons'].append('school_template_source_changed')
     result['ready']=not result['blocking_reasons']

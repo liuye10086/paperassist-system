@@ -89,7 +89,7 @@ function SettingsEditor({ projectId, url, receipt, refresh, registerLeaveGuard, 
       <SciSettingsFields draft={edit.draft} disabled={busy || stale} onChange={draft => { setEdit({ ...edit, draft }); setError('') }} onError={setError} />
       {error && <p className="error-panel" role="alert">{t(error)}</p>}
       <div className="sci-inline-controls">
-        <button type="submit" className="button-primary" disabled={busy || stale}>{t(busy ? '正在保存……' : onContinue ? '保存并继续 写作资料与引用' : '保存 SCI 建项资料')}</button>
+        <button type="submit" className="button-primary" disabled={busy || stale}>{t(busy ? '正在保存……' : onContinue ? '保存并继续上传资料' : '保存 SCI 建项资料')}</button>
         <button type="button" disabled={busy} onClick={() => { setEdit(null); setError('') }}>{t('取消')}</button>
       </div>
     </form>}

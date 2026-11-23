@@ -1,4 +1,4 @@
-"""Explicit local explanation policy; no built-in model prices or budgets."""
+"""Explicit local explanation policy and model prices."""
 import json
 from pathlib import Path
 from typing import Annotated
@@ -9,15 +9,15 @@ from app.adapters.models.openai_responses import canonical_payload
 from app.adapters.openai_explanation import INSTRUCTIONS
 from app.core.config import local_config
 from app.core.exceptions import StorageError
+from app.domain.admin_configuration.contracts import without_budget_fields
 from app.core.paths import BACKEND_ROOT
 from app.domain.explanation_content import VERSION
-from app.domain.model_usage.contracts import MAX_MICRO_USD, ModelPolicy, Money, StrictContract
+from app.domain.model_usage.contracts import MAX_MICRO_USD, ModelPolicy, StrictContract
 
 
 class ExplanationExecutionPolicy(StrictContract):
     policy: ModelPolicy
     input_token_allowance: Annotated[int, Field(strict=True, ge=1, le=MAX_MICRO_USD)]
-    task_limit_micro_usd: Money
 
     @model_validator(mode='after')
     def fixed_explanation_contract(self):
@@ -29,7 +29,7 @@ class ExplanationExecutionPolicy(StrictContract):
 
 
 def _not_configured():
-    return StorageError('explanation_not_configured', '分析解释的模型策略、预算或密钥尚未正确配置，请联系管理员。', 503)
+    return StorageError('explanation_not_configured', '分析解释的模型策略或密钥尚未正确配置，请联系管理员。', 503)
 
 
 def _small_text(path, limit):
@@ -62,7 +62,7 @@ def explanation_api_key():
 def validate_execution_policy(value, payload=None, *, result=None):
     """Validate a frozen worker snapshot without reading secrets or local files."""
     try:
-        parsed = ExplanationExecutionPolicy.model_validate(value)
+        parsed = ExplanationExecutionPolicy.model_validate(without_budget_fields(value))
     except (ValidationError, TypeError, ValueError):
         raise _not_configured() from None
     if result is not None:
@@ -91,9 +91,9 @@ def validate_execution_policy(value, payload=None, *, result=None):
                 instructions=EXPLANATION_INSTRUCTIONS
             minimum = len(instructions.encode('utf-8')) + len(canonical_payload(payload).encode('utf-8')) + 4096
         except (TypeError, ValueError, RecursionError):
-            raise StorageError('explanation_input_limit', '分析解释的输入材料无效或超出已配置的预算估算范围。', 422) from None
+            raise StorageError('explanation_input_limit', '分析解释的输入材料无效或超出已配置的输入长度上限。', 422) from None
         if minimum > parsed.input_token_allowance:
-            raise StorageError('explanation_input_limit', '分析解释的输入材料超出已配置的预算估算范围。', 422)
+            raise StorageError('explanation_input_limit', '分析解释的输入材料超出已配置的输入长度上限。', 422)
     # This conservative byte allowance is admission accounting, not a provider token limit.
     return parsed.model_dump(mode='json')
 

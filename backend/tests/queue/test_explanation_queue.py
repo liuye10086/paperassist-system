@@ -10,7 +10,6 @@ from tests.queue.external_confirmation import confirm
 from app.db.database import database_connection
 from app.domain.explanation_content import VERSION
 from app.domain.explanation_policy import get_execution_policy as read_policy_file
-from app.domain.model_usage.service import ModelUsageService
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_boxplot import cloud  # noqa: F401
 from tests.integration.test_explanations import ready, writer  # noqa: F401
@@ -41,13 +40,6 @@ def test_explanation_slices_and_real_crash_recovery(client, cloud, writer, isola
     for mode in ('normal', 'reserved', 'unknown', 'receipt'):
         base, _, _, figure, url = ready(client)
         project_id = base.split('/')[4]
-        with database_connection() as db:
-            user_id = db.execute('SELECT owner_id FROM projects WHERE id=%s', (project_id,)).fetchone()['owner_id']
-        service = ModelUsageService(user_id)
-        budget = service.get_budget('user', user_id)
-        if budget['limit_micro_usd'] is None:
-            service.set_budget('user', user_id, 10000000, 0)
-        service.set_budget('project', project_id, 10000000, 0)
         response = client.post(url, json={'expected_revision': figure['setup_revision'], 'figure_id': figure['id'],
                                'external_processing': confirm(client, url)},
                                headers={'Idempotency-Key': 'queue-' + mode})
@@ -104,8 +96,8 @@ def test_explanation_slices_and_real_crash_recovery(client, cloud, writer, isola
             assert len(calls) == 1
             assert calls[0]['policy_snapshot']['external_processing_version'] == 1
             reservations = db.execute('SELECT status FROM budget_reservations WHERE call_id=%s', (calls[0]['id'],)).fetchall()
-            assert len(reservations) == 3
-            assert {row['status'] for row in reservations} == ({'held'} if mode == 'unknown' else {'settled'})
+            assert not reservations
+
             if saved:
                 assert saved['provenance']['model_call_id'] == calls[0]['id']
     unknown_id = cases['unknown'][0]

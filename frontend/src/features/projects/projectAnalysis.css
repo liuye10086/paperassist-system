@@ -22,6 +22,15 @@
 .analysis-assay-card { align-content: start; gap: 14px; padding: 18px; border-top: 3px solid var(--accent); background: var(--surface); }
 .analysis-assay-card h4 { font-size: 17px; }
 .analysis-assay-card > .intake-actions { margin: 0; }
+.single-cell-execution { padding: clamp(16px, 2vw, 24px); border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.single-cell-execution ol { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%, 13rem),1fr)); gap: 10px; margin: 0 0 18px; padding: 0; list-style: none; counter-reset: cell-step; }
+.single-cell-execution li { display: flex; align-items: baseline; gap: 10px; padding: 14px; border-radius: 8px; background: var(--secondary); counter-increment: cell-step; }
+.single-cell-execution li::before { content: counter(cell-step); color: var(--primary); font-weight: 700; }
+.single-cell-execution li p { margin: 6px 0 0; font-size: .9rem; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.single-cell-execution h4 { margin: 0; }
+.single-cell-actions, .single-cell-followup { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.single-cell-followup { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
+.single-cell-import-help { grid-column: 1 / -1; padding: 12px; background: var(--secondary); border-radius: 8px; }
 .analysis-assay-choices { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
 .analysis-assay-choices > li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; padding: 10px 0; border-top: 1px solid var(--border); }
 .analysis-assay-choices > li > span { flex: 1 1 120px; min-width: 0; color: var(--text); font-size: 13px; }

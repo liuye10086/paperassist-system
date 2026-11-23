@@ -1,4 +1,4 @@
-"""Real budget denial and HTTP recovery in disposable PostgreSQL, with synthetic models."""
+"""Historical model wait and HTTP recovery in disposable PostgreSQL, with synthetic models."""
 import hashlib
 import json
 import os
@@ -8,8 +8,7 @@ import pytest
 
 from app.db.database import database_connection
 from app.domain.explanation_policy import get_execution_policy as read_explanation_policy
-from app.domain.model_usage.contracts import ModelPolicy
-from app.domain.model_usage.pricing import reserve_micro_usd
+from tests.helpers.tasks import historical_model_wait
 from app.domain.model_usage.service import ModelUsageService
 from app.domain.tasks.execution import run_boxplot_task, run_explanation_task
 from tests.api.test_analysis import client, selection  # noqa: F401
@@ -19,15 +18,13 @@ from tests.api.test_external_processing import confirmation
 from tests.integration.test_explanation_execution import SyntheticProvider
 from tests.integration.test_explanations import writer  # noqa: F401
 from tests.integration.test_external_execution import ConfirmedPlotProvider
-from tests.integration.test_reports import export, report_ready, stored_report_path
+from tests.integration.test_reports import frozen_historical_report, report_ready, stored_report_path
 
 
 @pytest.fixture
 def historical_artifacts(client, cloud, writer, monkeypatch):
     base, _, _, figure, explanation, report_url = report_ready(client)
-    response = export(client, report_url, figure, explanation)
-    assert response.status_code == 200, response.text
-    report = response.json()['report']
+    report = frozen_historical_report(client, report_url, figure, explanation)
     # The legacy writer fixture only prepares old material. New HTTP acceptance
     # must read the actual temporary policy file rather than its policy stub.
     monkeypatch.setattr('app.domain.explanation_policy.get_execution_policy', read_explanation_policy)
@@ -69,9 +66,7 @@ def temporary_policy(task_type):
         'price': {'version': 'budget-recovery-synthetic-only', 'currency': 'USD', 'model': model,
             'input_micro_usd_per_million': 100, 'cached_input_micro_usd_per_million': 50,
             'output_micro_usd_per_million': 200, 'cache_write_micro_usd_per_million': 100}},
-        'input_token_allowance': 100000, 'task_limit_micro_usd': 1000000}
-    if plot:
-        value.update(tool_reserve_micro_usd=1000, tool_reserve_version='synthetic-tool-only')
+        'input_token_allowance': 100000}
     return value
 
 
@@ -84,9 +79,8 @@ def assert_task_admission_empty(task_id):
 
 
 @pytest.mark.parametrize('task_type', ['boxplot', 'explanation'])
-@pytest.mark.parametrize('limited_scope', ['user', 'project', 'task'])
-def test_budget_denial_http_resume_completes_original_task_and_preserves_old_bytes(
-        client, historical_artifacts, postgres_schema, tmp_path, monkeypatch, task_type, limited_scope):
+def test_historical_wait_http_resume_completes_original_task_and_preserves_old_bytes(
+        client, historical_artifacts, postgres_schema, tmp_path, monkeypatch, task_type):
     base, old_snapshot, old_bytes = historical_artifacts
     owner = client.get('/api/v1/auth/me').json()['user']['id']
     project = base.split('/')[4]
@@ -114,14 +108,6 @@ def test_budget_denial_http_resume_completes_original_task_and_preserves_old_byt
     policy_key = 'boxplot_policy' if task_type == 'boxplot' else 'explanation_policy'
     assert snapshot[policy_key] == frozen
     assert snapshot['external_processing']['version'] == 1
-    required = reserve_micro_usd(ModelPolicy.model_validate(frozen['policy']),
-        frozen['input_token_allowance'], frozen.get('tool_reserve_micro_usd', 0))
-    service = ModelUsageService(owner, postgres_schema)
-    scopes = {'user': owner, 'project': project, 'task': task['id']}
-    for scope, key in scopes.items():
-        current = service.get_budget(scope, key)
-        service.set_budget(scope, key, required - 1 if scope == limited_scope else 1000000,
-                           current['revision'])
     provider = ConfirmedPlotProvider(result, pending=False) if task_type == 'boxplot' else SyntheticProvider()
     executor = run_boxplot_task if task_type == 'boxplot' else run_explanation_task
 
@@ -129,7 +115,7 @@ def test_budget_denial_http_resume_completes_original_task_and_preserves_old_byt
         return executor(current['id'], current['revision'], config=postgres_schema,
                         provider_factory=lambda: provider)
 
-    waiting = execute(task)
+    waiting = historical_model_wait(task)
     assert waiting['id'] == task['id'] and waiting['status'] == 'waiting_confirmation'
     assert waiting['reason_code'] == 'budget_exceeded' and waiting['error_code'] == 'model_budget_exceeded'
     assert waiting['current_attempt'] == 1
@@ -146,13 +132,6 @@ def test_budget_denial_http_resume_completes_original_task_and_preserves_old_byt
     resume_body = {'operation': 'resume', 'wait_id': wait['id'],
         'expected_task_revision': workspace['task']['revision'],
         'input_version': workspace['task']['input_version']}
-    # Change only the bottleneck budget in this fixture-owned schema.
-    key = scopes[limited_scope]
-    budget_before = {scope: service.get_budget(scope, scope_key) for scope, scope_key in scopes.items()}
-    service.set_budget(limited_scope, key, required, budget_before[limited_scope]['revision'])
-    for scope, scope_key in scopes.items():
-        if scope != limited_scope:
-            assert service.get_budget(scope, scope_key) == budget_before[scope]
     endpoint = '/api/v1/tasks/' + task['id'] + '/resume'
     headers = {'Idempotency-Key': 'resume-after-budget-increase'}
     resumed_response = client.post(endpoint, json=resume_body, headers=headers)
@@ -196,13 +175,7 @@ def test_budget_denial_http_resume_completes_original_task_and_preserves_old_byt
         call = calls[0]
         assert call['user_id'] == owner and call['project_id'] == project and call['attempt_no'] == 2
         assert call['status'] == call['provider_status'] == 'completed'
-        rows = db.execute('''SELECT r.*,b.scope_type,b.scope_key FROM budget_reservations r
-            JOIN model_budgets b ON b.id=r.budget_id WHERE r.call_id=%s''', (call['id'],)).fetchall()
-        assert len(rows) == 3
-        assert {(row['scope_type'], row['scope_key']) for row in rows} == set(scopes.items())
-        assert {row['reserved_micro_usd'] for row in rows} == {required}
-        assert {row['accounted_micro_usd'] for row in rows} == {1}
-        assert {row['status'] for row in rows} == ({'held'} if task_type == 'boxplot' else {'settled'})
+        assert not db.execute('SELECT 1 FROM budget_reservations WHERE call_id=%s',(call['id'],)).fetchone()
         assert db.execute('SELECT count(*) AS n FROM usage_events WHERE call_id=%s',
                           (call['id'],)).fetchone()['n'] >= 1
         saved = json.loads(db.execute(f'SELECT {column} FROM {table} WHERE id=%s',
@@ -224,11 +197,9 @@ def test_budget_denial_http_resume_completes_original_task_and_preserves_old_byt
                           (task['id'],)).fetchone()['input_snapshot'] == snapshot
         outbox_before_replay = db.execute('SELECT * FROM task_outbox WHERE task_id=%s ORDER BY task_revision',
                                          (task['id'],)).fetchall()
-    usage = service.task_usage(task['id'])
-    assert usage['total'] == 1
-    assert {usage[scope + '_budget']['accounted_micro_usd'] for scope in scopes} == {1}
-    assert {usage[scope + '_budget']['reserved_micro_usd'] for scope in scopes} == {
-        required - 1 if task_type == 'boxplot' else 0}
+    usage = ModelUsageService(owner, postgres_schema).task_usage(task['id'])
+    assert usage['total'] == 1 and usage['accounted_micro_usd'] == 1
+    assert usage['reserved_micro_usd'] == 0
     state_response = client.get(url)
     assert state_response.status_code == 200, state_response.text
     artifact_key = 'figure' if task_type == 'boxplot' else 'explanation'

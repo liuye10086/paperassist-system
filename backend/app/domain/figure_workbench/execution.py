@@ -118,7 +118,7 @@ def _execute(repository,lease,provider_factory,providers,explanation):
     try:
         if refreshing:output=gateway.refresh(call['id'])
         else:
-            request=CallRequest(task_id=task['id'],expected_task_revision=task['revision'],call_key=EXPLANATION_KEY if explanation else PLOT_KEY,input_digest=input_digest(instructions=instructions,payload=payload),policy=ModelPolicy.model_validate(frozen['policy']),input_token_allowance=frozen['input_token_allowance'],tool_reserve_micro_usd=0 if explanation else frozen['tool_reserve_micro_usd'],tool_reserve_version=None if explanation else frozen['tool_reserve_version'])
+            request=CallRequest(task_id=task['id'],expected_task_revision=task['revision'],call_key=EXPLANATION_KEY if explanation else PLOT_KEY,input_digest=input_digest(instructions=instructions,payload=payload),policy=ModelPolicy.model_validate(frozen['policy']),input_token_allowance=frozen['input_token_allowance'])
             output=gateway.submit(request,instructions=instructions,payload=payload,execution_lease=lease) if explanation else gateway.submit_plot(request,instructions=instructions,payload=payload,execution_lease=lease)
     except ModelGatewayError as exc:
         if exc.code=='model_receipt_persistence_failed':raise
@@ -219,7 +219,8 @@ def _run(task_id,task_revision,*,config=None,directory=None,provider_factory=Non
         code='plot_invalid_result' if exc.code in ('plot_receipt_invalid','model_input_invalid') else classify_read_error(exc.code,exc.status_code)
         return repository.retry_failure(lease,code)
     except (StorageError,PlotError) as exc:
-        if exc.code in ('model_budget_missing','model_budget_exceeded','plot_not_configured','explanation_not_configured','openai_not_configured'):return repository.wait_explanation(lease,'budget_exceeded',exc.code)
+        if exc.code in ('plot_not_configured','explanation_not_configured','openai_not_configured'):
+            return repository.fail(lease,exc.code)
         if isinstance(exc,PlotError) or exc.status<500 or exc.code.startswith('storage_'):
             call=_call(repository,lease)
             if call and call['status']=='reserved' and not call.get('provider_state') and not call.get('provider_response_id'):

@@ -169,7 +169,7 @@ def test_me_usage_owner_filters_and_strict_queries(admin,accounts):
     assert admin.get('/api/v1/me/usage',params={'task_id':task}).status_code==404
     result=admin.get('/api/v1/me/usage',params={'project_id':own_project,'task_id':own_task})
     assert result.status_code==200,result.text
-    assert result.json()['budgets'][0]['limit_micro_usd'] is None
+    assert 'budgets' not in result.json()
     for query in ({'page':'+1'},{'from':'2026-10-23'},{'model':''},{'group_by':'invalid'},{'unexpected':'private'}):
         assert admin.get('/api/v1/admin/usage',params=query).status_code==422
     assert admin.get('/api/v1/admin/usage',params={'project_id':own_project,'task_id':task}).status_code==422

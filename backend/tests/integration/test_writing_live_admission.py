@@ -25,8 +25,7 @@ def prepare(client,bundle,task,lease=None):
 def next_task(client,root,bundle,auth,index,logical='task-0'):
     request=request_v2(bundle,auth);request['logical_task_id']=logical
     response=post(client,root+'/writing-requests',request,'next-'+str(index));assert response.status_code==202,response.text
-    task=response.json()['task'];service=ModelUsageService(task_owner(client));service.set_budget('task',task['id'],5000000,1)
-    return task
+    return response.json()['task']
 
 def reserve(args):
     service,request,lease=args
@@ -102,7 +101,7 @@ def test_six_posts_four_tasks_and_two_corrections_last_seat_concurrent(client):
     for i,logical in enumerate(('task-0','task-1','task-1','task-2')):
         start_and_finish(prepare(client,bundle,next_task(client,root,bundle,auth,i,logical)))
     contenders=[next_task(client,root,bundle,auth,i,'task-3') for i in (10,11)]
-    assert concurrent_last_seat(client,bundle,contenders)==['model_budget_exceeded','reserved']
+    assert concurrent_last_seat(client,bundle,contenders)==['manuscript_writing_not_authorized','reserved']
     assert client.get(path+'/'+auth['id']).json()['occupied_posts']==6
 
 def settled_call(args,target_micro_usd):
@@ -116,26 +115,14 @@ def settled_call(args,target_micro_usd):
     TaskExecutionStore().fail(lease,'model_response_invalid')
     return charge
 
-def test_logical_task_actual_cost_accumulates_across_new_tasks_and_parallel_last_budget(client):
+def test_large_actual_usage_does_not_block_other_confirmed_writing_calls(client):
     root,bundle,path,auth,task=create_live(client)
-    cap=auth['manifest']['logical_task_cap_micro_usd']
-    reserve_amount=bundle['reserved_micro_usd']
-    charge=settled_call(prepare(client,bundle,task),cap-(3*reserve_amount)//2)
-    assert charge+reserve_amount<=cap<charge+2*reserve_amount
+    charge=settled_call(prepare(client,bundle,task),12_000_001)
     contenders=[next_task(client,root,bundle,auth,i) for i in (1,2)]
-    assert concurrent_last_seat(client,bundle,contenders)==['model_budget_exceeded','reserved']
+    assert concurrent_last_seat(client,bundle,contenders)==['reserved','reserved']
     view=client.get(path+'/'+auth['id']).json()
-    assert view['occupied_micro_usd']==charge+reserve_amount
+    assert view['occupied_micro_usd']==charge and view['occupied_posts']==3
 
-def test_actual_over_logical_cap_is_preserved_and_blocks_next_task(client):
-    root,bundle,path,auth,task=create_live(client)
-    cap=auth['manifest']['logical_task_cap_micro_usd']
-    charge=settled_call(prepare(client,bundle,task),cap+1)
-    assert charge>cap
-    assert client.get(path+'/'+auth['id']).json()['occupied_micro_usd']==charge
-    with pytest.raises(StorageError) as error:
-        reserve(prepare(client,bundle,next_task(client,root,bundle,auth,1)))
-    assert error.value.code=='model_budget_exceeded'
 
 def test_model_call_composite_fk_blocks_cross_project_admission_rebinding(client):
     from tests.api.test_manuscript_writing_live import preview,authorize

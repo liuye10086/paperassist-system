@@ -10,7 +10,7 @@ from app.adapters.models.openai_responses import canonical_payload
 from app.domain.model_usage.gateway import input_digest
 from app.domain.model_usage.pricing import reserve_micro_usd
 from app.domain.model_usage.contracts import ModelPolicy
-from app.domain.manuscripts.school import validate_chapters,school_content_report
+from app.domain.manuscripts.school import chapter_groups,validate_chapters,school_content_report
 from .contracts import Strict
 from .live_contracts import LiveParagraph
 
@@ -44,10 +44,10 @@ def layout(base,request):
     if request['output_language']!=base['output_language']:raise ValueError('School project language remains frozen')
     return dict(schema_version=1,chapters=chapters,writable_aliases=writable)
 
-def build_bundle(base,request,frozen):
+def build_bundle(base,request,frozen,*,revision_sections=None):
     from .bundle import build_bundle as common,safe_text
     from .context import paragraph_sources_selected
-    from .numeric_contract import add_reported_results,text_facts
+    from .numeric_contract import add_literature_numbers,add_reported_results,text_facts
     from .frozen import wire_parts
     from .policy import POLICY_VERSION
     from .paper_context import add_illustration_context, add_notes, is_note, place_illustrations
@@ -59,7 +59,7 @@ def build_bundle(base,request,frozen):
     safe.pop('thesis_context',None);safe.pop('sections',None)
     safe.update(title='',methods=[])
     safe['results_groups']=[dict(g,paragraphs=[]) for g in safe.get('results_groups',[])]
-    legacy={k:deepcopy(v) for k,v in frozen.items() if k not in ('origin','numeric_contract_version','school_content_version','source_selection_version')};legacy['schema_version']=1
+    legacy={k:deepcopy(v) for k,v in frozen.items() if k not in ('origin','numeric_contract_version','school_content_version','source_selection_version','school_presentation_version')};legacy['schema_version']=1
     seed=common(safe,dict(request,schema_version=2,keywords=[],acknowledgements=''),execution_contract=legacy)
     payload=json.loads(json.loads(seed['wire_json'])['input']);local=seed['local_manifest']
     payload.update(schema_version=3,school_content_version=VERSION,numeric_contract_version=2,context=[],keywords=[],acknowledgements='')
@@ -94,24 +94,31 @@ def build_bundle(base,request,frozen):
         add_notes(base, request, payload, local, chapter_aliases)
         place_illustrations(base, payload, chapter_aliases)
         add_illustration_context(base, payload, local)
-    for evidence in payload['evidence']:evidence['numeric_facts']=text_facts(evidence['quote'],'/quote/numbers')
+    add_literature_numbers(payload['evidence'])
     for alias,c in school['chapters'].items():
         c['allowed_source_aliases']=allowed_sources(base,local,c)
         c['allowed_context_aliases']=allowed_contexts(base,payload,contexts,c,wire_alias=alias)
     payload['chapters']=[dict(alias=a,title=safe_text(c['title']),level=c['level'],purpose=c['purpose'],output_language=c['output_language'],allowed_source_aliases=c['allowed_source_aliases'],allowed_context_aliases=c['allowed_context_aliases']) for a,c in school['chapters'].items() if a in school['writable_aliases']]
+    if request.get('revision_of_request_id'):
+        if not revision_sections or [s['id'] for s in revision_sections] != school['writable_aliases']:
+            raise ValueError('Revision must match the writable school chapters')
+        payload['original_draft'] = revision_sections
     payload['target_section']=next((a for a,c in school['chapters'].items() if c['chapter_id']==request['target_section']),None)
+    if frozen.get('school_presentation_version'):
+        from .school_presentation import add_presentation_input
+        add_presentation_input(base,payload,local)
     parts=wire_parts(frozen,payload);policy=ModelPolicy.model_validate(frozen['policy'])
     wire=canonical_payload(dict(model=policy.model,background=True,store=True,service_tier='default',input=canonical_payload(payload),max_output_tokens=policy.max_output_tokens,**parts))
     size=len(wire.encode());allowance=size+frozen['protocol_allowance']
     if allowance>frozen['max_input_allowance']:raise StorageError('manuscript_writing_input_limit','学校完整外发包超过冻结输入上限，请减少所选材料。',422)
     sha=hashlib.sha256(wire.encode()).hexdigest()
-    return dict(execution_contract=frozen,wire_json=wire,wire_sha256=sha,bundle_sha256=sha,wire_bytes=size,gateway_digest=input_digest(instructions=parts['instructions'],payload=payload),input_token_allowance=allowance,reserved_micro_usd=reserve_micro_usd(policy,allowance,0),policy_json=policy.model_dump(mode='json'),local_manifest=local,omitted_manifest=seed['omitted_manifest']+['school_identity','manual_chapters','school_template'],policy_version=POLICY_VERSION)
+    return dict(**({'revision_sections':revision_sections} if revision_sections is not None else {}),
+                execution_contract=frozen,wire_json=wire,wire_sha256=sha,bundle_sha256=sha,wire_bytes=size,gateway_digest=input_digest(instructions=parts['instructions'],payload=payload),input_token_allowance=allowance,reserved_micro_usd=reserve_micro_usd(policy,allowance,0),policy_json=policy.model_dump(mode='json'),local_manifest=local,omitted_manifest=seed['omitted_manifest']+['school_identity','manual_chapters','school_template'],policy_version=POLICY_VERSION)
 
 def allowed_sources(base,local,chapter):
     if chapter['purpose']!='results':return list(local['sources'])
     selected=set()
-    for group in base['results_groups']:
-        if group['id'] not in chapter['result_group_ids']:continue
+    for group in chapter_groups(base,chapter):
         for item in group.get('paragraphs',[])+group.get('tables',[])+group.get('figures',[]):selected.update(item.get('source_ids',[]))
     return [a for a,identity in local['sources'].items() if identity in selected]
 
@@ -126,7 +133,7 @@ def allowed_contexts(base,payload,contexts,chapter,*,wire_alias=None):
             assigned=payload['illustrations'][int(match[1])].get('section_id')
         else:return None
         return chapter['purpose'] in ('abstract','discussion','conclusion') or assigned == wire_alias
-    figures={f['number'] for g in base['results_groups'] if g['id'] in chapter['result_group_ids'] for f in g['figures']}
+    figures={f['number'] for g in chapter_groups(base,chapter) for f in g['figures']}
     result=[]
     for alias,row in contexts.items():
         note=accepts_note(row)
@@ -149,7 +156,12 @@ def allowed_contexts(base,payload,contexts,chapter,*,wire_alias=None):
 def output_schema(payload):
     from .numeric_contract import output_schema as numeric_schema
     result=numeric_schema(payload);aliases=[c['alias'] for c in payload['chapters']]
-    result['$defs']['LiveSection']['properties']['id']=dict(type='string',enum=aliases)
+    section_def = 'LiveSection'
+    if 'draft_presentation' in payload:
+        from .school_presentation import presentation_schema
+        result = presentation_schema(result)
+        section_def = 'PresentationSection'
+    result['$defs'][section_def]['properties']['id']=dict(type='string',enum=aliases)
     result['properties']['sections'].update(minItems=len(aliases),maxItems=len(aliases))
     return result
 
@@ -165,9 +177,16 @@ def validate_preservation(candidate,base,bundle):
 def compose(output,snapshot,bundle,call_id,provenance,composition_version=2):
     from .numeric_contract import validate_bindings
     from app.domain.manuscripts.illustrations import check_references,rendered_groups
-    output=SchoolOutput.model_validate(output).model_dump(mode='json')
+    from .school_presentation import SchoolPresentationOutput, project_presentation, validate_anchors
+    presented = bool(bundle['execution_contract'].get('school_presentation_version'))
+    output=(SchoolPresentationOutput if presented else SchoolOutput).model_validate(output).model_dump(mode='json')
     school=bundle['local_manifest']['school'];local=bundle['local_manifest'];payload=json.loads(json.loads(bundle['wire_json'])['input'])
     if [s['id'] for s in output['sections']]!=school['writable_aliases']:raise ValueError('Wrong school chapter order or target')
+    if 'original_draft' in payload:
+        def prose(sections):
+            return [' '.join(' '.join(p['text'] for p in s['paragraphs']).split()) for s in sections]
+        if prose(output['sections']) == prose(payload['original_draft']):
+            raise ValueError('Revision text is unchanged')
     result=deepcopy(snapshot['base_snapshot']);by_id={s['id']:s for s in result['sections']}
     for section in output['sections']:
         chapter=school['chapters'][section['id']];paragraphs=[];seen=set();allowed=allowed_sources(result,local,chapter)
@@ -178,12 +197,17 @@ def compose(output,snapshot,bundle,call_id,provenance,composition_version=2):
             if len(set(p['evidence_aliases']))!=len(p['evidence_aliases']) or not set(p['evidence_aliases'])<=local['evidence'].keys():raise ValueError('Unknown evidence alias')
             bindings=validate_bindings(p,payload)
             if any(b['source_alias'] not in chapter['allowed_context_aliases'] for b in bindings['context']):raise ValueError('Context outside school chapter scope')
-            groups=result['results_groups'] if chapter['purpose']!='results' else [g for g in result['results_groups'] if g['id'] in chapter['result_group_ids']]
+            groups=result['results_groups'] if chapter['purpose']!='results' else chapter_groups(result,chapter)
             pid='school-writing:'+digest(dict(request=snapshot['request_id'],chapter=section['id'],index=i))
             issues=check_references(rendered_groups(dict(result,results_groups=groups),[dict(id=pid,text=p['text'],origin='model_generated')]),chapter['output_language'])
             if any(x['field']==pid for x in issues):raise ValueError('Unknown school figure/table identity')
             paragraphs.append(dict(id=pid,text=p['text'],origin='model_generated',source_ids=[local['sources'][a] for a in p['source_aliases']],citations=[],numeric_bindings=[],suggested_source_aliases=p['source_aliases'],suggested_evidence_aliases=p['evidence_aliases'],study_numeric_bindings=bindings['study'],context_numeric_bindings=bindings['context'],literature_numeric_bindings=bindings['literature'],verification_status='pending'))
+            if presented:
+                validate_anchors(p)
+                paragraphs[-1]['suggested_citation_anchors'] = p['citation_anchors']
         by_id[chapter['chapter_id']]['paragraphs']=paragraphs
+    if presented:
+        result['school_presentation'] = project_presentation(output['presentation'],payload,local)
     if result.get('review_provenance'):result.setdefault('review_history',[]).append(dict(provenance=result.pop('review_provenance'),review=result.pop('review'),applies_to_current_text=False,status='historical_requires_recheck'))
     result['writing_provenance']=dict(schema_version=2,request_id=snapshot['request_id'],bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'],model_call_id=call_id,provider_provenance=provenance,verification_status='pending',raw_output=output,raw_output_sha256=digest(output),required_reviews=['scientific_claims','study_numeric_facts','complete_language','school_export'],base_version_id=snapshot['base_version_id'],composition_version=composition_version,numeric_contract_version=2,school_content_version=VERSION)
     update_notice(result,snapshot['input']);validate_preservation(result,snapshot['base_snapshot'],bundle)
@@ -214,7 +238,7 @@ def science_report(candidate,bundle,body,raw,inherited=None):
         paragraphs[pid]=dict(paragraph=deepcopy(current[pid]),text=d['corrected_text'] if d['corrected_text'] is not None else original[pid]['text'],aliases=deepcopy(bundle['local_manifest']['sources']),numeric_version=2,numeric_contract_version=2,numeric_context=deepcopy(bundle['local_manifest']['numeric_context']))
     tables=deepcopy(inherited.tables) if inherited else {}
     for i,g in enumerate(candidate['results_groups']):
-        owner=next((s for s in candidate['sections'] if g['id'] in s['result_group_ids']),None)
+        owner=next((s for s in candidate['sections'] if g in chapter_groups(candidate,s)),None)
         for j,table in enumerate(g['tables']):tables.setdefault(f'/results_groups/{i}/tables/{j}',dict(original=deepcopy(table),approved=deepcopy(table),language=owner['output_language'] if owner else candidate['output_language']))
     context=WritingCheckContext(paragraphs=paragraphs,sources={s['id']:deepcopy(s) for s in candidate['sources']},tables=tables,check_version=2)
     issues=check_snapshot(candidate,writing_context=context)

@@ -130,7 +130,6 @@ def literature_candidate(client,claim_context_override=None):
     from tests.api.test_literature_citations import seeded,binding
     from tests.api.test_manuscripts import body as manuscript_body
     from tests.api.test_manuscript_writing_live import authorize,request_v2
-    from tests.integration.test_literature_assistance import budgets
     from app.domain.tasks.execution import run_task
     from app.domain.manuscript_writing.live_review_candidate import body_digest
     pid,lit,search,refs=seeded(client)
@@ -139,7 +138,7 @@ def literature_candidate(client,claim_context_override=None):
     assert run_task(base['versions'][0]['task_id'],1)['status']=='succeeded'
     bundle=post(client,root+'/writing-previews',dict(schema_version=2,base_revision=1,mode='full_draft',output_language='en',selected_source_ids=[],selected_evidence_ids=[]),'preview').json()
     _,auth=authorize(client,root,bundle)
-    task=post(client,root+'/writing-requests',request_v2(bundle,auth),'write').json()['task'];budgets(client,task)
+    task=post(client,root+'/writing-requests',request_v2(bundle,auth),'write').json()['task']
     assert run_manuscript_writing_task(task['id'],1,provider=LiveFixture())['status']=='succeeded'
     path=root+'/writing-requests/'+task['id'];ctx=client.get(path+'/review-context').json();body=decision(ctx)
     text='Synthetic protocol fixture; this is not a research finding.'
@@ -228,7 +227,6 @@ def test_raw_or_review_sha_cannot_be_replaced_after_scientific_review(client,mon
 
 def test_review_rewrite_keeps_non_target_sections_and_citation_table_exact(client,monkeypatch):
     from tests.api.test_manuscript_writing_live import authorize,request_v2
-    from tests.integration.test_literature_assistance import budgets
     from app.domain.tasks.execution import run_task
     import json
     root,path,ctx,body,lit,c,r=literature_candidate(client)
@@ -243,9 +241,6 @@ def test_review_rewrite_keeps_non_target_sections_and_citation_table_exact(clien
     tasks=[dict(logical_task_id='task-'+str(i),bundles=[dict(bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'])]) for i in range(4)]
     auth=post(client,root.split('/manuscripts/')[0]+'/writing-authorizations',dict(schema_version=2,confirmed=True,tasks=tasks),'rewrite-auth').json()
     task=post(client,root+'/writing-requests',request_v2(bundle,auth),'rewrite').json()['task']
-    from app.domain.model_usage.service import ModelUsageService
-    from tests.helpers.tasks import task_owner
-    ModelUsageService(task_owner(client)).set_budget('task',task['id'],5000000,1)
     provider=LiveFixture();original=provider.receipt
     def receipt():
         value=original();output=json.loads(value['response']['output'][0]['content'][0]['text']);output['sections']=[output['sections'][4]]

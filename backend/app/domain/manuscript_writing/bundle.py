@@ -49,6 +49,7 @@ def public_citation_url(value):
         if parsed.netloc=='doi.org': return public_doi(parsed.path[1:])
         if parsed.netloc=='pubmed.ncbi.nlm.nih.gov': return re.fullmatch(r'/[1-9][0-9]{0,11}/?',parsed.path) is not None
         if parsed.netloc=='pmc.ncbi.nlm.nih.gov': return re.fullmatch(r'/articles/PMC[1-9][0-9]*/?',parsed.path) is not None
+        if parsed.netloc=='creativecommons.org': return parsed.path in ('/licenses/by/4.0', '/licenses/by/4.0/')
     except ValueError:
         return False
     return False
@@ -101,7 +102,43 @@ def evidence_catalog(base):
                     result[evidence['id']]=(evidence,binding)
     return result
 
-def build_bundle(base, request, *, execution_contract=None, include_reported_results=True):
+
+DOCUMENT_EXCERPT_LIMIT = 12000
+
+
+def document_excerpt(source):
+    """Read only the text of selected frozen material; retain source metadata locally."""
+    if source['kind'] not in ('document_version', 'ocr_review_version', 'external_evidence_version'):
+        return {}
+    excerpt = []
+    length = 0
+    truncated = bool(source['content'].get('text_truncated'))
+    for item in source['content'].get('items', []):
+        if item.get('review_action') == 'unreadable' or 'unreadable' in item.get('uncertainties', []):
+            continue
+        if item['kind'] == 'text':
+            text = item.get('text')
+        elif item['kind'] == 'cell' and source['kind'] == 'external_evidence_version':
+            # A saved external selection can name a single cell. A parsed Word
+            # already contains the paragraphs of each cell in document order.
+            text = (item.get('value') or {}).get('typed')
+        else:
+            continue
+        if not isinstance(text, str) or not text.strip():
+            continue
+        room = DOCUMENT_EXCERPT_LIMIT - length - bool(excerpt)
+        if room > 0:
+            excerpt.append(text[:room])
+            length += len(excerpt[-1]) + (len(excerpt) > 1)
+        if len(text) > room:
+            truncated = True
+            break
+    if not excerpt:
+        return {}
+    return dict(document_excerpt=safe_text('\n'.join(excerpt)), document_excerpt_truncated=truncated,
+                document_excerpt_scope='user_provided_context')
+
+def build_bundle(base, request, *, execution_contract=None, include_reported_results=True, revision_sections=None):
     from .frozen import contract,validate,wire_parts
     from app.domain.model_usage.contracts import ModelPolicy
     from app.domain.admin_configuration.model_consumption import combine
@@ -110,10 +147,11 @@ def build_bundle(base, request, *, execution_contract=None, include_reported_res
         raise StorageError('manuscript_writing_selection_invalid','此文章类型须使用文章结构协议，不能按旧七部分协议改写。',422)
     if frozen['schema_version']==4:
         from .article_contract import build_bundle as article_bundle
-        return article_bundle(base,request,frozen,include_reported_results=include_reported_results)
+        return article_bundle(base,request,frozen,include_reported_results=include_reported_results,
+                              revision_sections=revision_sections)
     if frozen['schema_version']==3:
         from .school_live import build_bundle as school_bundle
-        return school_bundle(base,request,frozen)
+        return school_bundle(base,request,frozen,revision_sections=revision_sections)
     sources={s['id']:s for s in base.get('sources',[])}; catalog=evidence_catalog(base)
     if not set(request['selected_source_ids'])<=sources.keys() or not set(request['selected_evidence_ids'])<=catalog.keys():
         raise StorageError('manuscript_writing_selection_invalid','只能选择当前冻结版本中的来源和证据。',422)
@@ -128,6 +166,11 @@ def build_bundle(base, request, *, execution_contract=None, include_reported_res
                     numeric.extend(facts(source['content'][key],'/'+key))
                     descriptions.extend(labels(source['content'][key],'/'+key))
         entry=dict(alias=alias,kind=safe_text(source['kind']),role=safe_text(source['role']),facts=numeric,labels=descriptions)
+        description = (base.get('paper_plan') or {}).get('file_descriptions', {}).get(source.get('file_id'))
+        if description:
+            entry['file_description'] = safe_text(description)
+        if request.get('document_context_version') == 'selected-text-v1':
+            entry.update(document_excerpt(source))
         from app.domain.manuscripts.research_sources import KINDS,numeric as research_numeric
         if source['kind'] in KINDS:
             entry['facts']=[{k:safe_text(v) if isinstance(v,str) and k!='fact_path' else v for k,v in f.items()} for f in research_numeric(source)]
@@ -213,7 +256,7 @@ def validate_bundle(row):
     has_report = any(entry['location'] == REPORTED_RESULTS_LOCATION
                      for entry in row['local_manifest'].get('numeric_context', {}).values())
     rebuilt=build_bundle(row['base_snapshot'],row['request_json'],execution_contract=bundle_contract(row),
-                         include_reported_results=has_report)
+                         include_reported_results=has_report, revision_sections=row.get('revision_sections'))
     if 'execution_contract' not in row:rebuilt.pop('execution_contract',None)
     if any(row[k]!=v for k,v in rebuilt.items()): raise ValueError('Frozen bundle mismatch')
     return row
@@ -235,6 +278,6 @@ def require_current_source_projection(bundle):
     has_report=any(row['location']==REPORTED_RESULTS_LOCATION
                    for row in bundle['local_manifest'].get('numeric_context',{}).values())
     refreshed=build_bundle(base,request,execution_contract=dict(frozen,source_selection_version=2),
-                           include_reported_results=has_report)
+                           include_reported_results=has_report, revision_sections=bundle.get('revision_sections'))
     if refreshed['wire_sha256']!=bundle['wire_sha256']:
         raise StorageError('manuscript_writing_sources_refresh','已封存预览需重新核对已选来源。请重新冻结外发预览后授权。',409)

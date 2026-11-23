@@ -13,7 +13,6 @@ from app.db.database import database_connection
 from app.domain.model_usage.contracts import CallRequest, ModelPolicy
 from app.domain.model_usage.gateway import ModelGateway, ModelGatewayError, input_digest
 from tests.domain.test_plot_policy import execution_policy
-from tests.integration.test_model_usage import configure
 from tests.api.test_analysis import client  # noqa: F401
 
 INSTRUCTIONS = 'Synthetic trusted instructions'
@@ -34,7 +33,7 @@ def context(client, postgres_schema):
 
 
 def setup(context):
-    service = configure(context, limit=10000)
+    service = context[0]
     task = context[3]
     with database_connection(write=True) as db:
         db.execute('''INSERT INTO task_attempts
@@ -42,11 +41,9 @@ def setup(context):
             VALUES (%s,%s,1,'running',clock_timestamp(),'synthetic-owner',
                     clock_timestamp()+interval '5 minutes',clock_timestamp())''', (str(uuid4()), task))
     lease = TaskLease(task, 1, 'synthetic-owner')
-    assert 'tool_reserve_version' in CallRequest.model_fields, 'Tool reservation version is not frozen'
     request = CallRequest(task_id=task, expected_task_revision=2, call_key='boxplot:v1',
         input_digest=input_digest(instructions=INSTRUCTIONS, payload=PAYLOAD),
-        policy=ModelPolicy.model_validate(execution_policy()['policy']), input_token_allowance=100,
-        tool_reserve_micro_usd=300, tool_reserve_version='synthetic-tool-v1')
+        policy=ModelPolicy.model_validate(execution_policy()['policy']), input_token_allowance=100)
     return service, request, lease
 
 
@@ -97,7 +94,7 @@ def submit(gateway, request, lease):
     return gateway.submit_plot(request, instructions=INSTRUCTIONS, payload=PAYLOAD, execution_lease=lease)
 
 
-def test_three_single_post_slices_persist_receipts_and_hold_unknown_tool_cost(context):
+def test_three_single_post_slices_persist_receipts_and_record_unknown_tool_cost(context):
     service, request, lease = setup(context)
     provider = Provider()
     gateway = ModelGateway(service, provider)
@@ -106,9 +103,9 @@ def test_three_single_post_slices_persist_receipts_and_hold_unknown_tool_cost(co
         assert output['call']['provider_state']['phase'] == phase
     assert provider.calls == ['container', 'upload', 'response']
     assert output['call']['usage_status'] == 'pending' and output['call']['estimated_cost_micro_usd'] == 60
-    assert output['call']['policy_snapshot']['tool_reserve_version'] == 'synthetic-tool-v1'
+    assert 'tool_reserve_version' not in output['call']['policy_snapshot']
     usage = service.task_usage(context[3])
-    assert usage['estimated_micro_usd'] == 60 and usage['reserved_micro_usd'] == 360
+    assert usage['estimated_micro_usd'] == 60 and usage['reserved_micro_usd'] == 0
     submit(gateway, request, lease)
     assert provider.calls == ['container', 'upload', 'response', 'GET']
     with database_connection() as db:
@@ -129,7 +126,7 @@ def test_unknown_post_is_never_repeated_and_reservation_cannot_be_released(conte
     assert call['status'] == 'submission_unknown' and provider.calls.count(error_step) == 1
     with pytest.raises(StorageError):
         service.release_unsubmitted(call['id'], event_key='release', reason_code='test')
-    assert service.task_usage(context[3])['reserved_micro_usd'] == 420
+    assert service.task_usage(context[3])['reserved_micro_usd'] == 0
 
 
 def test_ready_phase_allows_new_revision_but_rejects_expired_lease(context):
@@ -166,7 +163,7 @@ def test_late_container_receipt_is_saved_once_but_cannot_authorize_next_post(con
         service.begin_plot_step(call['id'], 'upload', execution_lease=lease, expected_task_revision=2)
 
 
-def test_actual_tokens_above_allowance_cannot_consume_unknown_tool_reserve(context):
+def test_actual_tokens_above_allowance_are_recorded_without_holds(context):
     service, request, lease = setup(context)
     provider = Provider()
     gateway = ModelGateway(service, provider)
@@ -181,17 +178,16 @@ def test_actual_tokens_above_allowance_cannot_consume_unknown_tool_reserve(conte
     submit(gateway, request, lease)
     usage = service.task_usage(context[3])
     assert usage['estimated_micro_usd'] == 1010
-    assert usage['reserved_micro_usd'] == 300
-    assert usage['task_budget']['available_micro_usd'] == 8690
+    assert usage['reserved_micro_usd'] == 0
+    assert usage['accounted_micro_usd'] == 1010
 
 
-def test_tool_version_and_input_are_frozen_and_no_lease_cannot_post(context):
+def test_input_is_frozen_and_no_lease_cannot_post(context):
     service, request, lease = setup(context)
     gateway = ModelGateway(service, Provider())
     submit(gateway, request, lease)
-    for change in ({'input_digest': 'f' * 64}, {'tool_reserve_version': 'v2'}):
-        with pytest.raises((StorageError, ModelGatewayError)):
-            submit(gateway, request.model_copy(update=change), lease)
+    with pytest.raises((StorageError, ModelGatewayError)):
+        submit(gateway, request.model_copy(update={'input_digest': 'f' * 64}), lease)
     with pytest.raises((StorageError, ModelGatewayError, LeaseLost)):
         submit(gateway, request, None)
 
@@ -226,23 +222,23 @@ def test_receipt_persistence_failure_leaves_post_fenced(context, monkeypatch, st
         assert error.value.code == 'model_receipt_persistence_failed'
     call = submit(gateway, request, lease)['call']
     assert call['status'] == 'submission_unknown' and provider.calls.count(step) == 1
-    assert service.task_usage(context[3])['reserved_micro_usd'] == 420
+    assert service.task_usage(context[3])['reserved_micro_usd'] == 0
 
 
-def test_old_text_snapshot_without_tool_version_replays_without_overwriting_it(context):
+def test_old_text_snapshot_with_tool_budget_replays_without_overwriting_it(context):
     from tests.integration.test_model_usage import request as text_request
-    service = configure(context)
+    service = context[0]
     request = text_request(context[3])
     call = service.reserve_call(request)
     with database_connection(write=True) as db:
-        db.execute("UPDATE model_calls SET policy_snapshot=policy_snapshot-'tool_reserve_version'")
+        db.execute("""UPDATE model_calls SET policy_snapshot=policy_snapshot || '{"tool_reserve_micro_usd":10}'::jsonb""")
     replay = service.reserve_call(request)
     assert replay['id'] == call['id']
-    assert 'tool_reserve_version' not in replay['policy_snapshot']
+    assert replay['policy_snapshot']['tool_reserve_micro_usd'] == 10
 
 
 @pytest.mark.parametrize('status', [404, 410])
-def test_definite_expired_upload_is_failed_evidence_with_held_budget_not_unknown(context, status):
+def test_definite_expired_upload_is_recorded_as_failed_without_hold(context, status):
     service, request, lease = setup(context)
     provider = Provider()
     gateway = ModelGateway(service, provider)
@@ -260,7 +256,7 @@ def test_definite_expired_upload_is_failed_evidence_with_held_budget_not_unknown
     assert call['provider_state']['upload_request_id'] == 'req_expired'
     assert call['provider_response_id'] is None and call['usage_status'] == 'pending'
     assert provider.calls == ['container', 'upload']
-    assert service.task_usage(context[3])['reserved_micro_usd'] == 420
+    assert service.task_usage(context[3])['reserved_micro_usd'] == 0
     with pytest.raises(StorageError):
         service.release_unsubmitted(call['id'], event_key='release', reason_code='expired')
 
@@ -286,6 +282,6 @@ def test_receipt_commit_ack_loss_does_not_downgrade_durable_ready_phase(context,
         call = db.execute('SELECT * FROM model_calls').fetchone()
         assert call['status'] == 'submitting'
         assert call['provider_state']['phase'] == ('container_ready' if step == 'container' else 'file_ready')
-        assert db.execute("SELECT count(*) AS n FROM budget_reservations WHERE status='held'").fetchone()['n'] == 3
+        assert db.execute("SELECT count(*) AS n FROM budget_reservations WHERE status='held'").fetchone()['n'] == 0
     submit(gateway, request, lease)
     assert provider.calls == (['container', 'upload'] if step == 'container' else ['container', 'upload', 'response'])

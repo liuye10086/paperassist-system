@@ -31,20 +31,27 @@ class DocumentParseStore(FileParseStore):
              {key:image[key] for key in ('object_key','size_bytes','sha256')}) for image in manifest['images']]
         # Durable admission covers JSON and every embedded image before the
         # transaction-external immutable writer; publication fences again.
+        track_storage_progress = snapshot['kind'] in ('docx_document', 'pdf_document')
         with repo.connection(write=True) as db:
             task=repo.require_lease(db,lease);repo.require_owner(db,task)
+            progress = repo.transaction_progress(db, lease) if track_storage_progress else None
             if require_parse_source(db,task) != snapshot:
                 raise source_conflict()
             repo.assets.original(snapshot['file'])
-            rows=admit_manifest(db,repo.assets.directory,task,entries)
+            rows=admit_manifest(db,repo.assets.directory,task,entries,progress=progress)
+            if progress is not None:
+                progress(force=True)
         saved=objects.save(snapshot['parse_id'],result)
         if saved!=manifest:raise source_conflict()
         with repo.connection(write=True) as db:
             task=repo.require_lease(db,lease);repo.require_owner(db,task)
+            progress = repo.transaction_progress(db, lease) if track_storage_progress else None
             if require_parse_source(db,task) != snapshot:
                 raise source_conflict()
             repo.assets.original(snapshot['file']);repo.require_lease(db,lease)
-            settle_manifest(db,repo.assets.directory,task,rows)
+            settle_manifest(db,repo.assets.directory,task,rows,progress=progress)
+            if progress is not None:
+                progress(force=True)
             now=repo.now(db)
             changed=db.execute('UPDATE file_parse_results SET completed_at=%s,result_json=%s WHERE id=%s AND task_id=%s AND result_json IS NULL',(now,Jsonb(saved),snapshot['parse_id'],task['id']))
             if changed.rowcount != 1:

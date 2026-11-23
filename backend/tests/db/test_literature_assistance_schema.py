@@ -6,13 +6,12 @@ from psycopg.types.json import Jsonb
 from app.db.database import database_connection, migration_connection
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_literature import project
-from tests.integration.test_literature_assistance import create, budgets, SyntheticProvider
+from tests.integration.test_literature_assistance import create, SyntheticProvider
 
 
 def unknown_submission(client):
     from app.domain.literature_assistance.execution import run_assistance_task
     task = create(client, project(client))
-    budgets(client, task)
     provider = SyntheticProvider(unknown=True)
     waiting = run_assistance_task(task['id'], task['revision'], provider_factory=lambda: provider)
     assert waiting['reason_code'] == 'submission_unknown'

@@ -1,7 +1,7 @@
 """Read-only projections of saved call facts; synthetic transport, isolated schema."""
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_literature import project
-from tests.integration.test_literature_assistance import create,budgets,SyntheticProvider
+from tests.integration.test_literature_assistance import create,SyntheticProvider
 from app.domain.literature_assistance.execution import run_assistance_task
 
 
@@ -10,7 +10,7 @@ def detail(client, task):
 
 
 def test_saved_usage_projection_never_infers_live_source_or_exposes_internal_identifiers(client):
-    task=create(client,project(client));budgets(client,task)
+    task=create(client,project(client))
     provider=SyntheticProvider()
     assert run_assistance_task(task['id'],task['revision'],provider_factory=lambda:provider)['status']=='succeeded'
     value=detail(client,task)
@@ -26,7 +26,6 @@ def test_saved_usage_projection_never_infers_live_source_or_exposes_internal_ide
 
 def test_no_call_and_failed_unknown_call_do_not_invent_zero_usage_or_cost(client):
     task=create(client,project(client));assert detail(client,task)['model_calls']==[]
-    budgets(client,task)
     provider=SyntheticProvider(unknown=True)
     run_assistance_task(task['id'],task['revision'],provider_factory=lambda:provider)
     call=detail(client,task)['model_calls'][0]
@@ -37,7 +36,7 @@ def test_no_call_and_failed_unknown_call_do_not_invent_zero_usage_or_cost(client
 def test_mock_official_model_completed_call_remains_unknown_source_when_business_result_failed(client,tmp_path):
     import httpx
     from tests.integration.test_literature_batch06_assistance import bound_provider,response
-    task=create(client,project(client));budgets(client,task)
+    task=create(client,project(client))
     invalid=dict(direction='Public topic',terms=['aspirin'],synonyms=[dict(term='invalid object')],
         mesh_candidates=[],query='aspirin',explanation='Public suggestion')
     _,provider=bound_provider(tmp_path,task,lambda request:httpx.Response(200,json=response(invalid)))

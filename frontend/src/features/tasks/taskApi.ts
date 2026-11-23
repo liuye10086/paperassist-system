@@ -34,7 +34,7 @@ export async function taskRequest<T>(url: string, controller: AbortController, v
         return value
       }),
       new Promise<never>((_, reject) => {
-        timer = window.setTimeout(() => { controller.abort(); reject(new Error(fallback)) }, timeoutMs)
+        timer = window.setTimeout(() => { reject(new TaskRequestError(fallback, 408)); controller.abort() }, timeoutMs)
       }),
     ])
   } finally { window.clearTimeout(timer) }

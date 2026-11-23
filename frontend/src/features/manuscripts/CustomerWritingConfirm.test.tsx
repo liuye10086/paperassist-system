@@ -35,11 +35,11 @@ function makeBundle(input:PreviewInput,index:number,server:Server):Bundle{
  return {...fixture,request_json:savedInput,wire_json:wire,bundle_sha256:server.tamper?hash('changed'):hash(wire),wire_sha256:server.tamper?hash('changed'):hash(wire),wire_bytes:new TextEncoder().encode(wire).length,reserved_micro_usd:server.reserved??190000}
 }
 function makeAuth(tasks:Authorization['manifest']['tasks'],index:number):Authorization{
- return {id:authIds[index],project_id:projectId,status:'active',revision:1,manifest_sha256:hash('manifest'+index),manifest:{tasks,max_posts:6,max_corrections:2,cap_micro_usd:12000000,logical_task_cap_micro_usd:3000000,materials:[]},occupied_posts:0,occupied_micro_usd:0,logical_task_usage:[]}
+ return {id:authIds[index],project_id:projectId,status:'active',revision:1,manifest_sha256:hash('manifest'+index),manifest:{tasks,max_posts:6,max_corrections:2,materials:[]},occupied_posts:0,logical_task_usage:[]}
 }
 function makeRequest(call:{bundle_id:string;authorization_id:string;logical_task_id:string},input:PreviewInput,index:number,status={status:'queued',reason_code:null as string|null,error_code:null as string|null},candidate:Snapshot|null=null,noCalls=false):LiveRequest{
  const id=requestIds[index],execution={bundle_id:call.bundle_id,authorization_id:call.authorization_id,logical_task_id:call.logical_task_id}
- // Like the server: a request always names its execution group; model calls exist only once the worker reserved budget.
+ // A request can identify its execution group before the worker records a model call.
  return {...liveRequest,id,input,base_revision:1,candidate,execution,task:{...liveRequest.task,id,status:status.status,display_status:status.status,reason_code:status.reason_code,error_code:status.error_code} as LiveRequest['task'],model_calls:noCalls?[]:[{id:callIds[index],model:'gpt-5.4-2026-03-05',status:'reserved',provider_provenance:'not_submitted',estimated_cost_micro_usd:null,...call}]}
 }
 function serve(server:Server){
@@ -318,13 +318,13 @@ it('names the receiving service and storage scope only from the server',async()=
  serve({previews:[],auths:[],requests:[],enabled:true,capabilities:{provider:'OpenAI',storage_scope:'OpenAI stores background responses; selected material is transmitted externally.'}})
  const view=render(<WritingLive {...props}/>);await ready()
  expect(screen.getByText('本次材料将发送给 OpenAI，生成结果由服务商保存（所选材料会发送到外部服务，后台生成记录由服务商保留）。')).toBeTruthy()
- expect(screen.getByText(/本次预留 US\$0\.19。/)).toBeTruthy()
+ expect(screen.getByText(/预计费用 US\$0\.19。/)).toBeTruthy()
  view.unmount();sessionStorage.clear()
  serve({previews:[],auths:[],requests:[],enabled:true,reserved:0})
  render(<WritingLive {...props}/>);await ready()
  expect(screen.getByText('本次材料将发送给外部写作服务，生成结果由服务商保存。')).toBeTruthy()
  expect(screen.queryByText(/OpenAI/)).toBeNull()
- expect(screen.queryByText(/本次预留|US\$|免费/)).toBeNull()
+ expect(screen.queryByText(/预计费用|US\$|免费/)).toBeNull()
  expect(screen.getByText(/生成正文会产生写作费用。/)).toBeTruthy()
 })
 
@@ -344,26 +344,25 @@ it('opens the science check by itself once the writing task succeeds',async()=>{
  expect(fetcher.mock.calls.filter(([url,init])=>url===`${base}/writing-requests`&&!init?.method)).toHaveLength(polls)
 })
 
-it.each([['budget_exceeded','model_budget_missing'],['model_budget_missing',null]])('shows the customer budget notice for %s without recovery or admin wording',async(reason,error)=>{
+it.each([['budget_exceeded','model_budget_missing'],['model_budget_missing',null]])('offers original task review for historical %s waits without suggesting an allowance change',async(reason,error)=>{
  const fetcher=serve({previews:[],auths:[],requests:[],enabled:true,requestStatus:{status:'waiting_confirmation',reason_code:reason,error_code:error}})
  render(<WritingLive {...props}/>);await ready()
  fireEvent.click(confirmBox());fireEvent.click(generate())
- await screen.findByText('写作费用额度暂未开通或已用完，本次材料尚未发送。请联系客服开通后回到这里继续生成。')
+ await screen.findByRole('button',{name:'核对原写作任务'})
  expect(posts(fetcher,'/writing-requests')).toHaveLength(1)
  expect(document.body.textContent).not.toMatch(/model_budget_missing|budget_exceeded|管理员/)
- expect(screen.queryByRole('button',{name:'核对原写作任务'})).toBeNull()
- expect(screen.queryByRole('button',{name:/恢复/})).toBeNull()
- expect(screen.getByRole('heading',{name:'写作记录 1 · 等待写作额度'})).toBeTruthy()
+ expect(document.body.textContent).not.toContain('联系客服开通')
+ expect(screen.getByRole('heading',{name:'写作记录 1 · 待用户确认'})).toBeTruthy()
  try{
   act(()=>setLocale('en'))
-  expect(screen.getByRole('heading',{name:'Writing record 1 · Waiting for writing budget'})).toBeTruthy()
+  expect(screen.getByRole('heading',{name:'Writing record 1 · Waiting for confirmation'})).toBeTruthy()
  }finally{act(()=>setLocale('zh-CN'))}
 })
 
 it.each([
  {role:'customer',reason:null,title:'写作记录 1'},
  {role:'staff',reason:'model_budget_missing',title:liveRequest.id},
-])('keeps the normal confirmation heading for $role when the customer budget label does not apply',async({role,reason,title})=>{
+])('shows the confirmation heading for $role',async({role,reason,title})=>{
  const request:LiveRequest={...liveRequest,candidate:null,task:{...liveRequest.task,status:'waiting_confirmation',display_status:'waiting_confirmation',reason_code:reason}}
  serve({previews:[],auths:[],requests:[request],enabled:true})
  render(<WritingLive {...props} customerSci={role==='customer'?sci:undefined}/>)
@@ -406,7 +405,7 @@ it('shows no hashes, internal identifiers or controlled-writing wording before a
 })
 
 
-it('adds an optional method source to the budget preview only after selection and authorizes the updated bundle', async () => {
+it('adds an optional method source to the writing preview only after selection and authorizes the updated bundle', async () => {
  const source=(id:string,label:string,role:string)=>({id,file_id:id,kind:'original',label,role,sha256:'a'.repeat(64),content:{},download_url:null})
  const sources=[source('result','Study table.xlsx','user_results'),source('method','Supplementary notes.docx','methods')]
  const snapshot={...version.snapshot,sources,paper_plan:{kind:'research',title:'Study',keywords:[],sections:[],materials:[{selection:sources[0]}]}} as unknown as Snapshot

@@ -54,8 +54,8 @@ it('customer view translates its wording in English', () => {
   expect(screen.getByRole('button', { name: 'Continue original task' })).toBeTruthy()
 })
 
-it('staff view keeps the original operational wording by default', () => {
+it('staff can continue an old wait without changing settings', () => {
   mount(workspace('budget_confirmation', ['resume']))
-  expect(screen.getByText('任务正在等待预算或模型配置，请联系管理员调整后继续。')).toBeTruthy()
-  expect(screen.getByRole('button', { name: '预算或配置已调整，继续任务' })).toBeTruthy()
+  expect(screen.queryByText(/预算/)).toBeNull()
+  expect(screen.getByRole('button', { name: '继续原任务' })).toBeTruthy()
 })

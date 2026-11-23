@@ -12,6 +12,43 @@ def execute(task, provider=None):
     return run_literature_task(task['id'], task['revision'], client=provider)
 
 
+@pytest.mark.parametrize('stage', ['admission', 'publication'])
+def test_slow_storage_reconciliation_keeps_literature_lease(client, monkeypatch, stage):
+    import time
+    from app.adapters import task_execution_store
+    from app.domain.storage_governance import service as ledger
+
+    pid = project(client)
+    task = create(client, pid).json()
+    provider = SyntheticNcbi(1)
+    original = ledger.reconcile_intents
+    delayed = False
+
+    def slow_history(db, root, *, progress=None):
+        nonlocal delayed
+        # Capturing the provider response is durable before the receipt is published.
+        current = 'publication' if provider.calls else 'admission'
+        if current == stage and not delayed:
+            delayed = True
+            for _ in range(6):
+                time.sleep(0.24)
+                if progress is not None:
+                    progress()
+        return original(db, root, progress=progress)
+
+    monkeypatch.setattr(task_execution_store, 'LEASE_SECONDS', 1)
+    monkeypatch.setattr(ledger, 'reconcile_intents', slow_history)
+    result = execute(task, provider)
+    assert delayed
+    assert result and result['status'] == 'succeeded'
+    assert [call[0] for call in provider.calls] == ['esearch', 'efetch']
+    with database_connection() as db:
+        assert db.execute(
+            "SELECT count(*) AS n FROM storage_reservations WHERE task_id=%s AND state='settled'",
+            (task['id'],),
+        ).fetchone()['n'] == 2
+
+
 def test_disabled_ncbi_saves_a_durable_wait_without_fake_candidates(client, monkeypatch):
     monkeypatch.setenv('PAPERASSIST_NCBI_ENABLED', '0')
     pid = project(client)

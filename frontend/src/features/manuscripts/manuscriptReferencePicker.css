@@ -1,0 +1,16 @@
+.manuscript-reference-picker { min-width: 0; margin-block: 1rem; }
+.manuscript-reference-heading { display: flex; flex-wrap: wrap; gap: .35rem 1rem; align-items: baseline; }
+.manuscript-reference-heading h4 { margin: 0; }
+.manuscript-reference-heading span { color: var(--text); font-size: .9rem; }
+.manuscript-reference-heading .button-quiet { margin-inline-start: auto; }
+.manuscript-reference-picker .manuscript-reference-filter { display: inline-flex; align-items: center; gap: .6rem; margin-block: .55rem 0; }
+.manuscript-reference-filter select { width: auto; }
+.manuscript-reference-list { display: grid; gap: .8rem; max-height: 60vh; overflow: auto; padding: .3rem; }
+.manuscript-reference-option { min-width: 0; padding: .6rem .9rem; border: 1px solid var(--border); border-radius: 8px; }
+.manuscript-reference-option legend { max-width: 100%; padding-inline: .2rem; font-weight: 600; overflow-wrap: anywhere; }
+.manuscript-reference-option p { margin: .35rem 0; }
+.manuscript-reference-picker .manuscript-reference-choice { display: flex; align-items: baseline; gap: .65rem; padding-block: .45rem; cursor: pointer; }
+.manuscript-reference-choice input[type=checkbox] { flex: none; width: auto; }
+.manuscript-reference-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.manuscript-reference-excerpt textarea { display: block; width: 100%; box-sizing: border-box; min-height: 4rem; }
+.manuscript-reference-saved { border-inline-start: 3px solid var(--accent); padding-inline-start: .7rem; }

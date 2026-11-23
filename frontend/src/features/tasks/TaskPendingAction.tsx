@@ -11,7 +11,7 @@ import { useI18n } from '../../shared/i18n'
 import { isTask, sameInputVersion, type TaskOperation, type TaskView, type TaskWorkspace } from './taskTypes'
 import { taskErrorMessage, taskRequest } from './taskApi'
 
-// Customer pages explain waits without staff-only wording (NCBI, Worker, frozen inputs, budgets, administrators).
+// Customer pages explain waits without staff-only wording (NCBI, Worker, frozen inputs, administrators).
 const customerChecking = '系统正在核对，请稍后刷新或联系客服。'
 const customerLiterature = '文献检索暂不可用，任务已保存。'
 export default function TaskPendingAction({ workspace, blocked, onChanged, active: viewActive = true, registerLeaveGuard, customerView = false }: {
@@ -55,6 +55,10 @@ export default function TaskPendingAction({ workspace, blocked, onChanged, activ
     } finally { if (request.current === controller) request.current = null; if (active.current) setBusy(false) }
   }
   const currentWait = wait?.status === 'open' ? wait : null
+  const legacyModelWait = currentWait?.kind === 'budget_confirmation'
+  const modelError = currentWait?.error_code ?? task.error_code ?? ''
+  const needsModelSetup = !!currentWait && (modelError.endsWith('_not_configured') || modelError === 'model_configuration_disabled')
+  const resumeNarrative = task.task_type === 'reader_report_narrative' && actions.includes('resume') && legacyModelWait
   if (task.origin === 'legacy'||task.task_type==='pdf_export') return null
   if(currentWait?.kind==='bio_analysis_confirmation')return <section className="task-pending"><p>{t(customerView?customerChecking:'QC 候选待确认；计算已暂停，不占用 Worker。')}</p>{!customerView&&<BioTaskLinks task={task}/>}</section>
   if(task.task_type==='figure_projection')return <p className="warning-panel">{t('请返回来源文件的图表工作台，核对投影人数与规则后独立确认。')}</p>
@@ -80,14 +84,14 @@ export default function TaskPendingAction({ workspace, blocked, onChanged, activ
     {task.input_version.kind==='review_round_plan'&&<><a href={reviewHash(task.project_id,task.input_version.round_id)}>{t('返回本轮意见计划')}</a><p className="warning-panel">{t('计划保存成功仅代表计划已持久保存；待确认、待材料的意见仍未完成。')}</p></>}
     {currentWait?.kind === 'literature_model_authorization'&&<p className="warning-panel">{t('真实文献模型调用关闭；任务已保存并持久等待授权，尚无模型建议。')}</p>}
     {currentWait?.kind === 'literature_configuration'&&<p className="warning-panel">{t('NCBI 配置尚未就绪，检索已保存并持久等待；配置及授权后可继续原任务。')}</p>}
-    {currentWait?.kind === 'budget_confirmation' && <p className="warning-panel">{t('任务正在等待预算或模型配置，请联系管理员调整后继续。')}</p>}
+    {needsModelSetup && <p className="warning-panel">{t('模型服务尚未配置。请联系管理员启用模型后，再继续原任务。')}</p>}
     {currentWait?.kind === 'remote_observation' && <p className="warning-panel">{t('云端请求已超过原观察期限，费用与已有回执仍保留。每次继续仅查询原回执一次，不会重新生成。')}</p>}
     {currentWait?.kind === 'submission_unknown' && <p className="warning-panel">{t('提交结果尚未核实，请联系管理员核对；不能重新发送模型请求。')}</p>}
-    {(currentWait?.kind === 'unsupported_input' || currentWait?.kind === 'unsupported_confirmation') && <p className="warning-panel">{t('此任务需要的资料或确认暂未提供处理入口，请联系管理员。')}</p>}
-    {actions.length > 0 && <><p className="task-scope-note">{t(actions.includes('cancel')?'取消后停止当前计算并保留诊断材料；已有成果不变。':workspace.artifacts.reader_export?'按原报告选材恢复本地导出。':task.task_type==='delivery_package'?'仅恢复原快照封包；复用已有成果，不重新分析、绘图或生成文档。':task.task_type==='bio_analysis'||task.task_type==='bio_figure'?'使用冻结的来源和参数重试；不会新建运行或覆盖历史结果。':task.task_type==='bio_import'?'使用冻结的生信原件重试结构导入；不执行分析或外发资料。':task.task_type==='review_round_plan'?'仅继续本地意见计划核查；不会调用模型、改稿或完成意见。':task.task_type==='journal_adaptation'?'使用冻结的期刊适配、所选动作与父稿重试；不访问外网或调用模型。':task.task_type==='journal_format_check'?'使用冻结的目标、指南要求与稿件版本重试；不访问外网或调用模型。':task.task_type==='journal_recommendation'?'使用冻结的期刊建议输入与来源重试；不访问外网或调用模型。':task.task_type==='school_template_parse'?'使用冻结的学校模板原件重试解析。':task.task_type==='literature_search'?'继续原检索任务，沿用已保存的条件与进度。':task.task_type === 'extract_dataset' ? '使用冻结的原文件输入重试本地结构提取。' : task.task_type === 'parse_file' ? '使用原文件重试本地解析。' : currentWait?.kind === 'remote_observation' ? '授权单次查询原云端回执；不延长原观察期限，也不授权重新生成费用。' : '继续此任务；尚未提交的模型调用会按原策略和预算执行，已有调用沿用已保存结果。')}</p>
+    {!needsModelSetup && (currentWait?.kind === 'unsupported_input' || currentWait?.kind === 'unsupported_confirmation') && <p className="warning-panel">{t('此任务需要的资料或确认暂未提供处理入口，请联系管理员。')}</p>}
+    {actions.length > 0 && <><p className="task-scope-note">{t(actions.includes('cancel')?'取消后停止当前计算并保留诊断材料；已有成果不变。':workspace.artifacts.reader_export?'按原报告选材恢复本地导出。':task.task_type==='delivery_package'?'仅恢复原快照封包；复用已有成果，不重新分析、绘图或生成文档。':task.task_type==='bio_analysis'||task.task_type==='bio_figure'?'使用冻结的来源和参数重试；不会新建运行或覆盖历史结果。':task.task_type==='bio_import'?'使用冻结的生信原件重试结构导入；不执行分析或外发资料。':task.task_type==='review_round_plan'?'仅继续本地意见计划核查；不会调用模型、改稿或完成意见。':task.task_type==='journal_adaptation'?'使用冻结的期刊适配、所选动作与父稿重试；不访问外网或调用模型。':task.task_type==='journal_format_check'?'使用冻结的目标、指南要求与稿件版本重试；不访问外网或调用模型。':task.task_type==='journal_recommendation'?'使用冻结的期刊建议输入与来源重试；不访问外网或调用模型。':task.task_type==='school_template_parse'?'使用冻结的学校模板原件重试解析。':task.task_type==='literature_search'?'继续原检索任务，沿用已保存的条件与进度。':task.task_type === 'extract_dataset' ? '使用冻结的原文件输入重试本地结构提取。' : task.task_type === 'parse_file' ? '使用原文件重试本地解析。' : currentWait?.kind === 'remote_observation' ? '授权单次查询原云端回执；不延长原观察期限，也不授权重新生成费用。' : resumeNarrative ? '点击继续，系统会使用已选的分析结果和图表生成详细解读。' : '继续后将使用原任务的资料，已保存的结果会直接复用。')}</p>
       <div className="task-actions">{actions.map(operation => <button key={operation} type="button" className="button-primary" disabled={!viewActive || blocked || busy}
         onClick={() => void perform(operation)}>{t(operation === 'cancel' ? '取消任务' : operation === 'retry' ? '重试原任务'
-          : currentWait?.kind === 'remote_observation' ? '查询原回执一次' : currentWait?.kind === 'budget_confirmation' ? '预算或配置已调整，继续任务' : '继续原任务')}</button>)}</div></>}
+          : currentWait?.kind === 'remote_observation' ? '查询原回执一次' : resumeNarrative ? '继续生成详细解读' : '继续原任务')}</button>)}</div></>}
     {busy && <p role="status">{t('正在提交任务操作……')}</p>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
   </section>

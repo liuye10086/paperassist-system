@@ -41,9 +41,8 @@ def test_identity_note_preview_and_creation_are_rejected_without_task_or_call_an
         legacy.setattr('app.domain.school_templates.suggestion_eligibility.note_eligibility',lambda analysis,*args:dict(eligible_note_ids=[n['id'] for n in analysis['notes']],blocked_notes=[]))
         preview=post(client,base+'/rule-suggestion-preview',request,'legacy-preview').json()
         saved=post(client,base+'/rule-suggestions',dict(**request,bundle_sha256=preview['bundle_sha256'],confirmed=True),'legacy-request').json()
-    from tests.integration.test_literature_assistance import budgets
     from app.domain.school_templates.suggestion_execution import run_school_suggestion_task
-    budgets(client,saved['task']);note=preview['material']['notes'][0]
+    note=preview['material']['notes'][0]
     provider=Fixture(dict(candidates=[dict(id='legacy',target_id=None,value=None,note_alias=note['alias'],start=0,end=len(note['text']),quote=note['text'],status='unknown',reason='Retained legacy synthetic output; never adopted.')]))
     assert run_school_suggestion_task(saved['task']['id'],1,provider=provider)['status']=='succeeded'
     historical=client.get(path+'/school-rule-suggestions/'+saved['id']).json()
@@ -80,8 +79,6 @@ def test_school_advice_preview_synthetic_task_human_confirmation_and_binding(cli
     path,item=analyzed(client,variant);base,request,preview,suggestion=create(client,path,item)
     assert preview['real_calls_enabled'] is False
     assert 'file_id' not in json.dumps(preview['material']) and 'word/document.xml' not in json.dumps(preview['material'])
-    from tests.integration.test_literature_assistance import budgets
-    budgets(client,suggestion['task'])
     from app.domain.school_templates.suggestion_execution import run_school_suggestion_task
     note=preview['material']['notes'][0]
     draft=dict(candidates=[dict(id='r1',target_id='body.font_size_pt',value='12',note_alias=note['alias'],start=0,end=len(note['text']),quote=note['text'],status='proposed',reason='Synthetic candidate; quote existence is not semantic correctness.')])
@@ -123,7 +120,7 @@ def draft_for(preview,status='proposed'):
     return dict(candidates=[dict(id='r1',target_id='body.font_size_pt' if status=='proposed' else None,value='12' if status=='proposed' else None,
         note_alias=note['alias'],start=0,end=len(note['text']),quote=note['text'],status=status,reason='Synthetic advice; manual interpretation required.')])
 
-def test_closed_and_missing_budget_paths_have_zero_posts_then_budget_resume_is_scoped(client):
+def test_closed_configuration_waits_for_confirmation_and_then_runs_once(client):
     path,item=analyzed(client);_,_,preview,suggestion=create(client,path,item)
     from app.domain.school_templates.suggestion_execution import run_school_suggestion_task
     waiting=run_school_suggestion_task(suggestion['task']['id'],1)
@@ -133,21 +130,13 @@ def test_closed_and_missing_budget_paths_have_zero_posts_then_budget_resume_is_s
     resume=dict(operation='resume',wait_id=workspace['wait']['id'],expected_task_revision=waiting['revision'],input_version=waiting['input_version'])
     response=post(client,'/api/v1/tasks/'+waiting['id']+'/resume',resume,'resume-closed');assert response.status_code==202,response.text
     provider=Fixture(draft_for(preview))
-    waiting=run_school_suggestion_task(waiting['id'],response.json()['revision'],provider=provider)
-    assert waiting['reason_code']=='budget_exceeded' and provider.posts==[]
-    workspace=client.get('/api/v1/tasks/'+waiting['id']+'/workspace').json()
-    from tests.integration.test_literature_assistance import budgets
-    budgets(client,waiting)
-    resume.update(wait_id=workspace['wait']['id'],expected_task_revision=waiting['revision'])
-    response=post(client,'/api/v1/tasks/'+waiting['id']+'/resume',resume,'resume-budget');assert response.status_code==202,response.text
     assert run_school_suggestion_task(waiting['id'],response.json()['revision'],provider=provider)['status']=='succeeded'
     assert len(provider.posts)==1
 
 def test_unknown_submission_never_reposts_and_known_response_continues_by_get(client):
     path,item=analyzed(client);base,_,preview,suggestion=create(client,path,item)
     from app.domain.school_templates.suggestion_execution import run_school_suggestion_task
-    from tests.integration.test_literature_assistance import budgets
-    budgets(client,suggestion['task']);provider=Fixture(draft_for(preview),unknown=True)
+    provider=Fixture(draft_for(preview),unknown=True)
     waiting=run_school_suggestion_task(suggestion['task']['id'],1,provider=provider)
     assert waiting['reason_code']=='submission_unknown' and len(provider.posts)==1
     assert client.get('/api/v1/tasks/'+waiting['id']+'/workspace').json()['allowed_actions']==[]
@@ -156,9 +145,6 @@ def test_unknown_submission_never_reposts_and_known_response_continues_by_get(cl
     assert len(provider.posts)==1
     request=dict(analysis_sha256=item['analysis_sha256'],note_ids=[n['id'] for n in preview['notes']],bundle_sha256=preview['bundle_sha256'],confirmed=True)
     next_task=post(client,base+'/rule-suggestions',request,'second-call').json()['task']
-    from app.domain.model_usage.service import ModelUsageService
-    from tests.helpers.tasks import task_owner
-    ModelUsageService(task_owner(client)).set_budget('task',next_task['id'],5000000,0)
     pending=Fixture(draft_for(preview));pending.pending=True
     deferred=run_school_suggestion_task(next_task['id'],1,provider=pending)
     assert deferred['status']=='running'
@@ -168,9 +154,8 @@ def test_unknown_submission_never_reposts_and_known_response_continues_by_get(cl
 
 def test_invalid_output_is_retained_and_cannot_be_adopted_or_read_by_foreign_owner(client):
     path,item=analyzed(client);_,_,preview,suggestion=create(client,path,item)
-    from tests.integration.test_literature_assistance import budgets
     from app.domain.school_templates.suggestion_execution import run_school_suggestion_task
-    budgets(client,suggestion['task']);draft=draft_for(preview);draft['candidates'][0]['quote']='Invented quote'
+    draft=draft_for(preview);draft['candidates'][0]['quote']='Invented quote'
     result=run_school_suggestion_task(suggestion['task']['id'],1,provider=Fixture(draft))
     assert result['status']=='failed' and result['error_code']=='model_response_invalid'
     advice=client.get(path+'/school-rule-suggestions/'+suggestion['id']).json()

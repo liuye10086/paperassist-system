@@ -22,11 +22,7 @@ export const legacyWorkspaceFixture = { ...workspaceFixture, task: legacyTaskFix
 export const pageFixture = { project_id: 'p1', items: [{ task: taskFixture, source: sourceFixture }], total: 1, page: 1, page_size: 10 }
 export const eventsFixture = { task_id: 't1', items: [{ seq: 1, task_revision: 1, event_type: 'created',
   status: 'queued', phase: 'compute', reason_code: null, created_at: taskFixture.created_at }], next_cursor: 1, has_more: false }
-export const budgetFixture = { scope_type: 'user', limit_micro_usd: 5_000_000, revision: 1,
-  estimated_micro_usd: 0, reserved_micro_usd: 100_000, available_micro_usd: 4_900_000, exceeded: false }
-export const usageFixture = { currency: 'USD', period: 'cumulative', enforcement_scope: 'unified_only',
-  user_budget: budgetFixture, project_budget: { ...budgetFixture, scope_type: 'project' },
-  task_budget: { ...budgetFixture, scope_type: 'task', limit_micro_usd: 1_000_000, available_micro_usd: 900_000 },
-  estimated_micro_usd: 0, reserved_micro_usd: 100_000, pending_count: 1, total: 1, page: 1, page_size: 10,
+export const usageFixture = { currency: 'USD', period: 'cumulative',
+  accounted_micro_usd: 0, estimated_micro_usd: 0, reserved_micro_usd: 100_000, pending_count: 1, total: 1, page: 1, page_size: 10,
   items: [{ id: 'call-private', task_type: 'boxplot', model: 'test-model', status: 'completed', provider_status: 'completed',
     usage_status: 'pending', estimated_cost_micro_usd: null, created_at: taskFixture.created_at, updated_at: taskFixture.updated_at }] }

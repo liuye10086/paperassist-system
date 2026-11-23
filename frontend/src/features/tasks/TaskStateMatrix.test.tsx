@@ -108,21 +108,21 @@ it.each([
   expect(fetch.mock.calls.filter(([, init]) => init?.method && init.method !== 'GET')).toHaveLength(0)
 })
 
-it('shows bilingual budget instructions without submitting on language changes', async () => {
+it('continues a historical wait in either language without requesting a budget change', async () => {
   const fetch = mockApi(() => workspaceFixture as TaskWorkspace)
   render(<TaskDetail {...props} />)
-  await screen.findByRole('button', { name: '预算或配置已调整，继续任务' })
+  await screen.findByRole('button', { name: '继续原任务' })
   for (const locale of locales) {
     act(() => setLocale(locale))
     const english = locale === 'en'
     const pending = screen.getByRole('region', { name: english ? 'Task actions' : '任务处理' })
-    expect(within(pending).getByText(english
+    expect(within(pending).queryByText(english
       ? 'The task is waiting for budget or model configuration. Contact the administrator before continuing.'
-      : '任务正在等待预算或模型配置，请联系管理员调整后继续。', { exact: true })).toBeTruthy()
-    expect(within(pending).getByRole('button', { name: english ? 'Budget or configuration updated — continue task' : '预算或配置已调整，继续任务' })).toBeTruthy()
+      : '任务正在等待预算或模型配置，请联系管理员调整后继续。', { exact: true })).toBeNull()
+    expect(within(pending).getByRole('button', { name: english ? 'Continue original task' : '继续原任务' })).toBeTruthy()
     expect(within(pending).getByText(english
-      ? 'Continue this task. Model calls not yet submitted will follow the original policy and budget; existing calls reuse their saved results.'
-      : '继续此任务；尚未提交的模型调用会按原策略和预算执行，已有调用沿用已保存结果。', { exact: true })).toBeTruthy()
+      ? 'Continue with the original materials and reuse any results already saved.'
+      : '继续后将使用原任务的资料，已保存的结果会直接复用。', { exact: true })).toBeTruthy()
   }
   expect(fetch.mock.calls.filter(([, init]) => init?.method && init.method !== 'GET')).toHaveLength(0)
 })

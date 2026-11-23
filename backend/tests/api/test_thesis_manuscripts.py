@@ -24,6 +24,7 @@ def test_readiness_and_separate_school_freeze(client):
     assert config['project_type']=='thesis' and config['thesis']['ready']
     assert template['template_file_id'] in config['thesis']['template_source_file_ids']
     candidates=client.get(path+'/manuscripts/candidates').json()
+    assert candidates['thesis']['template_source_filenames']==['school.docx']
     assert not any(s['file_id']==template['template_file_id'] for s in candidates['items'])
     preview=post(client,path+'/manuscripts/preview',request)
     assert preview.status_code==200,preview.text
@@ -77,13 +78,12 @@ def test_foreign_binding_and_sci_school_input_are_rejected(client):
 def test_school_synthetic_candidate_and_review_publish_share_history(client):
     from app.domain.tasks.execution import run_task
     from app.domain.manuscript_writing.execution import run_manuscript_writing_task
-    from tests.api.test_manuscript_writing_execution import WritingProvider,budgets
+    from tests.api.test_manuscript_writing_execution import WritingProvider
     path,_,request=bound(client)
     base=post(client,path+'/manuscripts',request,'create').json()
     run_task(base['versions'][0]['task_id'],1)
     endpoint=path+'/manuscripts/'+base['id']
     task=post(client,endpoint+'/writing-requests',dict(base_revision=1,mode='full_draft'),'write').json()['task']
-    budgets(client,task)
     class SchoolProvider(WritingProvider):
         def receipt(self):
             import json

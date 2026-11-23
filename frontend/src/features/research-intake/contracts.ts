@@ -1,6 +1,6 @@
 export type Declaration = { state: 'known'|'pending'|'not_applicable'; value: string|null }
 export type DeliveryKind = 'analysis'|'sci_draft'|'thesis_draft'
-export type Content = Record<string, unknown> & {schema_version:number}
+export type Content = Record<string, unknown> & {schema_version:number; study_species?: string[]}
 export type SampleRegistration = {groups: Record<string, unknown>[]; samples: Record<string, unknown>[]}
 export type MaterialRef = {delivery_id?:string|null;file_id?:string|null;bio_dataset_version_id?:string|null;locator?:string|null;availability:'provided'|'pending'|'none';purpose:string;note?:string}
 export type Version = {id:string;project_id?:string;version:number;operation:'save'|'confirm';content:Content;sha256:string;created_at:string;material_refs?:MaterialRef[];material_sources?:{bio_dataset_version_id:string;dataset_id:string;dataset_name:string;version:number}[]}

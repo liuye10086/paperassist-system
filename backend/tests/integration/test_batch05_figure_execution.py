@@ -9,7 +9,6 @@ from app.domain.figure_workbench.contracts import SaveConfiguration,ConfirmProje
 from app.domain.figure_workbench.tasks import submit
 from app.domain.figure_workbench.execution import run_figure_workbench_task
 from app.adapters.figure_workbench_store import read_bundle
-from app.domain.model_usage.service import ModelUsageService
 
 
 def frozen_policy(payload,explanation=False):
@@ -55,8 +54,6 @@ def queued_figure(client,monkeypatch,config=None,*,contract_version=1):
     preview=store.external_preview(*args,vid)
     monkeypatch.setattr('app.domain.figure_workbench.tasks.policy_for',frozen_policy)
     task=submit(store,*args,vid,GenerateFigure(idempotency_key='new-figure',external_processing={'confirmed':True,'payload_sha256':preview['payload_sha256']}))['task']
-    service=ModelUsageService(store.tasks.user_id)
-    for scope,key in [('user',store.tasks.user_id),('project',project)]:service.set_budget(scope,key,5000000,0)
     return store,project,result,vid,task
 
 
@@ -259,13 +256,12 @@ def test_budget_wait_resumes_existing_intent_and_never_posts_before_admission(cl
     from app.domain.tasks.workspace import TaskWorkspaceService
     from app.domain.tasks.resume import TaskResumeService
     store,project,result,vid,task=queued_figure(client,monkeypatch)
-    with database_connection(write=True) as db:db.execute('UPDATE model_budgets SET limit_micro_usd=0 WHERE scope_type=%s AND scope_key=%s',('task',task['id']))
+    from tests.helpers.tasks import historical_model_wait
     provider=IndependentLineProvider(result,pending=False)
-    waiting=run_figure_workbench_task(task['id'],task['revision'],provider_factory=lambda:provider)
+    waiting=historical_model_wait(task)
     assert waiting['status']=='waiting_confirmation' and waiting['reason_code']=='budget_exceeded'
     assert provider.posts==[]
     view=TaskWorkspaceService(store.tasks.user_id).get(task['id']);assert view['allowed_actions']==['resume']
-    with database_connection(write=True) as db:db.execute('UPDATE model_budgets SET limit_micro_usd=1000000 WHERE scope_type=%s AND scope_key=%s',('task',task['id']))
     resumed=TaskResumeService(store.tasks.user_id).resume(task['id'],{'operation':'resume','wait_id':view['wait']['id'],'expected_task_revision':waiting['revision'],'input_version':waiting['input_version']},idempotency_key='resume-budget')
     for _ in range(4):
         resumed=run_figure_workbench_task(resumed['id'],resumed['revision'],provider_factory=lambda:provider)

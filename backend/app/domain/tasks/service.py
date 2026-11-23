@@ -164,13 +164,6 @@ class TaskService:
                 reader.bind_task(db,task,frozen)
                 bind_request(db,task,idempotency_key,digest)
             bind(db,kind='task',object_id=task['id'],version=configuration)
-            frozen_budget = snapshot.get('explanation_policy') or snapshot.get('boxplot_policy')
-            if frozen_budget is not None:
-                db.execute('''INSERT INTO model_budgets
-                    (id,user_id,scope_type,scope_key,project_id,task_id,limit_micro_usd,
-                     revision,created_at,updated_at) VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)''',
-                    (str(uuid4()), self.store.user_id, task['id'], project_id, task['id'],
-                     frozen_budget['task_limit_micro_usd'], now, now))
             self.store.append_event(db, task, 'created')
             self.store.enqueue(db, task)
             return self.store.public_task(task), True

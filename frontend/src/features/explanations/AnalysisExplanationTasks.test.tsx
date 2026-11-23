@@ -43,7 +43,7 @@ it('resumes a budget wait by exact task revision without a new paid submission',
   const fetch = vi.fn((url: string, init?: RequestInit) => json(url.includes('explanation-config') ? { configured: true }
     : init?.method === 'POST' ? task('queued', { revision: 4 }) : { ...empty, task: task('waiting_confirmation', { reason_code: 'budget_exceeded', error_code: 'model_budget_missing' }) }))
   vi.stubGlobal('fetch', fetch); render(<AnalysisExplanation {...props} />)
-  fireEvent.click(await screen.findByRole('button', { name: '预算已配置，继续生成解释' }))
+  fireEvent.click(await screen.findByRole('button', { name: '继续解释任务' }))
   await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1))
   const [url, init] = fetch.mock.calls.find(([, init]) => init?.method === 'POST')!
   expect(url).toBe('/api/v1/tasks/task/retry')

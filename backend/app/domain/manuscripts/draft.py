@@ -122,7 +122,7 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None,pa
                 result.extend(selected)
             else: result.append(identity)
         return result
-    def figure(identity, *, paper_caption=None):
+    def figure(identity, *, paper_caption=None, optional_caption=False):
         nonlocal figure_count
         source,image=image_lookup.get(identity,(lookup.get(identity),None))
         if not source or source['role']!='image_observation' or source['kind'] not in ('figure','figure_language_version','original','document_version'):
@@ -154,7 +154,7 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None,pa
         supplied=bool(paper_caption or note and note.caption.strip())
         source_caption=bool(image and candidate.strip() or source['kind'] in ('figure','figure_language_version') and caption.strip())
         caption_status='supplied' if supplied else 'candidate' if image and source_caption else 'source' if source_caption else 'missing'
-        if caption_status=='missing':
+        if caption_status=='missing' and not optional_caption:
             issue('missing:caption:'+identity,'missing',identity,
                 f'Figure {figure_count}: Image caption not supplied; additional material required.' if en else f'图 {figure_count}：图片图注未提供，待补充。')
             caption='Image caption to be supplied; no statistical values inferred.' if en else '图片图注待补充；未从图片推断统计值。'

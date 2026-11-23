@@ -1,8 +1,9 @@
-"""Separate, fixed, no-tool planning policy with a half-dollar task ceiling."""
+"""Frozen no-tool model policy for analysis planning."""
 import json
 from pydantic import model_validator
 from app.core.config import local_config
 from app.core.exceptions import StorageError
+from app.domain.admin_configuration.contracts import without_budget_fields
 from app.domain.explanation_policy import _small_text, explanation_api_key
 from app.domain.model_usage.contracts import ModelPolicy, StrictContract
 from app.domain.analysis_recommendation.contracts import VERSION, VERSION_V2, VERSION_V3, VERSION_V4, VERSION_V5
@@ -26,14 +27,13 @@ def instructions_for(payload):
 class RecommendationPolicy(StrictContract):
     policy: ModelPolicy
     input_token_allowance: int
-    task_limit_micro_usd: int
 
     @model_validator(mode='after')
     def fixed(self):
         # Keep prior frozen task policies readable; newly saved administration
         # configuration is restricted to the current model by its catalog.
         if (self.policy.model not in ('gpt-6.1-sol','gpt-5.6-sol') or self.policy.tools or self.policy.prompt_version not in (VERSION,VERSION_V2,VERSION_V3,VERSION_V4,VERSION_V5)
-                or self.policy.output_format!=self.policy.prompt_version or not 0<=self.task_limit_micro_usd<=500000
+                or self.policy.output_format!=self.policy.prompt_version
                 or self.input_token_allowance<1):
             raise ValueError('A bounded no-tool recommendation policy is required.')
         return self
@@ -42,7 +42,7 @@ class RecommendationPolicy(StrictContract):
 def validate_execution_policy(value, payload=None, *, instructions=None):
     from app.adapters.models.openai_responses import canonical_payload
     try:
-        parsed=RecommendationPolicy.model_validate(value)
+        parsed=RecommendationPolicy.model_validate(without_budget_fields(value))
         if payload is not None:
             version={1:VERSION,2:VERSION_V2,3:VERSION_V3,4:VERSION_V4,5:VERSION_V5}[payload.get('schema_version',1)]
             if parsed.policy.prompt_version!=version or len((instructions if instructions is not None else instructions_for(payload)).encode())+len(canonical_payload(payload).encode())+4096>parsed.input_token_allowance:
@@ -64,7 +64,7 @@ def get_execution_policy(payload):
         value=json.loads(_small_text(local_config().get('PAPERASSIST_ANALYSIS_RECOMMENDATION_POLICY_FILE'),64*1024))
     except (OSError,ValueError,TypeError):
         raise StorageError('recommendation_not_configured','模型规划策略未配置。',503) from None
-    # Configured model, prices and budgets stay unchanged; freeze the requested contract version.
+    # Keep the configured model and prices when freezing the requested contract version.
     validate_execution_policy(value)
     version={1:VERSION,2:VERSION_V2,3:VERSION_V3,4:VERSION_V4,5:VERSION_V5}[payload.get('schema_version',1)]
     if version!=VERSION:

@@ -11,7 +11,6 @@ from tests.queue.external_confirmation import confirm
 from app.db.database import database_connection
 from app.domain.explanation_content import VERSION
 from app.domain.explanation_policy import get_execution_policy as read_policy_file
-from app.domain.model_usage.service import ModelUsageService
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_boxplot import cloud  # noqa: F401
 from tests.integration.test_explanations import ready, writer  # noqa: F401
@@ -48,11 +47,6 @@ def test_finite_retry_survives_restart_and_manual_recovery(client, cloud, writer
     monkeypatch.setattr('app.domain.explanation_policy.get_execution_policy', read_policy_file)
     base, _, _, figure, url = ready(client)
     project_id = base.split('/')[4]
-    with database_connection() as db:
-        user_id = db.execute('SELECT owner_id FROM projects WHERE id=%s', (project_id,)).fetchone()['owner_id']
-    service = ModelUsageService(user_id)
-    service.set_budget('user', user_id, 10000000, 0)
-    service.set_budget('project', project_id, 10000000, 0)
     accepted = client.post(url, json={'expected_revision': figure['setup_revision'], 'figure_id': figure['id'],
                            'external_processing': confirm(client, url)},
                           headers={'Idempotency-Key': 'queue-finite-retry'})
@@ -99,8 +93,7 @@ def test_finite_retry_survives_restart_and_manual_recovery(client, cloud, writer
         assert all(r['actual_delay'] >= r['retry_delay_seconds'] for r in rows)
         assert db.execute('SELECT count(*) AS n FROM task_outbox WHERE task_id=%s AND task_revision=%s',
                           (task_id, failed['revision'])).fetchone()['n'] == 0
-        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations WHERE call_id=%s',
-                                               (call_id,))} == {'held'}
+        assert not db.execute('SELECT 1 FROM budget_reservations WHERE call_id=%s', (call_id,)).fetchall()
     history = client.get('/api/v1/tasks/' + task_id + '/events?limit=100').json()['items']
     errors = [event for event in history if event.get('error_code') == 'model_provider_unavailable']
     assert len(errors) == 4 and errors[-1]['event_type'] == 'failed'
@@ -118,7 +111,7 @@ def test_finite_retry_survives_restart_and_manual_recovery(client, cloud, writer
         calls = db.execute('SELECT id FROM model_calls WHERE task_id=%s', (task_id,)).fetchall()
         assert [row['id'] for row in calls] == [call_id]
         reservations = db.execute('SELECT status FROM budget_reservations WHERE call_id=%s', (call_id,)).fetchall()
-        assert len(reservations) == 3 and {row['status'] for row in reservations} == {'settled'}
+        assert not reservations
         previous = db.execute('SELECT error_code FROM task_attempts WHERE task_id=%s AND attempt_no=1',
                               (task_id,)).fetchone()
         assert previous['error_code'] == 'model_provider_unavailable'

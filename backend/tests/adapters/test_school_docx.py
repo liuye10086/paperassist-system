@@ -152,6 +152,26 @@ def test_nested_heading_retains_body_section_without_inheriting_body_indent():
     assert styles.xpath('//w:style[@w:styleId="Heading2"]/w:pPr/w:ind/@w:firstLineChars',namespaces=NS)==['0']
 
 
+@pytest.mark.parametrize('planned', [False, True])
+def test_confirmed_spaced_directory_and_automatic_toc_produce_one_field_and_one_heading(planned):
+    from app.adapters.manuscript_docx import build_manuscript_docx
+    value, analysis = fixture()
+    context = value['thesis_context']
+    for collection in (value['sections'], context['chapters'], context['confirmation']['chapters'], analysis['chapters']):
+        collection[0]['title'] = '目  录'
+    context['confirmation']['analysis_sha256'] = digest(analysis)
+    context['confirmation_sha256'] = digest(context['confirmation'])
+    if planned:
+        value['paper_plan'] = dict(kind='thesis', title=value['title'], keywords=[], sections=[], materials=[])
+    raw = build_manuscript_docx(value, {}, school_plan=plan(value, analysis))
+    root = E.fromstring(parts(raw)['word/document.xml'])
+    headings = [''.join(p.xpath('.//w:t/text()', namespaces=NS)).replace(' ', '')
+                for p in root.xpath('//w:body/w:p', namespaces=NS)]
+    assert len([h for h in headings if h in ('Contents', '目录')]) == 1
+    instructions = root.xpath('//w:instrText/text()|//w:fldSimple/@w:instr', namespaces=NS)
+    assert len([f for f in instructions if f.strip().startswith('TOC ')]) == 1
+
+
 def test_school_soft_breaks_keep_source_bookmark_without_expanding_short_lines():
     from app.adapters.manuscript_docx import build_manuscript_docx
     value,analysis=fixture();item=value['sections'][3]['paragraphs'][0]

@@ -4,7 +4,7 @@
 
 第五批实际Linux队列专项为 `backend/tests/queue/test_batch05_collection_queue.py`，显式设置 `PAPERASSIST_RUN_QUEUE_TESTS=1` 后运行；只连接 `paperassist_system_test`、每次随机 `pa_test_<32hex>` schema及临时资产，图/解释使用合成provider。2026-10-15完整执行 **1 passed in 233.04s**；缺依赖跨重启、补偿、Word提交前崩溃恢复与重复导出均通过。该专项结束仅停止自身测试栈并保留卷；不使用旧fixture的 `down --volumes`。安全ID/SHA/事件和停止回执位于忽略目录 `script/.runtime/stage04-batch05/queue-*.json`，无真实模型质量结论。
 
-阶段04第二批（2026-10-14）已通过用户验收，`dev.cmd stop/status`退出0，API/Vite及Worker/dispatcher/RabbitMQ已停，8000/5173/5672无监听，PostgreSQL和broker卷保留。0025停服前后91项审计通过，全部表/130索引/34资产/4877备份文件清单一致，清单30/114，未提交推送。`dev.cmd start`不执行数据库升级或重置模型预算。依据见[第二批验收记录](../docs/开发记录/阶段04/2026-10-14-第二批验收与保留核对记录.md)，下文各日期数字保留为历史。
+阶段04第二批（2026-10-14）已通过用户验收，`dev.cmd stop/status`退出0，API/Vite及Worker/dispatcher/RabbitMQ已停，8000/5173/5672无监听，PostgreSQL和broker卷保留。0025停服前后91项审计通过，全部表/130索引/34资产/4877备份文件清单一致，清单30/114，未提交推送。`dev.cmd start`不执行数据库升级。依据见[第二批验收记录](../docs/开发记录/阶段04/2026-10-14-第二批验收与保留核对记录.md)，下文各日期数字保留为历史。
 
 2026-10-10，[阶段03第3步：Excel原始结构与数据集版本](../docs/开发记录/阶段03/2026-10-10-Excel结构与数据集版本交付记录.md)已通过用户验收。验收后`dev.cmd stop`与独立`status`均退出0，前后端无受管服务，Worker、dispatcher、RabbitMQ为exited，8000/5173无LISTEN，broker-data卷保留。开发库已备份升级`0016_dataset_versions`，共31张业务表加版本表。收尾修复UTC时间写入并在备份后等值归一化一行时间；38项相关回归及最终57项审计通过，旧资产、备份副本及dump哈希保持，未重跑整套回归，详见第3步交付记录。
 
@@ -78,7 +78,7 @@ script/
 
 日志和 PID/启动时间/可执行文件路径保存在被 Git 忽略的 `script/.runtime/`。查看 `backend.stderr.log`、`frontend.stderr.log` 可排查启动失败；新一轮启动覆盖这些日志。Worker 私有运行配置保存在 `script/.runtime/workers/development`，不挂载 `backend/.env` 或迁移凭据；模型密钥单独写入私有文件，仅挂载给 Worker，dispatcher 和 RabbitMQ 不接收模型密钥；Excel解析子进程在输入前禁用文件/网络等访问且不继承环境配置，不能读取这些私有文件。前后端仅监听本机回环地址，RabbitMQ 不映射宿主端口。
 
-`stop` 先核对记录的进程身份，再结束受管前后端及其子进程；随后温停本项目 dispatcher、Worker 和 RabbitMQ。它保留 broker 数据卷、数据库任务与资产，不关闭 Docker Desktop、PostgreSQL 或其他项目服务。停止后的排队任务在下次启动后继续执行，运行中的绘图、解释、Word及批次解析任务按租约恢复规则处理；已知响应编号只续取，外部提交结果未知时保留预算预留并等待人工核对。绘图的容器、文件上传和响应创建分别持久化回执，未知阶段不会自动重发。具体限制见 Worker 运行说明。
+`stop` 先核对记录的进程身份，再结束受管前后端及其子进程；随后温停本项目 dispatcher、Worker 和 RabbitMQ。它保留 broker 数据卷、数据库任务与资产，不关闭 Docker Desktop、PostgreSQL 或其他项目服务。停止后的排队任务在下次启动后继续执行，运行中的绘图、解释、Word及批次解析任务按租约恢复规则处理；已知响应编号只续取，外部提交结果未知时等待人工核对。绘图的容器、文件上传和响应创建分别持久化回执，未知阶段不会自动重发。具体限制见 Worker 运行说明。
 
 前后端进程停止不按端口或进程名批量结束。`dev/process-tree.cs` 使用 Windows 原生进程快照与进程句柄，不依赖本机可能挂起的 WMI 或 `taskkill`；这是强制停止，验收时应等待上传等请求完成后再停止。端口被其他程序占用时拒绝启动；状态异常时保留记录供排查，不接管其他终端启动的服务。
 
@@ -88,43 +88,13 @@ script/
 
 历史记录：2026-10-08第三步验收后，`stop` 与 `status` 均成功退出，前后端无受管服务，三个容器均为 `exited`，8000/5173均无监听；当时三步变更尚未提交推送。第三步脚本18项回归通过，两个真实队列故障用例未重跑。启动前Docker清单查询曾间歇超时，随后恢复，根因尚未确定；第三步未因此修改启动器，也未重启全局Docker。该次验证及限制见[第三步交付记录](../docs/开发记录/阶段02/统一模型调用与预算交付记录.md)。
 
-## 本机模型预算管理
+## 模型任务的用量和恢复
 
-阶段02第三步提供 `app.manage_model_budgets` 本机管理员命令，使用已有运行角色配置，按明确目标设置累计美元预算；网页和HTTP均无预算修改入口。新绘图和解释均已接入统一模型调用，用户、项目、任务三级预算均须满足才能准入，缺少预算或受信价格时拒绝发送。预算不是供应商收费账本，不自动按日/月重置，也不会自动提高额度。
-
-绘图和解释分别通过 `PAPERASSIST_PLOT_POLICY_FILE`、`PAPERASSIST_EXPLANATION_POLICY_FILE` 指定独立JSON策略，显式提供模型、价格快照、输出上限、输入估算额度和任务美元上限；绘图还需正数工具费用预留及其依据版本。API创建任务时冻结策略并原子建立任务预算，Worker按快照执行。用户/项目额度仍由上述管理员命令设置。密钥支持 `OPENAI_API_KEY_FILE` 或 `OPENAI_API_KEY`，具体合同与挂载边界见[Worker运行说明](../infra/worker/README.md#绘图模型策略)。本机项目“测试”已配置 `gpt-5.6-sol` 两份私有策略，用户与项目累计额度各5美元、绘图任务1美元、解释任务0.5美元；两级累计额度同时约束，不是合计10美元。这些是本次授权配置，不会从旧 `OPENAI_MODEL` 推导默认价格或预算。
-
-项目任务页根据服务端允许的操作提供显式继续或安全阶段重试，恢复请求原子消费持久等待并按版本与幂等键校验；不自动改预算。未知提交、尚无消费者的资料补充和研究计划确认仅展示待办，不能靠恢复按钮重发未知调用。已有调用沿用保存结果，尚未提交的模型调用仍按原策略和预算执行。
-
-以下为命令示例，不需要为本机已配置的测试目标重复执行。先从项目根目录进入 `backend`；把邮箱、项目/任务编号替换为已有真实目标。`show`只读，不改变预算、用量或账号：
-
-```powershell
-Push-Location .\backend
-try {
-  .\.venv\Scripts\python.exe -m app.manage_model_budgets show --user-email 'user@example.com' --scope user
-  .\.venv\Scripts\python.exe -m app.manage_model_budgets show --user-email 'user@example.com' --scope project --scope-id '<project_uuid>'
-  .\.venv\Scripts\python.exe -m app.manage_model_budgets show --user-email 'user@example.com' --scope task --scope-id '<task_uuid>'
-} finally {
-  Pop-Location
-}
-```
-
-确认目标和累计额度后才使用 `set`。以下 `10.000000` 仅演示金额格式，不是默认值或建议额度；首次建立使用 `--expected-revision 0`，修改已有预算须使用刚查询到的revision。金额是非负普通十进制美元，最多6位小数；降低上限保留既有估算与预留，发生版本冲突须先重新查询。
-
-```powershell
-Push-Location .\backend
-try {
-  .\.venv\Scripts\python.exe -m app.manage_model_budgets set --user-email 'user@example.com' --scope user --limit-usd '10.000000' --expected-revision 0
-} finally {
-  Pop-Location
-}
-```
-
-设置项目或任务预算时，将 `--scope` 改为 `project` 或 `task` 并加对应 `--scope-id`；用户范围由邮箱确定，不接受 `--scope-id`。命令不设置模型价格或密钥，不发送模型请求。没有自动默认预算/价格；本机本次测试额度已经用户明确授权并配置，其他目标需另行明确设置。
+项目和任务详情可以查看已记录的模型调用及费用。以前因预算暂停的任务可在「待处理」页继续，系统沿用同一任务、选材和已有回执。模型密钥与策略的部署配置见[Worker 运行说明](../infra/worker/README.md#绘图模型策略)。
 
 ## 本机实际费用核对
 
-第十步提供`app.manage_model_reconciliation`的show/preview/apply，沿用已有运行配置，无需新模型密钥或Admin API key；网页仅展示核对结果，没有录入入口。show及preview只读，apply校验严格八字段JSON及本机原件摘要后追加核对事件，按修订与幂等键调整三级预算。真实项目缺逐对象供应商金额凭证时保持待核对，不能分摊汇总账单或把token乘价格当实际费。取得内部call_id、记录填写及修正步骤见[实际用量核对使用说明](../docs/开发记录/阶段02/实际用量核对使用说明.md)。
+第十步提供`app.manage_model_reconciliation`的show/preview/apply，沿用已有运行配置，无需新模型密钥或Admin API key；网页仅展示核对结果，没有录入入口。show及preview只读，apply校验严格八字段JSON及本机原件摘要后追加核对事件，按修订与幂等键记录实际费用。真实项目缺逐对象供应商金额凭证时保持待核对，不能分摊汇总账单或把token乘价格当实际费。取得内部call_id、记录填写及修正步骤见[实际用量核对使用说明](../docs/开发记录/阶段02/实际用量核对使用说明.md)。
 
 ## 真实队列隔离验证
 

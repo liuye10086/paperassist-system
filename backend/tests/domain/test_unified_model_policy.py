@@ -22,6 +22,24 @@ def historical_writing_contract(**kwargs):
     return value
 
 
+def test_admin_and_execution_policies_do_not_require_monetary_limits(monkeypatch):
+    from app.domain.admin_configuration import catalog
+    from app.domain.manuscript_writing.frozen import contract
+    from app.domain.plot_policy import validate_execution_policy
+    from tests.domain.test_plot_policy import execution_policy
+
+    monkeypatch.setattr(catalog, 'local_config', lambda: {})
+    metadata = catalog.metadata()
+    schema = json.dumps(metadata['schema'])
+    assert all(key not in schema for key in ('task_limit_micro_usd', 'batch_cap_micro_usd', 'tool_reserve_micro_usd'))
+    assert 'task_limit_micro_usd' not in contract()
+    assert 'batch_cap_micro_usd' not in contract()
+    plot = execution_policy()
+    for key in ('task_limit_micro_usd', 'tool_reserve_micro_usd', 'tool_reserve_version'):
+        plot.pop(key)
+    assert validate_execution_policy(plot)['policy']['tools'] == ['code_interpreter']
+
+
 def test_new_writing_uses_requested_model_and_its_standard_prices():
     from app.domain.manuscript_writing.policy import installed_policy
     from app.domain.manuscript_writing.frozen import contract
@@ -59,7 +77,9 @@ def test_recommendation_accepts_current_model_and_keeps_legacy_snapshot_readable
 def test_historical_writing_policy_and_legacy_bundle_keep_original_model_and_price():
     from app.domain.manuscript_writing.frozen import validate, bundle_contract
     old = historical_writing_contract()
+    old.update(task_limit_micro_usd=1, batch_cap_micro_usd=1)
     before = deepcopy(old)
+    assert validate(old) == before
     assert validate(old)['policy'] == old['policy']
     bundle = {'policy_json': deepcopy(old['policy'])}
     assert bundle_contract(bundle)['policy'] == old['policy']

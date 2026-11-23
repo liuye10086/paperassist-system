@@ -25,6 +25,8 @@ def is_note(paragraph):
 
 
 def review_material_ids(base):
+    from app.domain.paper_materials import REVIEW_FIGURE_SECTIONS
+
     plan = base.get('paper_plan') or {}
     if plan.get('kind') != 'narrative_review':
         return set()
@@ -35,7 +37,9 @@ def review_material_ids(base):
         selection = material['selection']
         source = sources.get(selection['id'])
         role = {'figure': 'image_observation', 'table': 'user_results'}[material['kind']]
-        if (source and material['section_id'] in section_ids and selection['kind'] == 'original'
+        native_figure = (plan.get('review_figure_placement_version') == 1 and material['kind'] == 'figure'
+                         and material['section_id'] in REVIEW_FIGURE_SECTIONS)
+        if (source and (material['section_id'] in section_ids or native_figure) and selection['kind'] == 'original'
                 and selection['role'] == role
                 and all(source.get(key) == selection[key] for key in ('id', 'kind', 'role', 'file_id'))):
             allowed.add(selection['id'])
@@ -117,7 +121,8 @@ def place_illustrations(base, payload, section_aliases):
         if plan['kind'] == 'narrative_review':
             target = group['id']
         elif plan['kind'] == 'thesis':
-            target = next((s['id'] for s in base['sections'] if group['id'] in s['result_group_ids']), None)
+            target = group.get('illustration_chapter_id') or next(
+                (s['id'] for s in base['sections'] if group['id'] in s['result_group_ids']), None)
         if target in section_aliases:
             owners.update({(kind, item['number']): section_aliases[target]
                            for kind in ('figure', 'table') for item in group[kind+'s']})
@@ -148,6 +153,13 @@ def add_illustration_context(base, payload, local):
         remember_sources(local, source_ids)
         source_aliases = [key for key, sid in local['sources'].items() if sid in source_ids]
         if kind == 'figure':
+            if plan.get('review_figure_placement_version') == 1:
+                item['source_aliases'] = source_aliases
+                item['caption_status'] = original['caption_status']
+                payload['review_figure_guidance'] = (
+                    'Mention each supplied figure by its number in its assigned section. Use supplied captions '
+                    'and attribution only. A missing caption supplies no evidence about the contents of the image.'
+                )
             location = f'illustrations[{index}].caption'
             existing = next((row for row in payload['numeric_context'] if row['location'] == location), None)
             if existing:

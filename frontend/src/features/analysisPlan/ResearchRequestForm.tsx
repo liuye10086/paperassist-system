@@ -15,7 +15,7 @@ export default function ResearchRequestForm({ value, onChange, disabled, selecti
       <label>{t('输出要求（可选）')}<textarea rows={2} value={value.output_requirements} maxLength={2000} disabled={disabled} onChange={event => onChange({ ...value, output_requirements: event.target.value })} /></label>
     </div>
     <p className="muted">{t('研究问题保留原文；未填写的输出要求默认：{requirements}。',{requirements:t(researchOutputDefault(selection))})}</p>
-    <p className="muted">{t('研究声明保留在本地；模型建议、资料补交和预算同意均不能替代计划确认。')}</p>
+    <p className="muted">{t('研究声明保留在本地；模型建议和资料补交不能替代计划确认。')}</p>
     <p className="muted">{t('新成果沿用已确认的任务语言；已保存历史成果保留原语言。')}</p>
   </div>
 }

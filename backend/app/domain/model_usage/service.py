@@ -9,8 +9,8 @@ from pydantic import ValidationError
 
 from app.adapters.model_usage_store import ModelUsageStore
 from app.core.exceptions import StorageError
-from app.domain.model_usage.contracts import CallRequest, MAX_ACCOUNTED_MICRO_USD, MAX_MICRO_USD, PriceSnapshot
-from app.domain.model_usage.pricing import estimate_usage, reserve_micro_usd
+from app.domain.model_usage.contracts import CallRequest, MAX_ACCOUNTED_MICRO_USD, PriceSnapshot
+from app.domain.model_usage.pricing import estimate_usage
 
 TERMINAL = {'completed', 'incomplete', 'failed', 'cancelled'}
 
@@ -42,35 +42,6 @@ class ModelUsageService:
         from app.domain.model_usage.observation import consume_grant
         return consume_grant(self.store, call_id, response_id)
 
-    def get_budget(self, scope_type, scope_key):
-        if scope_type not in ('user', 'project', 'task') or not _key(scope_key, 64):
-            raise _error('model_usage_input_invalid', '预算查询参数无效。', 422)
-        with self.store.connection() as db:
-            self.store.require_scope(db, scope_type, scope_key)
-            return self.store.budget_view(db, scope_type, self.store.budget(db, scope_type, scope_key))
-
-    def set_budget(self, scope_type, scope_key, limit_micro_usd, expected_revision):
-        if (scope_type not in ('user', 'project', 'task') or not _key(scope_key, 64)
-                or type(limit_micro_usd) is not int or not 0 <= limit_micro_usd <= MAX_MICRO_USD
-                or type(expected_revision) is not int or not 0 <= expected_revision < 2_147_483_647):
-            raise _error('model_usage_input_invalid', '预算参数无效。', 422)
-        with self.store.connection(write=True) as db:
-            project, task = self.store.require_scope(db, scope_type, scope_key)
-            budget = self.store.budget(db, scope_type, scope_key)
-            if expected_revision != (budget['revision'] if budget else 0):
-                raise _error('model_budget_revision_conflict', '预算版本已变化，请重新读取。')
-            now = datetime.now(timezone.utc)
-            if budget:
-                db.execute('''UPDATE model_budgets SET limit_micro_usd=%s,revision=revision+1,
-                    updated_at=%s WHERE id=%s''', (limit_micro_usd, now, budget['id']))
-            else:
-                db.execute('''INSERT INTO model_budgets
-                    (id,user_id,scope_type,scope_key,project_id,task_id,limit_micro_usd,
-                     revision,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,1,%s,%s)''',
-                    (str(uuid4()), self.store.user_id, scope_type, scope_key, project, task,
-                     limit_micro_usd, now, now))
-            return self.store.budget_view(db, scope_type, self.store.budget(db, scope_type, scope_key))
-
     @staticmethod
     def _require_running(task, revision):
         if task['revision'] != revision:
@@ -91,15 +62,12 @@ class ModelUsageService:
             raise LeaseLost()
 
     def reserve_call(self, request, execution_lease=None):
+        """Persist the idempotent call before any provider submission."""
         try:
             request = CallRequest.model_validate(request.model_dump() if isinstance(request, CallRequest) else request)
-            reserved = reserve_micro_usd(request.policy, request.input_token_allowance,
-                                         request.tool_reserve_micro_usd)
         except (ValidationError, TypeError, ValueError) as exc:
             raise _error('model_usage_input_invalid', '模型调用参数或价格无效。', 422) from exc
-        policy = {**request.policy.model_dump(), 'input_token_allowance': request.input_token_allowance,
-                  'tool_reserve_micro_usd': request.tool_reserve_micro_usd,
-                  'tool_reserve_version': request.tool_reserve_version}
+        policy = {**request.policy.model_dump(), 'input_token_allowance': request.input_token_allowance}
         with self.store.connection(write=True) as db:
             task = self.store.require_task(db, request.task_id)
             external = task['input_snapshot'].get('external_processing')
@@ -113,9 +81,8 @@ class ModelUsageService:
             if row:
                 existing = dict(row)
                 old_policy = {key: value for key, value in existing['policy_snapshot'].items()
-                              if key != 'expected_task_revision'}
+                              if key not in ('expected_task_revision', 'tool_reserve_version', 'tool_reserve_micro_usd')}
                 old_policy.setdefault('output_format', 'text')
-                old_policy.setdefault('tool_reserve_version', None)
                 if existing['input_digest'] != request.input_digest or old_policy != policy:
                     raise _error('model_call_idempotency_conflict', '同一调用标识已用于不同输入或策略。')
                 return existing
@@ -124,15 +91,7 @@ class ModelUsageService:
             if task['workflow_version']=='manuscript_writing_v2':
                 self._require_execution_lease(db, task, execution_lease)
                 from app.domain.manuscript_writing.authorization import reserve_admission
-                admission = reserve_admission(self.store,db,task,request,reserved)
-            budgets = []
-            for scope, key in [('user', self.store.user_id), ('project', task['project_id']), ('task', task['id'])]:
-                budget = self.store.budget(db, scope, key)
-                if not budget:
-                    raise _error('model_budget_missing', '模型调用所需预算尚未配置。')
-                if self.store.budget_view(db, scope, budget)['available_micro_usd'] < reserved:
-                    raise _error('model_budget_exceeded', '模型调用预算不足。')
-                budgets.append(budget)
+                admission = reserve_admission(self.store, db, task, request)
             now = datetime.now(timezone.utc)
             policy['expected_task_revision'] = request.expected_task_revision
             call = dict(id=str(uuid4()), user_id=self.store.user_id, project_id=task['project_id'],
@@ -142,13 +101,9 @@ class ModelUsageService:
                 provider_status=None, provider_request_id=None, provider_response_id=None, error_code=None,
                 estimated_cost_micro_usd=None, usage_status='pending', created_at=now, updated_at=now)
             self.store.insert_call(db, call)
-            for budget in budgets:
-                db.execute('''INSERT INTO budget_reservations
-                    (call_id,budget_id,reserved_micro_usd,accounted_micro_usd,status,updated_at)
-                    VALUES (%s,%s,%s,0,'held',%s)''', (call['id'], budget['id'], reserved, now))
             if admission is not None:
                 from app.domain.manuscript_writing.authorization import insert_admission
-                insert_admission(db,call,admission,reserved)
+                insert_admission(db, call, admission)
             return call
 
     def begin_submission(self, call_id, execution_lease=None, expected_task_revision=None, *, provenance_context=None):
@@ -197,9 +152,8 @@ class ModelUsageService:
             self._require_execution_lease(db, task, execution_lease)
             self._require_running(task, expected_task_revision)
             policy = call['policy_snapshot']
-            if (task['task_type'] not in ('boxplot','figure_workbench') or policy.get('tools') != ['code_interpreter']
-                    or not policy.get('tool_reserve_version') or policy.get('tool_reserve_micro_usd', 0) <= 0):
-                raise _error('model_usage_input_invalid', '图表调用必须配置工具预算。', 422)
+            if task['task_type'] not in ('boxplot', 'figure_workbench') or policy.get('tools') != ['code_interpreter']:
+                raise _error('model_usage_input_invalid', '图表任务和工具策略不匹配。', 422)
             state = dict(call.get('provider_state') or {})
             previous, following = phases[step]
             if (call['provider_response_id'] or state.get('phase') != previous
@@ -269,7 +223,6 @@ class ModelUsageService:
             call.update(status='failed', error_code=error_code, provider_state=state,
                         updated_at=datetime.now(timezone.utc))
             self.store.update_call(db, call)
-            # A container was created; its unknown tool cost remains held in every budget.
             return call
 
     def mark_submission_unknown(self, call_id, *, error_code, request_id=None):
@@ -383,7 +336,9 @@ class ModelUsageService:
                 if reconciliation_status(call) == 'reconciled':
                     return call
                 row = db.execute('SELECT * FROM budget_reservations WHERE call_id=%s LIMIT 1', (call_id,)).fetchone()
-                accounted, _ = accounting_projection(call, dict(row))
+                if row is None:
+                    return call
+                accounted, _ = accounting_projection(call, row)
                 db.execute('''UPDATE budget_reservations SET accounted_micro_usd=%s,status='held',updated_at=%s
                     WHERE call_id=%s''', (accounted, now, call_id))
                 return call
@@ -393,17 +348,17 @@ class ModelUsageService:
 
     def release_unsubmitted(self, call_id, *, event_key, reason_code):
         if not _key(event_key) or not _key(reason_code):
-            raise _error('model_usage_input_invalid', '模型预留释放参数无效。', 422)
+            raise _error('model_usage_input_invalid', '撤销模型调用的参数无效。', 422)
         digest = _digest(dict(event_type='release', reason_code=reason_code))
         with self.store.connection(write=True) as db:
             call = self.store.require_call(db, call_id)
             existing = self.store.find_event(db, call_id, event_key)
             if existing:
                 if existing['event_digest'] != digest:
-                    raise _error('model_usage_event_conflict', '预留释放事件标识内容冲突。')
+                    raise _error('model_usage_event_conflict', '调用撤销事件标识内容冲突。')
                 return call
             if call['status'] != 'reserved':
-                raise _error('model_call_transition_invalid', '已开始提交或结果未知的调用不能释放预留。')
+                raise _error('model_call_transition_invalid', '已开始提交或结果未知的调用不能撤销。')
             now = datetime.now(timezone.utc)
             self.store.insert_event(db, dict(id=str(uuid4()), call_id=call_id, event_key=event_key,
                 event_digest=digest, event_type='release', provider_usage=None, price_snapshot=call['price_snapshot'],
@@ -422,7 +377,7 @@ class ModelUsageService:
         return self._usage(None, task_id, page, page_size)
 
     def _usage(self, project_id, task_id, page, page_size):
-        from app.domain.model_usage.accounting import public_reconciliation
+        from app.domain.model_usage.accounting import accounting_projection, public_reconciliation
         if (type(page) is not int or not 1 <= page <= 1_000_000
                 or type(page_size) is not int or not 1 <= page_size <= 50):
             raise _error('model_usage_input_invalid', '模型用量分页参数无效。', 422)
@@ -432,15 +387,23 @@ class ModelUsageService:
                 project_id = task['project_id']
             else:
                 self.store.require_project(db, project_id)
-            views = {}
-            for scope, key in [('user', self.store.user_id), ('project', project_id)] + ([('task', task_id)] if task_id else []):
-                views[scope + '_budget'] = self.store.budget_view(db, scope, self.store.budget(db, scope, key))
             column, key = ('task_id', task_id) if task_id else ('project_id', project_id)
             where = ' WHERE c.user_id=%s AND c.' + column + '=%s'
             params = (self.store.user_id, key)
-            all_calls = [dict(row) for row in db.execute('SELECT c.* FROM model_calls c' + where, params).fetchall()]
+            # Old calls carry one copy of the same hold per budget scope. Count it once.
+            all_calls = db.execute('''SELECT c.*, r.reserved_micro_usd, r.accounted_micro_usd,
+                r.status AS reservation_status FROM model_calls c LEFT JOIN LATERAL (
+                    SELECT reserved_micro_usd,accounted_micro_usd,status FROM budget_reservations
+                    WHERE call_id=c.id ORDER BY budget_id LIMIT 1
+                ) r ON true''' + where, params).fetchall()
+            estimated = accounted = reserved = 0
             summary = dict(actual_micro_usd=0, reconciled_count=0, partial_count=0, pending_count=0)
             for call in all_calls:
+                estimated += call['estimated_cost_micro_usd'] or 0
+                reservation = {**call, 'status': call['reservation_status']} if call['reservation_status'] else None
+                used, held = accounting_projection(call, reservation)
+                accounted += used
+                reserved += held
                 public = public_reconciliation(call)
                 summary['actual_micro_usd'] += public['actual_micro_usd'] or 0
                 if public['status'] in ('reconciled', 'partial', 'pending'):
@@ -450,14 +413,12 @@ class ModelUsageService:
                 FROM model_calls c JOIN tasks t ON t.id=c.task_id''' + where
                 + ' ORDER BY c.created_at DESC,c.id LIMIT %s OFFSET %s',
                 params + (page_size, (page - 1) * page_size)).fetchall()
-            scope = views['task_budget' if task_id else 'project_budget']
             public_fields = ('id', 'task_type', 'model', 'status', 'provider_status', 'usage_status',
                              'estimated_cost_micro_usd', 'created_at', 'updated_at')
             items = [{**{field: row[field] for field in public_fields},
                 'provider_provenance': public_writing_provider_provenance(row),
                 'reconciliation': public_reconciliation(dict(row), row['reconciled_at'])} for row in rows]
-            return dict(currency='USD', period='cumulative', enforcement_scope='unified_only', **views,
-                estimated_micro_usd=scope['estimated_micro_usd'], reserved_micro_usd=scope['reserved_micro_usd'],
-                accounted_micro_usd=scope['accounted_micro_usd'], reconciliation=summary,
+            return dict(currency='USD', period='cumulative', estimated_micro_usd=estimated,
+                reserved_micro_usd=reserved, accounted_micro_usd=accounted, reconciliation=summary,
                 pending_count=sum(call['usage_status'] == 'pending' and call['status'] != 'released' for call in all_calls),
                 items=items, total=len(all_calls), page=page, page_size=page_size)

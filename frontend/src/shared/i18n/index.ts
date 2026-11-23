@@ -47,6 +47,7 @@ import {layoutExportMessages} from './layoutExportMessages'
 import {pdfExportMessages} from './pdfExportMessages'
 import {manuscriptReviewMessages} from './manuscriptReviewMessages'
 import {manuscriptMessages} from './manuscriptMessages'
+import {manuscriptReferenceMessages} from './manuscriptReferenceMessages'
 import {literatureBatch06Messages} from './literatureBatch06Messages'
 import {literatureCheckMessages} from './literatureCheckMessages'
 import {literatureEvidenceMessages} from './literatureEvidenceMessages'
@@ -71,7 +72,7 @@ import { customerWorkspaceMessages } from './customerWorkspaceMessages'
 import { deliveryPackageMessages } from './deliveryPackageMessages'
 import { analystWorkspaceMessages } from '../../features/analyst/analystWorkspaceMessages'
 import { customerRequirementMessages } from '../../features/customer/customerRequirementMessages'
-const workflowMessages: Record<string, string> = { ...analystWorkspaceMessages, ...customerWorkspaceMessages, ...customerRequirementMessages, ...platformBatch4Messages, ...platformJourneyMessages, ...singleCellBatch7Messages, ...analysisSequentialMessages,...resultSequentialMessages, ...requirementUiMessages, ...analysisEntryMessages, ...presentationMessages, ...quantitativeMessages, ...tabularMessages, ...bulkB05Messages, ...bulkB06Messages, ...bulkB07Messages, ...waitPolicyMessages, ...researchResultsMessages, ...clientRequirementsMessages, ...runtimeMessages, ...operationsViewsMessages, ...configurationViewsMessages, ...usageViewsMessages, ...storageMessages, ...taskViewsMessages, ...reviewViewsMessages, ...schoolTemplateViewsMessages, ...manuscriptViewsMessages, ...journalViewsMessages, ...analysisOutputsMessages, ...analysisViewsMessages, ...analysisWorkspaceMessages, ...materialViewsMessages, ...literatureViewsMessages, ...workspaceMessages, ...operationsConfigurationMessages, ...operationsMessages, ...reviewContinuationMessages, ...reviewRevisionMessages, ...reviewRoundMessages, ...journalMessages, ...schoolChangeMessages, ...schoolExportMessages, ...thesisManuscriptMessages, ...schoolTemplateMessages, ...writingLiveMessages, ...layoutExportMessages, ...manuscriptReviewMessages, ...pdfExportMessages, ...manuscriptMessages, ...literatureBatch06Messages, ...literatureCheckMessages, ...literatureCitationMessages, ...literatureEvidenceMessages, ...literatureMessages, ...batch10StatisticsMessages, ...batch10SourceMessages, ...batch10ObservationMessages, ...batch09Messages, ...figureWorkbenchMessages, ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages, ...comparisonMessages, ...modelingMessages, ...qualityMessages, ...batch02Messages, ...systemCheckMessages, ...deliveryPackageMessages }
+const workflowMessages: Record<string, string> = { ...analystWorkspaceMessages, ...customerWorkspaceMessages, ...customerRequirementMessages, ...platformBatch4Messages, ...platformJourneyMessages, ...singleCellBatch7Messages, ...analysisSequentialMessages,...resultSequentialMessages, ...requirementUiMessages, ...analysisEntryMessages, ...presentationMessages, ...quantitativeMessages, ...tabularMessages, ...bulkB05Messages, ...bulkB06Messages, ...bulkB07Messages, ...waitPolicyMessages, ...researchResultsMessages, ...clientRequirementsMessages, ...runtimeMessages, ...operationsViewsMessages, ...configurationViewsMessages, ...usageViewsMessages, ...storageMessages, ...taskViewsMessages, ...reviewViewsMessages, ...schoolTemplateViewsMessages, ...manuscriptViewsMessages, ...journalViewsMessages, ...analysisOutputsMessages, ...analysisViewsMessages, ...analysisWorkspaceMessages, ...materialViewsMessages, ...literatureViewsMessages, ...workspaceMessages, ...operationsConfigurationMessages, ...operationsMessages, ...reviewContinuationMessages, ...reviewRevisionMessages, ...reviewRoundMessages, ...journalMessages, ...schoolChangeMessages, ...schoolExportMessages, ...thesisManuscriptMessages, ...schoolTemplateMessages, ...writingLiveMessages, ...layoutExportMessages, ...manuscriptReviewMessages, ...pdfExportMessages, ...manuscriptMessages, ...manuscriptReferenceMessages, ...literatureBatch06Messages, ...literatureCheckMessages, ...literatureCitationMessages, ...literatureEvidenceMessages, ...literatureMessages, ...batch10StatisticsMessages, ...batch10SourceMessages, ...batch10ObservationMessages, ...batch09Messages, ...figureWorkbenchMessages, ...originalWorkflowMessages, ...documentMessages, ...ocrReviewMessages, ...evidenceMessages, ...fileLifecycleMessages, ...comparisonMessages, ...modelingMessages, ...qualityMessages, ...batch02Messages, ...systemCheckMessages, ...deliveryPackageMessages }
 import { errorMessages } from './errorMessages'
 
 export type Locale = 'zh-CN' | 'en'
@@ -109,6 +110,11 @@ function errorParams(code: string, value: unknown): Params {
     thesis_chapter_protected: { position: [1, 300] },
     manuscript_review_heading_language: { position: [1, 300] },
     manuscript_finding_figure_reference: { position: [1, 10_000] },
+    selected_reference_excluded: { position: [1, 20] },
+    selected_reference_metadata_incomplete: { position: [1, 20] },
+    selected_reference_quote_invalid: { position: [1, 20] },
+    selected_reference_abstract_unusable: { position: [1, 20], pmid: [1, 999999999999] },
+    selected_reference_abstract_limit: { position: [1, 20], pmid: [1, 999999999999] },
     plot_label_too_long: { max_chars: [1, 10_000] },
     openai_request_failed: { provider_status: [400, 599] },
   }

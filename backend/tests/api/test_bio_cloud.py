@@ -108,7 +108,7 @@ def create_run(client, base, remote):
     r2 = upload(client, base, remote, 'sample_L001_R2_001.fastq.gz', 'read2')
     body = dict(profile_id='fixture-starsolo', sample_id='sample', library_id='library', species='human', chemistry='10x-3prime-v3', donor_id='donor1', group='control',
                 fastqs=[dict(upload_id=r1, read='R1', lane='L001', chunk=1), dict(upload_id=r2, read='R2', lane='L001', chunk=1)],
-                external_processing_confirmed=True, budget_approved=True, budget_limit_usd='10.00')
+                external_processing_confirmed=True)
     response = client.post(base + '/runs', json=body, headers={'Idempotency-Key':'run-key'})
     assert response.status_code == 202, response.text
     return response.json(), body
@@ -195,7 +195,7 @@ def test_upload_rejects_changed_part_and_missing_mate(client, monkeypatch):
     assert client.post(base + '/uploads/' + response.json()['id'] + '/complete', json={}).status_code == 409
     body = dict(profile_id='fixture-starsolo', sample_id='sample', library_id='library', species='human', chemistry='10x-3prime-v3',
                 fastqs=[dict(upload_id=response.json()['id'], read='R1', lane='L001', chunk=1)],
-                external_processing_confirmed=True,budget_approved=True,budget_limit_usd='10')
+                external_processing_confirmed=True)
     assert client.post(base + '/runs', json=body, headers={'Idempotency-Key':'bad-pair'}).status_code == 422
 
 
@@ -430,17 +430,16 @@ def test_cloud_task_can_publish_after_unrelated_synthetic_file_disposal(client,m
     assert client.get(base+'/runs/'+current['id']).json()['status']=='completed'
 
 
-def test_run_requires_verified_price_and_sufficient_acknowledged_budget(client,monkeypatch):
+def test_run_requires_consent_and_accepts_missing_price_or_retired_budget(client,monkeypatch):
     from app.domain.bio_cloud import service
     remote=configure(monkeypatch)
-    base=f"/api/v1/projects/{create_project(client)['id']}/bio-cloud"
-    _,body=create_run(client,base,remote)
-    low=client.post(base+'/runs',json={**body,'budget_limit_usd':'0.01'},headers={'Idempotency-Key':'too-low'})
-    assert low.status_code==409 and low.json()['detail']['code']=='bio_cloud_budget_exceeded'
     settings=service.load_settings()
     monkeypatch.setattr(service,'load_settings',lambda:settings.model_copy(update={'profiles':[settings.profiles[0].model_copy(update={'estimated_run_cost_usd':None})]}))
-    missing=client.post(base+'/runs',json=body,headers={'Idempotency-Key':'no-price'})
-    assert missing.status_code==409 and missing.json()['detail']['code']=='bio_cloud_price_unverified'
+    base=f"/api/v1/projects/{create_project(client)['id']}/bio-cloud"
+    run,body=create_run(client,base,remote)
+    replay=client.post(base+'/runs',json={**body,'budget_approved':True,'budget_limit_usd':'0.01'},headers={'Idempotency-Key':'run-key'})
+    assert replay.status_code==202 and replay.json()['id']==run['id']
+    assert client.post(base+'/runs',json={**body,'external_processing_confirmed':False},headers={'Idempotency-Key':'no-consent'}).status_code==422
     assert remote.submissions==[]
 
 

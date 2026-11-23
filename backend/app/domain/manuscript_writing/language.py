@@ -96,8 +96,9 @@ def figure_materials(assets,db,project,candidate):
     return images,items
 
 def figure_language(candidate,identity):
+    from app.domain.manuscripts.school import chapter_groups
     if not candidate.get('thesis_context'):return candidate['output_language']
-    owners=[s for s in candidate['sections'] if any(g['id'] in s['result_group_ids'] and any(f['id']==identity for f in g['figures']) for g in candidate['results_groups'])]
+    owners=[s for s in candidate['sections'] if any(f['id']==identity for g in chapter_groups(candidate,s) for f in g['figures'])]
     if len(owners)!=1:raise ValueError('School figure needs one frozen chapter language')
     return owners[0]['output_language']
 

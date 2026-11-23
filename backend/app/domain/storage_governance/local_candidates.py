@@ -18,8 +18,8 @@ def encode(value):
     return raw
 
 
-def lookup(db, root, project_id, operation, *, kind, task_id=None, include_released=False):
-    if s.reconcile_intents(db, root):
+def lookup(db, root, project_id, operation, *, kind, task_id=None, include_released=False, progress=None):
+    if s.reconcile_intents(db, root, progress=progress):
         raise s.invalid()
     row = db.execute('SELECT * FROM storage_reservations WHERE namespace=%s AND project_id=%s AND operation_key=%s',
         (s.NAMESPACE, project_id, operation)).fetchone()

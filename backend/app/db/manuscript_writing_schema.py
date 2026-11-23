@@ -9,6 +9,7 @@ def define_manuscript_writing_tables(metadata):
         sa.Column('manuscript_id',sa.Text,nullable=False),sa.Column('base_version_id',sa.Text,nullable=False),
         sa.Column('request_json',JSONB,nullable=False),sa.Column('input_snapshot',JSONB,nullable=False),sa.Column('input_digest',sa.Text,nullable=False),
         sa.Column('candidate_json',JSONB(none_as_null=True)),sa.Column('candidate_sha256',sa.Text),
+        sa.Column('school_draft_edits_json',JSONB(none_as_null=True)),
         sa.Column('published_revision',sa.Integer),sa.Column('publish_key',sa.Text),
         sa.Column('created_at',sa.DateTime(timezone=True),nullable=False),sa.Column('updated_at',sa.DateTime(timezone=True),nullable=False),
         sa.UniqueConstraint('task_id','manuscript_id','project_id','user_id','base_version_id',name='mw_request_review_scope'),

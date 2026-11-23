@@ -1,4 +1,4 @@
-"""Frozen pricing, protocol and conservative non-cache reservation."""
+"""Frozen pricing, protocol and writing authorization settings."""
 from app.domain.model_usage.contracts import ModelPolicy
 MODEL = 'gpt-6.1-sol'
 PRICE_VERSION = 'openai-standard-short-2026-11-06-gpt-6.1-sol'
@@ -8,8 +8,6 @@ MAX_OUTPUT = 12000
 PROTOCOL_ALLOWANCE = 4096
 MAX_POSTS = 6
 MAX_CORRECTIONS = 2
-TASK_CAP = 3000000
-BATCH_CAP = 12000000
 # One source for the consent manifest and the preview disclosure.
 ENDPOINT = 'https://api.openai.com/v1/responses'
 EXTERNAL_STORAGE_NOTICE = 'OpenAI stores background responses; selected material is transmitted externally.'
@@ -37,6 +35,5 @@ def capabilities(version=None):
                 max_input_tokens=execution['input_token_allowance'] if execution else MAX_INPUT,
                 max_output_tokens=execution['policy']['max_output_tokens'] if execution else MAX_OUTPUT,
                 batch_max_posts=models['batch_max_posts'] if models else MAX_POSTS,
-                batch_cap_micro_usd=models['batch_cap_micro_usd'] if models else BATCH_CAP,
-                logical_task_cap_micro_usd=execution['task_limit_micro_usd'] if execution else TASK_CAP,publish_requires_review=True,
+                publish_requires_review=True,
                 provider=ENDPOINT,storage_scope=EXTERNAL_STORAGE_NOTICE)

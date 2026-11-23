@@ -11,7 +11,8 @@ import type { AnalysisPick } from './CustomerAnalysisResults'
 import { SupplementForm, SupplementRequest, type ClosedSupplement } from './CustomerSupplement'
 import { customerBase, type Progress } from './customerWorkspaceApi'
 import PaperMaterialEditor from './PaperMaterialEditor'
-import { paperMaterialKind, paperMaterialsUrl, type PaperFile, type PaperMaterialNote, type PaperMaterialsRead, type PaperMaterialTarget } from './paperMaterials'
+import SciFileNote from './SciFileNote'
+import { paperMaterialKind, paperMaterialsUrl, useMaterialAnalysisPicks, type PaperFile, type PaperMaterialNote, type PaperMaterialsRead, type PaperMaterialTarget } from './paperMaterials'
 import ReturnBar from './ReturnBar'
 import type { ReturnTarget } from './returnToken'
 
@@ -29,11 +30,9 @@ export type SupplementMode = {
   onProgress: () => void
 }
 
-export default function CustomerMaterials({ projectId, headingRef, onContinue, onUnavailable, registerLeaveGuard, forWriting, onRequirements, active = true, supplement, onUploaded, analysisPicks = [] }: {
+type MaterialsProps = {
   projectId: string
   headingRef?: Ref<HTMLHeadingElement>
-  onContinue: () => void
-  onUnavailable: () => void
   registerLeaveGuard: RegisterLeaveGuard
   forWriting?: 'sci' | 'thesis'
   onRequirements?: () => void
@@ -43,8 +42,32 @@ export default function CustomerMaterials({ projectId, headingRef, onContinue, o
   onUploaded?: () => void
   /** Analysis results downloaded in this browser tab (B05 task 6): a file with the same name shows where it came from. */
   analysisPicks?: AnalysisPick[]
+  onAnalysisResults?: () => void
+  analysisResultsRef?: Ref<HTMLButtonElement>
+}
+
+type UploadActions = {onContinue: () => void; onUnavailable: () => void}
+type MaterialsView = ({kind: 'upload'} & UploadActions) | {kind: 'organizer'; onUpload: () => void; chapterRevision: number}
+
+export function ThesisMaterialOrganizer({projectId, registerLeaveGuard, onUpload, chapterRevision = 0}: {
+  projectId: string; registerLeaveGuard: RegisterLeaveGuard; onUpload: () => void; chapterRevision?: number
 }) {
+  const [picks] = useMaterialAnalysisPicks(projectId)
+  return <MaterialsContent projectId={projectId} forWriting="thesis" registerLeaveGuard={registerLeaveGuard}
+    analysisPicks={picks} view={{kind:'organizer', onUpload, chapterRevision}} />
+}
+
+export default function CustomerMaterials({onContinue, onUnavailable, ...props}: MaterialsProps & UploadActions) {
+  return <MaterialsContent {...props} view={{kind:'upload', onContinue, onUnavailable}} />
+}
+
+function MaterialsContent({ projectId, headingRef, view, registerLeaveGuard, forWriting, onRequirements, active = true, supplement, onUploaded, analysisPicks = [], onAnalysisResults, analysisResultsRef }: MaterialsProps & {view: MaterialsView}) {
   const { t } = useI18n()
+  const simpleSci = forWriting === 'sci' && !onRequirements
+  const thesis = forWriting === 'thesis'
+  const organizing = view.kind === 'organizer'
+  const inlineNotes = simpleSci || organizing
+  const [noteFile, setNoteFile] = useState<string | null>(null)
   const [kind, setKind] = useState<'documents' | 'bio'>('documents')
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<{ file: PaperFile; note?: PaperMaterialNote; targets: PaperMaterialTarget[]; prefill?: string } | null>(null)
@@ -52,7 +75,9 @@ export default function CustomerMaterials({ projectId, headingRef, onContinue, o
   const files = useResearchRead<FilePage>(`${filesUrl}?page=${page}&page_size=${pageSize}`, active)
   const pages = Math.max(1, Math.ceil((files.data?.total ?? 0) / pageSize))
   const eligibleIds = forWriting ? files.data?.items.filter(paperMaterialKind).map(file => file.id) ?? [] : []
-  const notes = useResearchRead<PaperMaterialsRead>(paperMaterialsUrl(projectId, eligibleIds), active && eligibleIds.length > 0)
+  const notes = useResearchRead<PaperMaterialsRead>(paperMaterialsUrl(projectId, eligibleIds),
+    active && (eligibleIds.length > 0 || simpleSci && files.data?.total === 0), undefined, view.kind === 'organizer' ? view.chapterRevision : 0)
+  const reviewFigures = simpleSci && notes.data?.review_figure_placement === true
   const noteByFile = new Map(notes.data?.items.map(item => [item.file_id, item]))
   const supplementing = !!supplement && !forWriting
   const [closed, setClosed] = useState<ClosedSupplement | null>(null)
@@ -77,28 +102,31 @@ export default function CustomerMaterials({ projectId, headingRef, onContinue, o
     uploaded.current?.()
   }, [files.data, files.error, page])
 
+  const FileListHeading = organizing ? 'h2' : 'h3'
   return <div className="customer-section customer-materials">
     {supplementing && <ReturnBar target={supplement.returnTarget} onReturn={supplement.onReturn}>
       {t('正在为“{place}”补充资料', { place: supplement.returnTarget?.label ?? '' })}
     </ReturnBar>}
-    <div className="customer-section-heading">
-      {forWriting ? <h2>{t('上传写作资料')}</h2> : <h1 ref={headingRef} tabIndex={-1}>{t(supplementing ? '补交资料' : '上传资料')}</h1>}
-      {!supplementing && <button type="button" className="button-primary" onClick={onContinue}>{t(forWriting === 'thesis' ? '下一步 章节与复核' : forWriting ? '下一步 稿件与复核' : '下一步 选择需求')}</button>}
-    </div>
+    {view.kind === 'upload' && <div className="customer-section-heading">
+      {forWriting && !simpleSci && !thesis ? <h2>{t('上传写作资料')}</h2> : <h1 ref={headingRef} tabIndex={-1}>{t(supplementing ? '补交资料' : '上传资料')}</h1>}
+      {!supplementing && <button type="button" className="button-primary" disabled={noteFile !== null} onClick={view.onContinue}>{t(thesis ? '下一步 模板与资料整理' : simpleSci ? '下一步 文献与初稿' : forWriting ? '下一步 稿件与复核' : '下一步 选择需求')}</button>}
+    </div>}
     {supplementing && <SupplementRequest progress={progress.data} error={progress.error} closed={closed}
       onRetry={progress.refresh} onProgress={supplement.onProgress} />}
-    <div className="customer-materials-body" tabIndex={0} role="region" aria-label={t(supplementing ? '补交资料' : '上传资料')}>
-      {editing && onRequirements && <PaperMaterialEditor key={editing.file.id} projectId={projectId}
-        original={editing.file} note={editing.note} targets={editing.targets} prefill={editing.prefill} registerLeaveGuard={registerLeaveGuard}
+    <div className="customer-materials-body" tabIndex={0} role="region" aria-label={t(organizing ? '已上传资料' : supplementing ? '补交资料' : '上传资料')}>
+      {editing && <PaperMaterialEditor key={editing.file.id} projectId={projectId}
+        original={editing.file} note={editing.note} targets={notes.data?.targets ?? editing.targets} prefill={editing.prefill} registerLeaveGuard={registerLeaveGuard}
         onBack={() => setEditing(null)} onSaved={notes.refresh} onRequirements={onRequirements} />}
       <div hidden={!!editing}>
-      {(!supplementing || supplementVersion != null) && <>
+      {view.kind === 'upload' && (!supplementing || supplementVersion != null) && <>
         {!forWriting && <div className="customer-switches" role="group" aria-label={t('资料类型')}>
           {uploadKinds.map(([value, label]) => <button type="button" key={value} aria-pressed={kind === value}
             className="button-quiet" onClick={() => setKind(value)}>{t(label)}</button>)}
         </div>}
         <div hidden={kind !== 'documents'}>
-          <BatchUpload {...uploadProps} active={active && !editing && kind === 'documents'} onUnavailable={onUnavailable} writingMaterials={forWriting} />
+          {reviewFigures && <p className="muted">{t('综述图片会自动安排到正文。上传后可在「设置配图」中指定章节、填写图注与出处。')}</p>}
+          {onAnalysisResults && <button ref={analysisResultsRef} type="button" className="button-quiet" onClick={onAnalysisResults}>{t('从我的分析项目取用成果')}</button>}
+          <BatchUpload {...uploadProps} active={active && !editing && kind === 'documents'} onUnavailable={view.onUnavailable} writingMaterials={forWriting} />
         </div>
         {!forWriting && <div hidden={kind !== 'bio'}>
           <BioUpload {...uploadProps} active={kind === 'bio'} />
@@ -110,8 +138,12 @@ export default function CustomerMaterials({ projectId, headingRef, onContinue, o
           onClosed={reason => { setClosed(reason); if (reason.kind === 'revision') progress.refresh() }} onSubmitted={supplement.onSubmitted} />
       </>}
       <div className="customer-section-heading customer-material-history">
-        <h3>{t(supplementing ? '项目里已有的文件' : '已上传资料')}</h3>
-        <button type="button" className="button-quiet" disabled={files.loading} onClick={refreshFiles}>{t('刷新资料')}</button>
+        <FileListHeading>{t(supplementing ? '项目里已有的文件' : '已上传资料')}</FileListHeading>
+        {(!organizing || files.error) && <button type="button" className="button-quiet" disabled={files.loading} onClick={() => {
+          refreshFiles()
+          if ((inlineNotes || thesis) && eligibleIds.length > 0) notes.refresh()
+        }}>{t('刷新资料')}</button>}
+        {view.kind === 'organizer' && <button type="button" className="button-quiet" onClick={view.onUpload}>{t('返回上传资料')}</button>}
       </div>
       {files.error && <p role="alert" className="error-panel">{t(files.error)}</p>}
       {eligibleIds.length > 0 && notes.error && <p role="alert" className="error-panel">{t(notes.error)}{' '}
@@ -122,23 +154,40 @@ export default function CustomerMaterials({ projectId, headingRef, onContinue, o
         ? <p>{t('此项目还没有文件。')}</p>
         : <ul className="customer-list" aria-label={t('已上传资料')}>
           {files.data.items.map(file => {
-            const note = noteByFile.get(file.id)
+            const template = thesis && notes.data?.template_source_file_ids?.includes(file.id)
+            const note = template ? undefined : noteByFile.get(file.id)
+            const figure = (reviewFigures || organizing) && paperMaterialKind(file) === 'figure'
+            const linkedTable = organizing && paperMaterialKind(file) === 'table' && !!(note?.target_id || note?.worksheet_names?.length)
+            const useEditor = linkedTable || !!(onRequirements && forWriting && !thesis && !inlineNotes)
+            const chooseWorksheets = organizing && file.file_type === 'xlsx' && !template && !linkedTable && !!notes.data?.targets.length
             const registration = note ? '编辑图表资料' : '填写图表资料'
             const pick = forWriting ? analysisPicks.find(item => item.memberNames.includes(file.filename)) : undefined
             const source = pick ? t('来自 {project} · {delivery}', { project: pick.researchProjectName, delivery: pick.deliveryTitle }) : ''
             return <li key={file.id}>
               <div><strong>{file.filename}</strong><p className="muted">
                 {t(file.parse_status === 'stored' ? '已上传' : parseStatusLabels[file.parse_status])}
-                {note && <> · {note.target_label && note.target_available ? note.target_label : t('待关联')}</>}
+                {template && <> · {t('学校模板')}</>}
+                {figure && <> · {note?.target_available && note.target_label
+                  ? t('配图章节 · {name}', { name: note.target_label })
+                  : note?.target_id && note.target_label ? t('原章节「{name}」已变更，将自动安排', { name: note.target_label })
+                  : t('配图章节 · 自动安排')}</>}
+                {note && useEditor && <> · {note.target_label && note.target_available ? note.target_label : t('待关联')}</>}
                 {source && <> · {source}</>}
-              </p></div>
+              </p>{inlineNotes && note?.result && noteFile !== file.id && <p>{note.result}</p>}
+              {inlineNotes && noteFile === file.id && <SciFileNote key={file.id} projectId={projectId} file={file} note={note}
+                prefill={source} figureTargets={figure ? (thesis ? notes.data?.figure_targets ?? [] : notes.data?.targets) : undefined}
+                registerLeaveGuard={registerLeaveGuard} onDone={saved => { setNoteFile(null); if (saved) notes.refresh() }} />}
+              </div>
               <div className="sci-inline-controls">
-                {onRequirements && forWriting && paperMaterialKind(file) && <button type="button" className="button-quiet" disabled={!notes.data || !!notes.error}
-                  aria-label={t(note ? '编辑 {name} 的图表资料' : '填写 {name} 的图表资料', { name: file.filename })}
+                {inlineNotes && !template && !useEditor && paperMaterialKind(file) && noteFile !== file.id &&
+                  <button type="button" className="button-quiet" disabled={!notes.data || notes.loading || !!notes.error || noteFile !== null}
+                    onClick={() => setNoteFile(file.id)}>{t(figure ? '设置配图' : note ? '编辑说明' : '添加说明')}</button>}
+                {(useEditor || chooseWorksheets) && paperMaterialKind(file) && <button type="button" className="button-quiet" disabled={!notes.data || !!notes.error || noteFile !== null}
+                  aria-label={chooseWorksheets ? undefined : t(note ? '编辑 {name} 的图表资料' : '填写 {name} 的图表资料', { name: file.filename })}
                   onClick={() => {
                     if (notes.data) setEditing({ file: { id: file.id, filename: file.filename, file_type: file.file_type }, note,
                       targets: notes.data.targets, prefill: source || undefined })
-                  }}>{t(registration)}</button>}
+                  }}>{t(chooseWorksheets ? '入稿工作表' : registration)}</button>}
                 <ProjectDownloadLink href={`${filesUrl}/${encodeURIComponent(file.id)}/download`} filename={file.filename}
                   ariaLabel={t('下载 {name}', { name: file.filename })}>{t('下载原文件')}</ProjectDownloadLink>
               </div>
@@ -148,10 +197,10 @@ export default function CustomerMaterials({ projectId, headingRef, onContinue, o
       </div>
     </div>
     {!editing && files.data && (page > 1 || pages > 1) && <nav className="customer-pagination" aria-label={t('文件分页')}>
-      <button type="button" onClick={() => setPage(value => value - 1)} disabled={page <= 1 || files.loading}>{t('上一页')}</button>
+      <button type="button" onClick={() => setPage(value => value - 1)} disabled={page <= 1 || files.loading || noteFile !== null}>{t('上一页')}</button>
       <span>{t('第 {page} / {pages} 页 · 共 {count} 个文件', { page, pages, count: files.data.total })}</span>
       <button type="button" onClick={() => setPage(value => value + 1)}
-        disabled={page >= pages || files.loading}>{t('下一页')}</button>
+        disabled={page >= pages || files.loading || noteFile !== null}>{t('下一页')}</button>
     </nav>}
   </div>
 }

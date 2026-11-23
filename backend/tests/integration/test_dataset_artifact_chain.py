@@ -52,7 +52,6 @@ def confirmed_task(client,base,file,result,kind,figure=None,explanation=None):
             source_digest=preview['source_digest'],labels={v['key']:v['value'] for v in preview['labels']})})
     task,_=TaskService(owner).create(base.split('/')[4],request,idempotency_key=kind)
     if kind!='word_report':
-        from app.domain.model_usage.service import ModelUsageService
         policy={'model':'test-plot' if kind=='boxplot' else 'test-explanation','prompt_version':'openai_boxplot_v1' if kind=='boxplot' else 'analysis_explanation_v1',
           'max_output_tokens':16000 if kind=='boxplot' else 10000,'timeout_seconds':15,'tools':['code_interpreter'] if kind=='boxplot' else [],
           'output_format':'text' if kind=='boxplot' else 'analysis_explanation_v1','price':{'version':'synthetic-only','model':'test-plot' if kind=='boxplot' else 'test-explanation',
@@ -61,10 +60,6 @@ def confirmed_task(client,base,file,result,kind,figure=None,explanation=None):
         if kind=='boxplot': frozen_policy.update(tool_reserve_micro_usd=1000,tool_reserve_version='synthetic-only')
         with database_connection(write=True) as db:
             db.execute("UPDATE tasks SET input_snapshot=jsonb_set(input_snapshot,%s,%s) WHERE id=%s",(['boxplot_policy' if kind=='boxplot' else 'explanation_policy'],Jsonb(frozen_policy),task['id']))
-        service=ModelUsageService(owner)
-        for scope,key in [('user',owner),('project',task['project_id']),('task',task['id'])]:
-            budget=service.get_budget(scope,key)
-            if budget['limit_micro_usd'] is None: service.set_budget(scope,key,1000000,0)
     return task,owner
 
 

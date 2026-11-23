@@ -39,7 +39,13 @@ def citation_fragments(snapshot,paragraph):
     mapped by a writing review. Parenthesized scientific numbers in the claim
     remain part of the text fragments.
     """
-    matches=[p for p in literature_paragraphs(snapshot) if p['text']==paragraph['text'] and p['citations']==paragraph.get('citations')]
+    candidates=[p for p in literature_paragraphs(snapshot) if p['citations']==paragraph.get('citations')]
+    matches=[p for p in candidates if p['text']==paragraph['text']]
+    if not matches and 'sections' not in snapshot:
+        # Fact drafts render a fixed scope label before the immutable citation.
+        # Accept it only on the original paragraph with the same frozen bindings.
+        prefix='Literature finding (not this study’s results): ' if snapshot.get('output_language')=='en' else '文献发现（并非本研究结果）：'
+        matches=[p for p in candidates if p['id']==paragraph['id'] and paragraph['text']==prefix+p['text']]
     mapped={paragraph['id'],'literature:'+paragraph['id'],'literature:p_'+digest(paragraph['id'])}
     saved=[p for p in matches if p['id'] in mapped] or matches
     if len(saved)!=1:raise ValueError('Cited prose requires one exact frozen citation context')

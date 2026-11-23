@@ -68,7 +68,7 @@ def test_new_figure_configuration_marks_linked_caption_without_mutating_frozen_i
 def test_synthetic_full_writer_preserves_exact_rounded_review_and_publishes(client):
     import json
     from tests.api.test_descriptive import configured
-    from tests.api.test_manuscript_writing_execution import WritingProvider,budgets
+    from tests.api.test_manuscript_writing_execution import WritingProvider
     from app.domain.manuscript_writing.execution import run_manuscript_writing_task
     file_path,file=configured(client,[['Value','Group'],[27.555,'A'],[27.555,'A']],group_column=None)
     analysis=statistics_post(client,file_path+'/analysis-runs',json={'expected_revision':1,'idempotency_key':'analysis'}).json()
@@ -85,7 +85,6 @@ def test_synthetic_full_writer_preserves_exact_rounded_review_and_publishes(clie
     assert run_task(published.json()['versions'][0]['task_id'],1)['status']=='succeeded'
     writing_endpoint=path+'/'+root['id']+'/writing-requests'
     writing=post(client,writing_endpoint,dict(base_revision=2,mode='full_draft'),'writing').json()
-    budgets(client,writing['task'])
     class EchoReviewedProvider(WritingProvider):
         def create(self,*,policy,instructions,payload):
             assert 'fact_id' in instructions and 'unchanged' in instructions

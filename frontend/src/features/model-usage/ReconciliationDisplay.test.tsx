@@ -14,7 +14,7 @@ const panels = [
 ]
 
 for (const panel of panels) {
-  test(`${panel.name} distinguishes estimate, budget accounting and partial actual cost in both languages with GET only`, async () => {
+  test(`${panel.name} distinguishes estimates and partial actual cost in both languages with GET only`, async () => {
     const fetch = vi.fn(async () => Response.json({ ...reconciliationFixture,
       evidence_reference: 'private-reference', operator: 'private-operator', evidence_sha256: 'private-hash',
       items: [{ ...reconciliationCall, provider_object_id: 'private-provider-object' }] }))
@@ -26,17 +26,16 @@ for (const panel of panels) {
     expect(within(row).getByText('部分已核对')).toBeTruthy()
     expect(within(row).getByText('模型费用：待核对')).toBeTruthy()
     expect(within(row).getByText('工具费用：USD 0.000600')).toBeTruthy()
-    expect(screen.getAllByText('预算已计金额').length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByText('预算已计金额')).toBeNull()
     expect(screen.getByText('已核对部分合计')).toBeTruthy()
     expect(screen.getByText('实际待核对调用')).toBeTruthy()
-    expect(screen.getByText('部分核对仅记录已确认分项，不释放预留；全部核对后才按实际金额结算。')).toBeTruthy()
     expect(screen.queryByText(/private-/)).toBeNull()
     act(() => setLocale('en'))
     expect(within(row).getByText('Partially reconciled')).toBeTruthy()
     expect(within(row).getByText('Model cost: Awaiting reconciliation')).toBeTruthy()
     expect(within(row).getByText('Tool cost: USD 0.000600')).toBeTruthy()
     expect(screen.getByText('Reconciled components total')).toBeTruthy()
-    expect(screen.getAllByText('Accounted amount').length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByText('Accounted amount')).toBeNull()
     expect(fetch).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: panel.name === 'project' ? 'Refresh model usage' : 'Refresh task usage' }))
     await screen.findByText('partial-model')
@@ -126,11 +125,7 @@ for (const panel of panels) {
     expect(within(complete).getByText('USD 0.001010')).toBeTruthy()
     expect(within(complete).getByText('USD 0.001600')).toBeTruthy()
     expect(within(complete).getByText('模型费用：USD 0.001000')).toBeTruthy()
-    const projectBudget = screen.getByText('项目预算').closest<HTMLElement>('.usage-budget-card')!
-    expect(within(projectBudget).getByText('USD 0.001010')).toBeTruthy()
-    expect(within(projectBudget).getByText('USD 0.001600')).toBeTruthy()
-    expect(within(projectBudget).getByText('USD 0.000000')).toBeTruthy()
-    expect(within(projectBudget).getByText('USD 9.998400')).toBeTruthy()
+    expect(screen.queryByText('项目预算')).toBeNull()
   })
 
   test(`${panel.name} rejects a present but invalid actual reconciliation object`, async () => {

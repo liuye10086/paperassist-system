@@ -1,4 +1,4 @@
-"""Append owner-scoped evidence and adjust all budgets in one schema-locked transaction."""
+"""Append owner-scoped cost evidence and settle any historical holds atomically."""
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -60,15 +60,16 @@ class ModelReconciliationService:
                 (call['provider'], expected, call_id)).fetchone():
                 raise _error('model_reconciliation_container_ambiguous', '容器关联多个调用，不能分摊实际费用。')
             rows = [dict(row) for row in db.execute('SELECT * FROM budget_reservations WHERE call_id=%s', (call_id,)).fetchall()]
-            if len(rows) != 3:
+            if rows and len(rows) != 3:
                 raise _error('model_reconciliation_accounting_invalid', '模型调用预算记录不完整。')
-            if len({(row['reserved_micro_usd'], row['accounted_micro_usd'], row['status']) for row in rows}) != 1:
+            if len({(row['reserved_micro_usd'], row['accounted_micro_usd'], row['status']) for row in rows}) > 1:
                 raise _error('model_reconciliation_accounting_invalid', '模型调用预算记录不一致。')
-            before, _ = accounting_projection(call, rows[0])
+            reservation = rows[0] if rows else None
+            before, _ = accounting_projection(call, reservation)
             previous = dict(token_micro_usd=call.get('actual_token_micro_usd'), tool_micro_usd=call.get('actual_tool_micro_usd'))
             changed = {**call, 'actual_' + request.component + '_micro_usd': request.amount_micro_usd,
                 'reconciliation_revision': call['reconciliation_revision'] + 1}
-            after, reserved = accounting_projection(changed, rows[0])
+            after, reserved = accounting_projection(changed, reservation)
             if after > MAX_ACCOUNTED_MICRO_USD:
                 raise _error('model_reconciliation_input_invalid', '实际费用合计超出支持范围。', 422)
             actual = (changed.get('actual_token_micro_usd') or 0) + (changed.get('actual_tool_micro_usd') or 0)

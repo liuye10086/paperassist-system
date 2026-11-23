@@ -69,14 +69,14 @@ const confirmBody={analysis_sha256:sha,decisions:[{conflict_id:'conflict-1',opti
 it.each([
  ['exact','atLeast','固定 18 磅','至少 24 磅'],
  ['auto','auto','1.5 倍','2 倍'],
-])('uses the Word line rule for the template details and each side of the change preview (%s → %s)',async(fromRule,toRule,fromLabel,toLabel)=>{
+])('shows the Word line rule only in the template change preview (%s → %s)',async(fromRule,toRule,fromLabel,toLabel)=>{
  const outputs=[{kind:'word_format',rule_id:'body.line_spacing',detail_key:'format.rule',detail_params:{from:'360',to:'480'}}]
  if(fromRule!==toRule)outputs.push({kind:'word_format',rule_id:'body.line_rule',detail_key:'format.rule',detail_params:{from:fromRule,to:toRule}})
  server({lineRule:toRule,preview:[Response.json({...previewResponse,outputs})]})
  const user=userEvent.setup();renderCustomer()
  await screen.findByRole('radio',{name:/四号/})
  const target=document.getElementById('template-'+ids.template)!
- expect(target.textContent).toContain(toLabel)
+ expect(target.textContent).not.toContain(toLabel)
  await openPreview(user)
  expect(await screen.findByText(`正文行距：${fromLabel} → ${toLabel}`)).toBeTruthy()
 })

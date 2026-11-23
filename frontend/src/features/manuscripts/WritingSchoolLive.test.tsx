@@ -154,7 +154,7 @@ function thesisBundle(input:PreviewInput,index:number):Bundle{
  return {...fixture,request_json:input,wire_json:wire,bundle_sha256:hash(wire),wire_sha256:hash(wire),wire_bytes:new TextEncoder().encode(wire).length,local_manifest:{...fixture.local_manifest,school,protected_identity:{sha256:hash('identity')}} as Bundle['local_manifest']}
 }
 function thesisAuth(tasks:Authorization['manifest']['tasks'],index:number):Authorization{
- return {id:thesisAuthIds[index],project_id:'p1',status:'active',revision:1,manifest_sha256:hash('thesis-manifest'+index),manifest:{tasks,max_posts:6,max_corrections:2,cap_micro_usd:12000000,logical_task_cap_micro_usd:3000000,materials:[]},occupied_posts:0,occupied_micro_usd:0,logical_task_usage:[]}
+ return {id:thesisAuthIds[index],project_id:'p1',status:'active',revision:1,manifest_sha256:hash('thesis-manifest'+index),manifest:{tasks,max_posts:6,max_corrections:2,materials:[]},occupied_posts:0,logical_task_usage:[]}
 }
 function thesisRequest(call:{bundle_id:string;authorization_id:string;logical_task_id:string},input:PreviewInput,index:number,status={status:'queued',reason_code:null as string|null,error_code:null as string|null},candidate:Snapshot|null=null):LiveRequest{
  const id=thesisRequestIds[index]
@@ -217,14 +217,14 @@ it('says generating again costs another fee on a thesis version that already has
  expect(JSON.parse(String(thesisPosts(fetcher,'/writing-requests')[0][1]?.body))).toMatchObject({authorization_id:thesisAuthIds[1]})
 })
 
-it('shows the service desk notice for a thesis writing request waiting for budget',async()=>{
+it('offers original task review for a historical thesis writing wait',async()=>{
  vi.stubGlobal('crypto',webcrypto)
  const server:ThesisServer={previews:[],auths:[],requests:[],requestStatus:{status:'waiting_confirmation',reason_code:'model_budget_missing',error_code:null}}
  serveThesis(server)
  render(<WritingLive {...props} customerThesis/>);await thesisReady()
  fireEvent.click(thesisConfirm());fireEvent.click(thesisGenerate())
- expect(await screen.findByText('写作费用额度暂未开通或已用完，本次材料尚未发送。请联系客服开通后回到这里继续生成。')).toBeTruthy()
- expect(screen.queryByRole('button',{name:'核对原写作任务'})).toBeNull()
+ expect(await screen.findByRole('button',{name:'核对原写作任务'})).toBeTruthy()
+ expect(document.body.textContent).not.toContain('联系客服开通')
 })
 
 it('uses customer wording for the thesis chapters that can be generated',async()=>{

@@ -16,11 +16,18 @@ const delivery = { id: 's1', delivery_id: 'd1', title: '生存分析', kind: 'an
   published_at: '2026-11-18T08:00:00Z', member_count: 1 }
 const file = (id: string, filename: string) => ({ id, filename, file_type: 'docx', size_bytes: 10, uploaded_at: '2026-11-19T00:00:00Z',
   parse_status: 'parsed', error: null, purposes: [], metadata_revision: 1, uploader_recorded: true })
-const settings = { article_type: 'research', proposed_title: 'Planned article', target_journal: { choice: 'science', name: null },
-  keywords: ['lineage'], findings: [] }
 
-describe.each(['sci', 'thesis'] as const)('analysis results for writing materials (%s)', projectType => {
-  const projectId = 'paper-' + projectType
+afterEach(() => {
+  cleanup()
+  clearApiSession()
+  setLocale('zh-CN')
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+  window.history.replaceState(null, '', window.location.pathname)
+})
+
+describe('published analysis results on the thesis writing materials page', () => {
+  const projectId = 'paper-thesis'
   const base = '/api/v1/projects/' + projectId
   const files = `customer-project=${projectId}&step=materials&view=files`
   const target = '#' + new URLSearchParams({ 'customer-project': projectId, step: 'materials', view: 'analysis-results',
@@ -37,10 +44,10 @@ describe.each(['sci', 'thesis'] as const)('analysis results for writing material
     vi.stubGlobal('URL', class extends URL { static createObjectURL = vi.fn(() => 'blob:x'); static revokeObjectURL = vi.fn() })
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     fetch = vi.fn(async (url: string) => {
-      if (url === base) return Response.json({ id: projectId, name: '合成论文', project_type: projectType, research_topic: '课题',
+      if (url === base) return Response.json({ id: projectId, name: '合成论文', project_type: 'thesis', research_topic: '课题',
         file_count: 0, created_at: research.created_at, updated_at: research.updated_at, default_output_language: 'zh-CN' })
-      if (url === base + '/sci-settings') return Response.json({ settings, revision: 1 })
-      if (url === base + '/thesis-requirements') return Response.json({ keywords: [] })
+      if (url === base + '/thesis-requirements') return Response.json({revision:1,language:'zh-CN',keywords:[],title:'',
+        school:'',education_level:'',template:null,sections:[]})
       if (url.startsWith(base + '/files?')) {
         const items = uploaded ? [file('f1', '生存分析.docx'), file('f2', '其他.docx')] : []
         return Response.json({ items, total: items.length, page: 1, page_size: 5 })
@@ -57,14 +64,6 @@ describe.each(['sci', 'thesis'] as const)('analysis results for writing material
       return new Response(null, { status: 404 })
     })
     vi.stubGlobal('fetch', fetch)
-  })
-  afterEach(() => {
-    cleanup()
-    clearApiSession()
-    setLocale('zh-CN')
-    vi.unstubAllGlobals()
-    vi.restoreAllMocks()
-    window.history.replaceState(null, '', window.location.pathname)
   })
   const writes = () => fetch.mock.calls.filter(([, init]) => init?.method && init.method !== 'GET')
 
@@ -95,33 +94,37 @@ describe.each(['sci', 'thesis'] as const)('analysis results for writing material
     const rows = within(list).getAllByRole('listitem')
     expect(rows[0].textContent).toContain('来自 分析项目甲 · 生存分析')
     expect(rows[1].textContent).not.toContain('来自')
-    const editOtherFile = within(rows[1]).getByRole('button', { name: '填写 其他.docx 的图表资料' })
+    expect(within(list).queryByRole('button', {name:'添加说明'})).toBeNull()
+    fireEvent.click(screen.getByRole('button', {name:'下一步 模板与资料整理'}))
+    await screen.findByRole('button', {name:'返回上传资料'})
+    const otherFile = within((await screen.findByText('其他.docx')).closest('li')!)
+    const editOtherFile = otherFile.getByRole('button', { name: '添加说明' })
     expect(editOtherFile).toHaveProperty('disabled', true)
     finishReadingNotes()
     await waitFor(() => expect(editOtherFile).toHaveProperty('disabled', false))
     fireEvent.click(editOtherFile)
-    expect(await screen.findByRole('textbox', { name: '主要结果' })).toHaveProperty('value', '')
-    fireEvent.click(screen.getByRole('button', { name: '返回项目文件' }))
-    fireEvent.click(await screen.findByRole('button', { name: '填写 生存分析.docx 的图表资料' }))
-    expect(await screen.findByRole('textbox', { name: '主要结果' })).toHaveProperty('value', '来自 分析项目甲 · 生存分析')
+    expect(await screen.findByRole('textbox', { name: '文件说明（选填）' })).toHaveProperty('value', '')
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    fireEvent.click(within(screen.getByText('生存分析.docx').closest('li')!).getByRole('button', { name: '添加说明' }))
+    expect(await screen.findByRole('textbox', { name: '文件说明（选填）' })).toHaveProperty('value', '来自 分析项目甲 · 生存分析')
     expect(writes()).toEqual([])
   })
 
-  it('has no entry while a paragraph waits for a source', async () => {
+  it('opens historical paragraph return links on the current upload step', async () => {
     const paragraph = new URLSearchParams({ return: `customer-project=${projectId}&step=manuscripts&view=writing`,
       returnLabel: 'paragraph', returnSection: '讨论', returnParagraph: '2' }).toString()
     window.history.replaceState(null, '', '#' + files + '&' + paragraph)
     render(<CustomerWorkspace />)
     await screen.findByLabelText('模拟已选文件')
-    expect(screen.getByRole('link', { name: '返回 讨论第 2 段' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: '从我的分析项目取用成果' })).toBeNull()
+    expect(screen.getByRole('heading', { name: '上传资料' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '从我的分析项目取用成果' })).toBeTruthy()
   })
 
   it('drops the token when the customer chooses a step', async () => {
     window.history.replaceState(null, '', target)
     render(<CustomerWorkspace />)
     await screen.findByText('正在为“写作资料”取分析成果')
-    fireEvent.click(screen.getByRole('button', { name: '写作资料与引用' }))
+    fireEvent.click(screen.getByRole('button', { name: '上传资料' }))
     await waitFor(() => expect(window.location.hash).toBe(`#customer-project=${projectId}&step=materials`))
     expect(screen.queryByText('正在为“写作资料”取分析成果')).toBeNull()
     expect(await screen.findByRole('button', { name: '从我的分析项目取用成果' })).toBeTruthy()
@@ -133,4 +136,23 @@ describe.each(['sci', 'thesis'] as const)('analysis results for writing material
     render(<CustomerWorkspace />)
     expect(await screen.findByRole('button', { name: 'Use results from my analysis projects' })).toBeTruthy()
   })
+})
+
+it('opens a historical SCI results-picker link on the upload page without fetching the named analysis delivery', async () => {
+  const projectId = 'paper-sci'
+  const base = '/api/v1/projects/' + projectId
+  const fetch = vi.fn(async (url: string) => {
+    if (url === base) return Response.json({ ...research, id: projectId, project_type: 'sci' })
+    if (url.startsWith(base + '/files?')) return Response.json({ items: [], total: 0, page: 1, page_size: 5 })
+    return new Response(null, { status: 404 })
+  })
+  vi.stubGlobal('fetch', fetch)
+  window.history.replaceState(null, '', '#customer-project=' + projectId + '&step=materials&view=analysis-results&analysisProject=ra&analysisSnapshot=s1')
+  render(<CustomerWorkspace />)
+  await screen.findByRole('button', { name: '下一步 文献与初稿' })
+  expect(screen.getByRole('heading', { name: '上传资料', level: 1 })).toBeTruthy()
+  expect(screen.getByLabelText('模拟已选文件')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: '从我的分析项目取用成果' })).toBeNull()
+  const urls = fetch.mock.calls.map(([url]) => url)
+  expect(urls.some(url => url.startsWith('/api/v1/projects?') || url.startsWith(deliveries))).toBe(false)
 })

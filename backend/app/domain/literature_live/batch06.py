@@ -37,7 +37,7 @@ class Batch06Ledger(LiveLedger):
                 or any(not isinstance(p,str) or not re.fullmatch(r'PMC[1-9][0-9]{0,11}',p) for p in pmcids)):raise ValueError()
             self._policy_json=canonical_payload(dict(version='stage05-batch06-public-v1',schema=schema,
                 public_inputs=deepcopy(public_inputs),pmcids=list(pmcids),limits=LIMITS,
-                create_reserve_micro_usd=250000,batch_budget_micro_usd=2000000,input_token_limit=12000,model_policy=MODEL_POLICY))
+                input_token_limit=12000,model_policy=MODEL_POLICY))
         except Exception:raise LivePolicyError('batch06_manifest_invalid') from None
         super().__init__(path,batch_id=batch_id)
 
@@ -76,6 +76,12 @@ class Batch06Ledger(LiveLedger):
             if not raw.endswith(b'\n') or len(raw)>4*1024*1024:raise ValueError()
             events=[strict_json(line) for line in raw.splitlines()]
             first=events[0]
+            policy = first.get('policy')
+            if isinstance(policy, dict):
+                # Original approved journals included two fixed accounting fields in their header.
+                legacy = {'create_reserve_micro_usd':250000,'batch_budget_micro_usd':2000000}
+                if all(policy.get(key)==amount for key,amount in legacy.items()):
+                    first = {**first, 'policy': {k:v for k,v in policy.items() if k not in legacy}}
             if first!={'event':'opened','batch_id':self.batch_id,'policy':self.policy}:raise ValueError()
             state=dict(model_create_attempts=0,model_read_attempts=0,pmc_attempts=0,closed=False,
                 reservations={},finished=set(),created_tasks=set(),responses={},accounting={},
@@ -142,7 +148,6 @@ class Batch06Ledger(LiveLedger):
                 all(a['usage_status']=='estimated' for a in state['accounting'].values()))
             return dict(batch_id=self.batch_id,closed=state['closed'],schema=self.policy['schema'],
                 **{kind+'_attempts':state[kind+'_attempts'] for kind in LIMITS},
-                reserved_micro_usd=state['model_create_attempts']*250000,
                 estimated_cost_micro_usd=sum(a['estimated_cost_micro_usd'] for a in state['accounting'].values()) if known else None,
                 cost_status='estimated' if known else 'unknown',model_inputs_frozen=state['model_inputs_frozen'],
                 frozen_model_inputs=len(state['public_inputs']),pmcids=list(self.policy['pmcids']))

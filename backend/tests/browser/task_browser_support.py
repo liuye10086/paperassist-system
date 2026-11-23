@@ -16,7 +16,7 @@ from app.db.database import database_connection
 ROOT = Path(__file__).resolve().parents[3]
 HOST, PORT = '127.0.0.2', 18015
 URL = f'http://{HOST}:{PORT}'
-ACTIONS = frozenset({'snapshot', 'fund_budget', 'execute_budget', 'execute_retry', 'shutdown'})
+ACTIONS = frozenset({'snapshot', 'execute_budget', 'execute_retry', 'shutdown'})
 BUSINESS_TABLES = ('projects', 'files', 'analysis_setups', 'analysis_runs', 'figures', 'figure_jobs',
     'explanations', 'explanation_jobs', 'reports', 'tasks', 'task_events', 'task_attempts',
     'task_outbox', 'task_waits', 'task_resume_requests', 'model_calls', 'model_budgets',
@@ -230,13 +230,7 @@ class BrowserControls:
 
     def act(self, action):
         assert action in ACTIONS
-        if action == 'fund_budget':
-            from app.domain.model_usage.service import ModelUsageService
-            service = ModelUsageService(self.flow['owner'], self.config)
-            key = self.flow['budget_task_id']
-            current = service.get_budget('task', key)
-            service.set_budget('task', key, self.flow['required_budget'], current['revision'])
-        elif action == 'execute_budget':
+        if action == 'execute_budget':
             return self.execute('budget_task_id', 'resume')
         elif action == 'execute_retry':
             return self.execute('retry_task_id', 'retry')

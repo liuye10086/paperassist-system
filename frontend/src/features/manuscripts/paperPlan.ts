@@ -56,3 +56,8 @@ export function plannedSectionTitle(snapshot:Snapshot,id:string):string|undefine
     snapshot.paper_plan?.sections.find(section=>section.id===id)?.label??
     (snapshot.article_type?articleHeading(snapshot.article_type,id,snapshot.output_language):undefined)
 }
+
+export function chapterGroups(snapshot:Snapshot, chapter:{id:string;result_group_ids?:string[]}){
+  const linked=(chapter.result_group_ids??[]).flatMap(id=>snapshot.results_groups.filter(group=>group.id===id))
+  return [...linked,...snapshot.results_groups.filter(group=>group.illustration_chapter_id===chapter.id&&!linked.includes(group))]
+}

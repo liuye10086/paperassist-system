@@ -337,6 +337,8 @@ def allowed_recovery_actions(db, task):
         def _unknown_submission(call):
             return call and not call.get('provider_response_id') and call['status'] in ('submitting','submission_unknown')
         def _can_resume(task,call):
+            if task.get('error_code') in ('recommendation_not_configured', 'explanation_not_configured'):
+                return not call or call['status'] == 'reserved'
             return task.get('error_code') in ('model_provider_unavailable','storage_unavailable','task_worker_interrupted') and (not call or bool(call.get('provider_response_id')))
     else:
         return []

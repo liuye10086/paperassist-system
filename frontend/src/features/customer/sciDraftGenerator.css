@@ -1,0 +1,29 @@
+.sci-draft-generator { display: grid; align-content: start; gap: 1rem; margin-top: 1rem; }
+.sci-draft-generator .literature-actions { display: flex; gap: .5rem; align-items: end; flex-wrap: wrap; }
+.sci-draft-generator form label { flex: 1 1 18rem; display: grid; gap: .35rem; }
+.sci-draft-generator .sci-generate-panel { background: var(--accent-surface); border-radius: 10px; padding: .75rem 1rem; display: flex; flex-wrap: wrap; gap: .65rem 1rem; align-items: center; }
+.sci-generate-panel > p.muted { flex: 1 1 24rem; margin: 0; }
+.sci-generate-panel > [role], .sci-generate-panel > div { flex-basis: 100%; }
+.sci-planned-figures { flex-basis: 100%; }
+.sci-planned-figures summary { cursor: pointer; }
+.thesis-generation-materials h3 { margin: .6rem 0 .35rem; }
+.thesis-generation-materials p, .thesis-generation-materials ul { margin-block: .35rem; }
+.thesis-generation-chapters { list-style: none; padding: 0; margin: .5rem 0; }
+.thesis-generation-chapters li { margin: .35rem 0; overflow-wrap: anywhere; }
+.thesis-purpose { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; margin-block: .4rem; }
+.thesis-generation-materials summary { cursor: pointer; padding-block: .2rem; }
+.thesis-generation-chapters p { color: var(--text-secondary); white-space: pre-line; }
+.sci-planned-figures ul { margin-block: .5rem 0; overflow-y: auto; max-height: 10rem; overflow-wrap: anywhere; }
+.sci-draft-generator .literature-candidates { list-style: none; margin: 0; padding: 0; gap: 0; }
+.sci-draft-generator .literature-candidates li { padding: .9rem 0; }
+.sci-draft-generator .literature-candidates li > label { display: flex; gap: .65rem; align-items: baseline; font-weight: 600; }
+.sci-draft-generator .literature-candidates li > label > input { flex: none; }
+.sci-draft-generator .literature-candidates li > p, .sci-abstract { margin: .4rem 0 0 1.65rem; max-width: 85ch; line-height: 1.6; overflow-wrap: anywhere; }
+.sci-abstract summary { cursor: pointer; }
+.sci-abstract summary b { margin-inline-start: .5rem; font-weight: 500; color: var(--primary); }
+.sci-abstract[open] summary span { display: none; }
+.sci-abstract summary .sci-collapse, .sci-abstract[open] summary b:not(.sci-collapse) { display: none; }
+.sci-abstract[open] summary .sci-collapse { display: inline; }
+@media (min-width: 760px) and (min-height: 580px) {
+  .sci-draft-generator .sci-generate-panel { position: sticky; top: 0; z-index: 1; }
+}

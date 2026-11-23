@@ -26,7 +26,8 @@ def task_version(db,task):
 
 def selected(version,domain):
     entry=version['bundle']['models'][domain] if version else None
-    return deepcopy(entry['execution']) if entry else None
+    from .contracts import without_budget_fields
+    return without_budget_fields(deepcopy(entry['execution'])) if entry else None
 
 
 def execution(version,domain,payload=None,*,result=None,figure=False):
@@ -62,7 +63,7 @@ def execution(version,domain,payload=None,*,result=None,figure=False):
 def check_input(value,instruction,payload,*,code='model_input_limit',overhead=4096):
     from app.adapters.models.openai_responses import canonical_payload
     if len(instruction.encode())+len(canonical_payload(payload).encode())+overhead>value['input_token_allowance']:
-        raise StorageError(code,'完整材料与说明超过冻结输入预算。',422)
+        raise StorageError(code,'完整材料与说明超过此任务的输入长度上限。',422)
 
 
 def require_cached_configuration(db,task,artifact,domain):

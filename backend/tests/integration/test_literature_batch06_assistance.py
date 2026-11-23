@@ -6,7 +6,7 @@ from app.db.database import database_connection,get_database_config
 from app.domain.model_usage.gateway import input_digest
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_literature import project
-from tests.integration.test_literature_assistance import create,budgets,review_task,SyntheticProvider
+from tests.integration.test_literature_assistance import create,review_task,SyntheticProvider
 
 
 def bound_provider(tmp_path,task,handler):
@@ -31,7 +31,7 @@ def response(value,status='completed'):
 
 def test_explicit_batch06_sdk_provider_executes_through_gateway_and_projects_suggestion(client,tmp_path):
     from app.domain.literature_assistance.execution import run_assistance_task
-    task=create(client,project(client));budgets(client,task);calls=[]
+    task=create(client,project(client));calls=[]
     value=dict(direction='Public topic',terms=['aspirin'],synonyms=[],mesh_candidates=[],query='aspirin',explanation='Public suggestion')
     def wire(request):
         calls.append(request)
@@ -55,7 +55,7 @@ def test_explicit_batch06_sdk_provider_executes_through_gateway_and_projects_sug
 
 def test_explicit_real_review_is_advice_and_never_creates_manual_review(client,tmp_path):
     from app.domain.literature_assistance.execution import run_assistance_task
-    task,path,claim,request=review_task(client);budgets(client,task)
+    task,path,claim,request=review_task(client)
     value=dict(status='partial',relevance='related',reason='Public abstract only',narrowed_statement='Bounded statement',
         limitations=['Abstract only'],evidence_ids=request['evidence_ids'])
     ledger,p=bound_provider(tmp_path,task,lambda req:httpx.Response(200,json=response(value)))
@@ -67,7 +67,7 @@ def test_explicit_real_review_is_advice_and_never_creates_manual_review(client,t
 
 def test_arbitrary_source_kind_cannot_authorize_real_provider(client):
     from app.domain.literature_assistance.execution import run_assistance_task
-    task=create(client,project(client));budgets(client,task)
+    task=create(client,project(client))
     p=SyntheticProvider();p.source_kind='stage05_batch06_public'
     result=run_assistance_task(task['id'],task['revision'],provider_factory=lambda:p)
     assert result['status']=='failed' and result['error_code']=='literature_assistance_not_authorized'
@@ -76,7 +76,7 @@ def test_arbitrary_source_kind_cannot_authorize_real_provider(client):
 def test_unknown_batch06_post_stays_waiting_and_reopened_provider_never_reposts(client,tmp_path):
     from app.domain.literature_assistance.execution import run_assistance_task
     from app.domain.literature_live.policy import LivePolicyError
-    task=create(client,project(client));budgets(client,task);calls=[]
+    task=create(client,project(client));calls=[]
     def wire(req):
         calls.append(req)
         raise httpx.ConnectError('synthetic unknown submission',request=req)
@@ -100,7 +100,7 @@ def test_unknown_batch06_post_stays_waiting_and_reopened_provider_never_reposts(
 def test_bare_openai_provider_cannot_spoof_synthetic_source_kind(client):
     from app.domain.literature_assistance.execution import run_assistance_task
     from app.adapters.models.openai_responses import OpenAIResponsesProvider
-    task=create(client,project(client));budgets(client,task);calls=[]
+    task=create(client,project(client));calls=[]
     p=OpenAIResponsesProvider(api_key='local-test',http_client=httpx.Client(transport=httpx.MockTransport(lambda req:calls.append(req))))
     p.source_kind='synthetic_fixture'
     p.policy=SyntheticProvider.policy

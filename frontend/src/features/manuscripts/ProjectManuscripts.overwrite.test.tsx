@@ -490,14 +490,14 @@ function delayedList() {
 }
 const comesBefore = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
 
-it('keeps both customer material entry buttons above the changing load status and usable before the list arrives', async () => {
+it('provides one supplementary material editor that stays usable before the manuscript list arrives', async () => {
   const finish = delayedList()
-  const nav = within(screen.getByRole('navigation', { name: '稿件任务视图' })).getByRole('button', { name: '写作材料' })
+  expect(screen.queryByRole('button', { name: '写作材料' })).toBeNull()
   const primary = screen.getByRole('button', { name: '整理写作材料' })
   const loading = screen.getByText('正在读取稿件资料……')
-  expect(nav.matches(':disabled') || primary.matches(':disabled')).toBe(false)
-  expect(comesBefore(nav, loading) && comesBefore(primary, loading)).toBe(true)
-  fireEvent.click(nav)
+  expect(primary.matches(':disabled')).toBe(false)
+  expect(comesBefore(primary, loading)).toBe(true)
+  fireEvent.click(primary)
   await act(async () => finish(Response.json({ items: [manuscriptFixture] })))
   expect(await screen.findByRole('button', { name: '覆盖之前的写作材料' })).toBeTruthy()
 })

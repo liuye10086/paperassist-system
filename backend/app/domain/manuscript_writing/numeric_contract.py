@@ -37,6 +37,16 @@ def text_facts(text, prefix):
             for i, v in enumerate(numbers(BODY_REFERENCE.sub('', text)))]
 
 
+def add_literature_numbers(evidence):
+    for excerpt in evidence:
+        try:
+            excerpt['numeric_facts'] = text_facts(excerpt['quote'], '/quote/numbers')
+        except ValueError:
+            # Keep the exact published excerpt for qualitative citation. An ambiguous
+            # sign or instrument name cannot authorize a numerical claim from it.
+            excerpt['numeric_facts'] = []
+
+
 def add_reported_results(base, request, payload, local, safe_text):
     """Project the explicitly bound report without mixing it into study facts."""
     paragraph = next((paragraph for group in base.get('results_groups', []) if group['id'] == 'reported-result'
@@ -90,8 +100,7 @@ def add_catalogs(base, request, payload, local, safe_text, *, reviewed_sources=F
     local['numeric_context'] = deepcopy(rows)
     payload['numeric_contract_version'] = 2
     payload['numeric_context'] = [dict(alias=alias, **row) for alias, row in rows.items()]
-    for evidence in payload['evidence']:
-        evidence['numeric_facts'] = text_facts(evidence['quote'], '/quote/numbers')
+    add_literature_numbers(payload['evidence'])
 
 
 def _catalogs(payload):

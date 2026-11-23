@@ -64,6 +64,16 @@ export function summaryRoute(value: unknown, projectId: string): { step: string;
     else if (typeof item === 'number' && Number.isSafeInteger(item) && item > 0) params.set(key, String(item))
     else if (item !== null && item !== undefined) return null
   }
+  if (summary.step === 'school' || (summary.project_type === 'thesis' && summary.step === 'details' &&
+      (summary.kind === 'template_conflicts' || summary.kind === 'template_needed'))) {
+    if (summary.project_type !== 'thesis') return null
+    const view = params.get('view') ?? 'list'
+    const panel = view === 'confirm' ? 'detail' : view
+    if (!['upload','list','detail'].includes(panel) || (panel === 'detail' && !params.has('template'))) return null
+    params.set('schoolView', panel)
+    params.delete('view')
+    return {step:'school', params}
+  }
   return { step: summary.step, params }
 }
 

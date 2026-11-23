@@ -43,15 +43,21 @@ class Policy(Strict):
     price: Price
 
 
+def without_budget_fields(value):
+    """Read deployed and frozen policies that still carry retired monetary fields."""
+    if isinstance(value, dict):
+        return {k: v for k, v in value.items() if k not in ('task_limit_micro_usd', 'tool_reserve_micro_usd', 'tool_reserve_version')}
+    return value
+
+
 class Execution(Strict):
     policy: Policy
     input_token_allowance: Positive
-    task_limit_micro_usd: Money
 
-
-class PlotExecution(Execution):
-    tool_reserve_micro_usd: Positive
-    tool_reserve_version: Token
+    @model_validator(mode='before')
+    @classmethod
+    def deployed_policy(cls, value):
+        return without_budget_fields(value)
 
 
 class Entry(Strict):
@@ -59,10 +65,6 @@ class Entry(Strict):
     price_source: Literal['installed_code','deployment_policy','synthetic_fixture']
     price_verified_on: Annotated[str, Field(pattern=r'^\d{4}-\d{2}-\d{2}$')] | None = None
     price_status: Literal['unverified','synthetic'] = 'unverified'
-
-
-class PlotEntry(Entry):
-    execution: PlotExecution
 
 
 class Credential(Strict):
@@ -73,14 +75,20 @@ class Credential(Strict):
 class Models(Strict):
     explanation: Entry | None = None
     recommendation: Entry | None = None
-    plot: PlotEntry | None = None
+    plot: Entry | None = None
     writing: Entry
     literature: Entry | None = None
     credential: Credential | None = None
     real_calls_enabled: bool = False
     batch_max_posts: Annotated[int, Field(ge=1, le=6)] = 6
     max_corrections: Annotated[int, Field(ge=0, le=2)] = 2
-    batch_cap_micro_usd: Annotated[int, Field(ge=1, le=12000000)] = 12000000
+
+    @model_validator(mode='before')
+    @classmethod
+    def deployed_models(cls, value):
+        if isinstance(value, dict):
+            return {k: v for k, v in value.items() if k != 'batch_cap_micro_usd'}
+        return value
 
 
 class Prompts(Strict):

@@ -1,133 +1,91 @@
-import { useEffect, useState, type Ref } from 'react'
+import type { Ref } from 'react'
 import { useI18n } from '../../shared/i18n'
-import JournalWorkspace from '../journals/JournalWorkspace'
-import ProjectManuscripts from '../manuscripts/ProjectManuscripts'
-import type { NeedSource } from '../manuscripts/WritingLive'
-import { journalViews } from '../projects/manuscriptViews'
 import type { Project } from '../projects/projectTypes'
-import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import { projectBase } from '../research-intake/api'
 import { useResearchRead } from '../research-results/api'
-import CustomerWritingMaterials from './CustomerWritingMaterials'
-import SciSettingsSummary from './SciSettingsSummary'
-import { customerManuscriptNavigation, type UpdatePaperRoute } from './customerPaperNavigation'
-import { validCustomerRouteId } from './customerReviewNavigation'
-import { isLegacySciSettings, type SciSettingsState } from './sciProjectSettings'
-import ReturnBar from './ReturnBar'
-import { readReturn } from './returnToken'
+import { SciDraftGenerator, ThesisDraftGenerator } from './SciDraftGenerator'
+import { SciDraftReader } from './SciDraftReader'
+import { SciDraftRevision } from './SciDraftRevision'
+import type { UpdatePaperRoute } from './customerPaperNavigation'
+import { fixedRevision, validCustomerRouteId } from './customerReviewNavigation'
+import type { ThesisRequirements } from './thesisProjectRequirements'
+import { PastThesisOpinions, SavedThesisVersion, ThesisHistory } from './ThesisDraftHistory'
+import type { SciSettingsState } from './sciProjectSettings'
 
-type Step = 'materials' | 'citations' | 'manuscripts' | 'journals' | 'word'
-type Props = {
-  project: Project
-  step: Step
-  headingRef: Ref<HTMLHeadingElement>
-  registerLeaveGuard: RegisterLeaveGuard
-  onUnavailable: () => void
-  onNavigate: (step: Step | 'details') => void
-  params: URLSearchParams
-  onUpdateRoute: UpdatePaperRoute
-  onStartReview: (id: string, revision: number) => void
-  onOpenWord: (manuscriptId: string, revision: number, options?: { adopted?: boolean }) => void
-  onOpenWordTask?: (taskId: string) => void
-  /** A review paragraph lacks a source: open literature or materials with a token back to it (B03 task 7). */
-  onNeedSource?: NeedSource
-  onFollowReturn?: (href: string) => void
-  /** Writing materials take a published analysis result (B05 task 6, wireframe 18). */
-  onOpenAnalysisResults?: () => void
-}
+type Draft = { manuscript_id: string; revision: number; request_id: string }
 
-const titles: Record<Step, string> = {
-  materials: '写作资料与引用', citations: '写作资料与引用', manuscripts: '稿件与复核', journals: '期刊适配与 Word', word: '固定版本与 Word',
-}
-
-export default function CustomerSciWorkflow({
-  project, step, headingRef, registerLeaveGuard, onUnavailable, onNavigate, params, onUpdateRoute, onStartReview, onOpenWord,
-  onNeedSource, onFollowReturn, onOpenAnalysisResults, onOpenWordTask,
-}: Props) {
+export default function CustomerSciWorkflow({ project, params, headingRef, onDetails, onMaterials, onOrganizer, onUpdateRoute, openSearch }: {
+  project: Project; params: URLSearchParams; headingRef: Ref<HTMLHeadingElement>; onDetails: () => void
+  onUpdateRoute: UpdatePaperRoute; openSearch?: boolean; onMaterials?: () => void; onOrganizer?: () => void
+}) {
   const { t } = useI18n()
-  const id = project.id
-  const outputLanguage = project.default_output_language ?? 'zh-CN'
-  const receipt = useResearchRead<SciSettingsState>(projectBase(id) + '/sci-settings', step !== 'word')
-  const settings = receipt.data?.settings ?? null
-  const materialsStep = step === 'materials' || step === 'citations'
-  const manuscript = customerManuscriptNavigation(params, step === 'word')
-  const adaptation = params.get('adaptation')
-  const adaptationId = validCustomerRouteId(adaptation) ? adaptation : undefined
-  const journalView = journalViews.find(view => view !== 'submission' && view === params.get('view')) ??
-    (adaptationId ? 'adaptation' : 'overview')
-  // Adding a source for a review paragraph: the page shows where it returns to, and returns by itself once the
-  // reference is ready or a file is uploaded.
-  const paragraphReturn = materialsStep && params.get('returnLabel') === 'paragraph' ? readReturn(params, id) : null
-  const materialsReturn = materialsStep && params.get('returnLabel') === 'materials' ? readReturn(params, id) : null
-  // A manuscript opened from a review opinion or round (B05 task 7).
-  const reviewReturn = step === 'manuscripts' && ['review-item', 'review-round'].includes(params.get('returnLabel') ?? '')
-    ? readReturn(params, id) : null
-  const [finished, setFinished] = useState(false)
-  const finish = paragraphReturn && onFollowReturn ? () => setFinished(true) : undefined
-  // oxlint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (finished && paragraphReturn) onFollowReturn?.(paragraphReturn.href) }, [finished])
+  const base = projectBase(project.id)
+  const view = params.get('view')
+  const manuscript = params.get('manuscript')
+  const revision = fixedRevision(params.get('revision'))
+  const request = params.get('writingRequest')
+  const pinned = params.has('manuscript') || params.has('revision') || params.has('writingRequest')
+  const validVersion = validCustomerRouteId(manuscript) && !!revision
+  const invalid = pinned && (!validVersion || (request !== null && !validCustomerRouteId(request)))
+  const thesis = project.project_type === 'thesis'
+  const history = thesis && view === 'draft-history'
+  const pastOpinions = thesis && view === 'past-opinions' && validCustomerRouteId(params.get('round'))
+  const saved = thesis && validVersion && !request && ['exports','saved','body'].includes(view ?? '')
+  const search = openSearch || view === 'select'
+  const query = validVersion ? '?' + new URLSearchParams({ manuscript_id: manuscript, revision: String(revision) }) : ''
+  const current = useResearchRead<{ draft: Draft | null }>(base + '/sci-current-draft' + query, !invalid && !request && !history && !pastOpinions && !saved)
+  const draft = validVersion && request ? { manuscript_id: manuscript, revision, request_id: request } : current.data?.draft
+  const generator = search || (!pinned && current.data?.draft === null)
+  const settings = useResearchRead<SciSettingsState>(base + '/sci-settings', generator && !thesis)
+  const requirements = useResearchRead<ThesisRequirements>(base + '/thesis-requirements', generator && thesis)
+  const clear = { round:undefined, item:undefined, reference:undefined, manuscript: undefined, revision: undefined, writingRequest: undefined, paragraph: undefined, search: undefined }
+  const show = (manuscript: string, revision: number, writingRequest: string) =>
+    onUpdateRoute({ ...clear, manuscript, revision, writingRequest, view: 'writing' }, true)
+  const currentButton = <button type="button" className="button-quiet"
+    onClick={() => onUpdateRoute({ ...clear, view: undefined }, true)}>{t('查看当前初稿')}</button>
 
+  let content
+  if (invalid || (!thesis && !search && pinned && !request && current.data?.draft === null)) {
+    content = <div role="alert">{t('这个版本没有可读取的正文。')} {currentButton}</div>
+  } else if (history) {
+    content = <ThesisHistory projectId={project.id} update={onUpdateRoute}/>
+  } else if (pastOpinions) {
+    content = <PastThesisOpinions projectId={project.id} roundId={params.get('round')!} update={onUpdateRoute}/>
+  } else if (saved || (thesis && validVersion && !request && current.data?.draft === null)) {
+    content = <SavedThesisVersion projectId={project.id} manuscript={manuscript!} revision={revision!} update={onUpdateRoute}/>
+  } else if (generator) {
+    content = <>
+      {search && draft && <button type="button" className="button-quiet" onClick={() =>
+        show(draft.manuscript_id, draft.revision, draft.request_id)}>{t('返回初稿')}</button>}
+      {thesis ? (requirements.error ? <p role="alert">{t(requirements.error)} <button onClick={requirements.refresh}>{t('重试')}</button></p>
+        : !requirements.data ? <p role="status">{t('正在读取毕业论文需求……')}</p>
+        : <ThesisDraftGenerator project={project} requirements={requirements.data} onOpenProject={onDetails} onOpenMaterials={onMaterials} onOpenOrganizer={onOrganizer}
+            onSubmitted={show} initialSearchId={validCustomerRouteId(params.get('search')) ? params.get('search')! : undefined}/>)
+        : settings.error ? <p role="alert">{t(settings.error)} <button onClick={settings.refresh}>{t('重试')}</button></p>
+        : !settings.data ? <p role="status">{t('正在读取 SCI 建项资料……')}</p>
+        : !settings.data.settings ? <p>{t('此项目尚未保存 SCI 建项资料。')} <button onClick={onDetails}>{t('补充 SCI 建项资料')}</button></p>
+        : <SciDraftGenerator project={project} settings={settings.data.settings} onSubmitted={show} onOpenProject={onDetails} />}
+    </>
+  } else if (draft) {
+    const props = { thesis, projectId: project.id, manuscriptId: draft.manuscript_id, revision: draft.revision, requestId: draft.request_id }
+    content = view === 'feedback'
+      ? <SciDraftRevision key={props.requestId} {...props} onCreated={show} onClose={() => show(props.manuscriptId, props.revision, props.requestId)} />
+      : <>
+        <button type="button" className="button-quiet" onClick={() => onUpdateRoute({ manuscript: props.manuscriptId,
+          revision: props.revision, writingRequest: props.requestId, view: 'select' })}>{t('调整所选文献')}</button>
+        <SciDraftReader key={props.requestId} {...props} onRevise={() => onUpdateRoute({ manuscript: props.manuscriptId,
+          revision: props.revision, writingRequest: props.requestId, view: 'feedback' })} />
+      </>
+  } else if (current.error) {
+    content = <p role="alert" className="error-panel">{t(current.error)} <button onClick={current.refresh}>{t('重试')}</button></p>
+  } else {
+    content = <p role="status">{t('正在读取初稿……')}</p>
+  }
   return <section className="customer-section customer-manuscript-workflow">
-    <div className="customer-section-heading">
-      <h1 ref={headingRef} tabIndex={-1}>{t(titles[step])}</h1>
-      {step === 'journals' && <button type="button" className="button-primary" onClick={() => onNavigate('word')}>{t('通用 Word 与固定版本')}</button>}
-      {step === 'word' && <button type="button" className="button-quiet" onClick={() => onNavigate('journals')}>{t('返回期刊适配')}</button>}
-      {step === 'manuscripts' && <button type="button" className="button-quiet" onClick={() => manuscript.manuscriptId && manuscript.revision
-        ? onOpenWord(manuscript.manuscriptId, manuscript.revision) : onNavigate('word')}>{t('固定版本与 Word')}</button>}
+    <div className="customer-section-heading"><h1 ref={headingRef} tabIndex={-1}>{t('文献与初稿')}</h1>
+      {thesis && (history || saved || pastOpinions ? currentButton : <button type="button" className="button-quiet"
+        onClick={() => onUpdateRoute({...clear, view:'draft-history'})}>{t('历史版本')}</button>)}
     </div>
-    {paragraphReturn && <ReturnBar target={paragraphReturn} onReturn={onFollowReturn}>
-      {t('正在为“{place}”补充依据', { place: paragraphReturn.label })}
-    </ReturnBar>}
-    {reviewReturn && <ReturnBar target={reviewReturn} onReturn={onFollowReturn}>
-      {t('正在查看“{place}”所用的稿件', { place: reviewReturn.label })}
-    </ReturnBar>}
-    {finished && paragraphReturn && <p role="status">{t('完成并返回 {place}', { place: paragraphReturn.label })}</p>}
-    {step !== 'word' && receipt.error && <p role="alert" className="error-panel">{t(receipt.error)}{' '}
-      <button type="button" onClick={receipt.refresh}>{t('重试')}</button>
-    </p>}
-    {step !== 'word' && !receipt.data && !receipt.error && <p role="status">{t('正在读取 SCI 建项资料……')}</p>}
-    {step !== 'word' && receipt.data && !settings && <p className="warning-panel">{t('此项目尚未保存 SCI 建项资料。')}
-      {' '}<button type="button" onClick={() => onNavigate('details')}>{t('补充 SCI 建项资料')}</button>
-    </p>}
-    {settings && (materialsStep || step === 'manuscripts' && isLegacySciSettings(settings)) && <section className="manuscript-panel" aria-label={t('已保存的写作意向')}>
-      <h2>{t('已保存的写作意向')}</h2>
-      {isLegacySciSettings(settings) ? <>
-        <p className="muted">{t('主要结果或结论与图表计划来自建项填写。请在写作材料中选择对应资料并核对来源。')}</p>
-        <SciSettingsSummary settings={settings} />
-      </> : <>
-        <dl className="sci-settings-summary">
-          <dt>{t('拟定论文题目')}</dt><dd>{settings.proposed_title}</dd>
-          <dt>{t('关键词')}</dt><dd>{settings.keywords.join(' · ')}</dd>
-        </dl>
-        <button type="button" className="button-quiet" onClick={() => onNavigate('details')}>{t('查看 SCI 建项资料')}</button>
-      </>}
-    </section>}
-    {materialsStep && <CustomerWritingMaterials project={project} startWithCitations={step === 'citations'}
-      projectKeywords={settings?.keywords} literatureReady={!!(receipt.data || receipt.error)}
-      params={params} onUpdateRoute={onUpdateRoute} onReferenceReady={finish} onUploaded={finish}
-      onOpenAnalysisResults={onOpenAnalysisResults} materialsReturn={materialsReturn} onFollowReturn={onFollowReturn}
-      onContinue={() => onNavigate('manuscripts')} onRequirements={() => onNavigate('details')} onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} />}
-    {(step === 'word' || step === 'manuscripts') && manuscript.invalid &&
-      <p role="alert">{t('指定固定稿件版本不可用；不会自动替换为最新版本。')}</p>}
-    {(step === 'word' || step === 'manuscripts' && !!receipt.data) && <ProjectManuscripts
-      projectId={id} researchTopic={project.research_topic} outputLanguage={outputLanguage} active
-      projectType="sci" customerSci={{ settings, wordOnly: step === 'word' }}
-      onOpenTask={manuscript.view==='exports'?onOpenWordTask:undefined}
-      initialManuscript={manuscript.manuscriptId} initialRevision={manuscript.revision} view={manuscript.view}
-      initialWritingRequest={manuscript.writingRequest} initialParagraph={manuscript.paragraph} onNeedSource={onNeedSource}
-      onSelectVersion={(id, revision, replace) => onUpdateRoute({ manuscript: id, revision, view: step === 'word' ? 'exports' : 'body' }, true, replace)}
-      openLatest={step === 'word' && !params.has('manuscript') && !params.has('revision')}
-      onAdopted={(id, revision) => onOpenWord(id, revision, { adopted: true })}
-      adoptedNotice={step === 'word' && manuscript.adopted}
-      onAutoWordStarted={() => { if (params.has('adopted')) onUpdateRoute({ adopted: undefined }, true, true) }}
-      onViewChange={view => onUpdateRoute({ view: step === 'word' && view === 'body' ? 'exports' : view }, true)}
-      onStartReview={onStartReview}
-      onOpenLiterature={() => onNavigate('citations')} onOpenRequirements={() => onNavigate('details')}
-      onOpenMaterials={() => onNavigate('materials')} registerLeaveGuard={registerLeaveGuard} />}
-    {step === 'journals' && params.has('adaptation') && !adaptationId &&
-      <p role="alert">{t('指定适配记录尚未读取，请刷新；不会代用其他记录。')}</p>}
-    {step === 'journals' && receipt.data && <JournalWorkspace projectId={id} active view={journalView}
-      initialAdaptation={adaptationId} onSelectAdaptation={adaptation => onUpdateRoute({ adaptation, view: 'adaptation' }, true)}
-      onViewChange={view => onUpdateRoute({ view }, true)} customerSci={settings} registerLeaveGuard={registerLeaveGuard} />}
+    {content}
   </section>
 }

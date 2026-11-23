@@ -48,5 +48,10 @@ class CallRequest(StrictContract):
     input_digest: Annotated[str, Field(strict=True, pattern=r'^[0-9a-f]{64}$')]
     policy: ModelPolicy
     input_token_allowance: TokenCount
-    tool_reserve_micro_usd: Money = 0
-    tool_reserve_version: Version | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def discard_historical_tool_reserve(cls, value):
+        if isinstance(value, dict):
+            return {k: v for k, v in value.items() if k not in ('tool_reserve_micro_usd', 'tool_reserve_version')}
+        return value

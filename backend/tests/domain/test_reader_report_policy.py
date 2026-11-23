@@ -13,7 +13,9 @@ def settings(tmp_path, monkeypatch, allowance=50000, cap=1000000):
         'max_output_tokens': 10000, 'timeout_seconds': 45, 'tools': [], 'price': {
         'version': 'test-only', 'model': 'synthetic-model', 'input_micro_usd_per_million': 2000000,
         'cached_input_micro_usd_per_million': 100000, 'output_micro_usd_per_million': 10000000}},
-        'input_token_allowance': allowance, 'task_limit_micro_usd': cap}
+        'input_token_allowance': allowance}
+    if cap is not None:
+        value['task_limit_micro_usd'] = cap
     path = tmp_path / 'reader-policy.json'; path.write_text(json.dumps(value), encoding='utf-8')
     monkeypatch.setenv('PAPERASSIST_READER_REPORT_POLICY_FILE', str(path))
 
@@ -31,14 +33,12 @@ def test_runtime_enable_gate_does_not_invalidate_paid_response_reuse(tmp_path, m
     assert enabled['reserved_micro_usd'] == 200000
 
 
-@pytest.mark.parametrize('allowance,cap,code', [(1,1000000,'reader_report_input_limit'), (50000,1,'reader_report_budget_limit')])
-def test_input_and_task_cap_checked_before_queueing(tmp_path, monkeypatch, allowance, cap, code):
+@pytest.mark.parametrize('cap', [1, None])
+def test_reader_generation_ignores_retired_task_cap(tmp_path, monkeypatch, cap):
     from app.domain.reader_reports.policy import bundle
-    from app.core.exceptions import StorageError
-    settings(tmp_path, monkeypatch, allowance, cap)
-    with pytest.raises(StorageError) as caught:
-        bundle({'language': 'en', 'facts': {'n': 20}, 'figures': []})
-    assert caught.value.code == code
+    settings(tmp_path, monkeypatch, cap=cap)
+    result = bundle({'language': 'en', 'facts': {'n': 20}, 'figures': []})
+    assert result['reserved_micro_usd'] == 200000
 
 
 @pytest.mark.parametrize('field', ['caption_facts', 'source_caption'])

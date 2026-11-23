@@ -59,7 +59,6 @@ def run_school_suggestion_task(task_id,task_revision,*,config=None,directory=Non
     try:return execute(repository,lease,provider)
     except LeaseLost:return None
     except StorageError as exc:
-        if exc.code in ('model_budget_missing','model_budget_exceeded'):return wait(repository,lease,'budget_exceeded',exc.code)
         if exc.status>=500:return None
         return repository.fail(lease,exc.code)
     except (ValueError,KeyError,TypeError):return repository.fail(lease,'model_response_invalid')

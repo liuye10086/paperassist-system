@@ -87,14 +87,8 @@ def submit(client, url, figure, *, idempotency_key=None, **changes):
     if response.status_code == 202 and response.json().get('task'):
         # Shared business fixtures explicitly execute unified work in the isolated
         # test schema. HTTP and production GET never run this test helper.
-        from app.domain.model_usage.service import ModelUsageService
         from app.domain.tasks.explanation_execution import run_explanation_task
         owner = client.get('/api/v1/auth/me').json()['user']['id']
-        service = ModelUsageService(owner)
-        for scope, key in [('user', owner), ('project', url.split('/')[4])]:
-            budget = service.get_budget(scope, key)
-            if budget['limit_micro_usd'] is None:
-                service.set_budget(scope, key, 1_000_000, 0)
         task = response.json()['task']
         run_explanation_task(task['id'], task['revision'])
     return response

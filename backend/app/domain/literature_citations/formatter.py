@@ -31,8 +31,8 @@ def _first_present(*values):
     return next((value for value in values if isinstance(value, str) and value.strip()), '')
 
 
-def _author_text(metadata):
-    gaps = metadata_gaps(metadata)
+def _author_text(metadata, *, extracted_from_pubmed=False):
+    gaps = metadata_gaps(metadata, extracted_from_pubmed=extracted_from_pubmed)
     if gaps:
         raise ValueError('citation_metadata_incomplete:' + ','.join(gaps))
     authors = []
@@ -45,8 +45,8 @@ def _author_text(metadata):
     return _sentence(', '.join(authors))
 
 
-def format_reference(metadata: dict) -> str:
-    author_text = _author_text(metadata)
+def format_reference(metadata: dict, *, extracted_from_pubmed=False) -> str:
+    author_text = _author_text(metadata, extracted_from_pubmed=extracted_from_pubmed)
     issue_value = _first_present(metadata.get('issue'))
     issue = f'({issue_value})' if issue_value else ''
     locator = _first_present(metadata.get('pages'), metadata.get('article_number'))
@@ -96,7 +96,9 @@ def render_paragraphs(paragraphs: list[dict]) -> dict:
                 if ref_id not in numbers:
                     numbers[ref_id] = len(numbers) + 1
                     selected_metadata[ref_id] = metadata
-                    references.append(dict(number=numbers[ref_id], project_reference_id=ref_id, text=format_reference(metadata)))
+                    from_pubmed = binding.get('metadata_source', {}).get('mode') == 'extract'
+                    references.append(dict(number=numbers[ref_id], project_reference_id=ref_id,
+                                           text=format_reference(metadata, extracted_from_pubmed=from_pubmed)))
                 elif selected_metadata[ref_id] != metadata:
                     raise ValueError('citation_metadata_versions_conflict')
                 cited.add(numbers[ref_id])

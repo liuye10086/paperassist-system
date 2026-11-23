@@ -208,7 +208,7 @@ def test_school_subset_alias_composition_and_science_review_recognize_schema4():
 def test_configuration_contract_preserves_explicit_root_kind():
     from app.domain.manuscript_writing.frozen import contract
     old=contract(schema_version=2)
-    config=dict(document_kind='thesis',bundle=dict(models=dict(writing=dict(execution=dict(policy=old['policy'],input_token_allowance=old['max_input_allowance'],task_limit_micro_usd=old['task_limit_micro_usd'])),batch_max_posts=old['batch_max_posts'],max_corrections=old['max_corrections'],batch_cap_micro_usd=old['batch_cap_micro_usd']),prompts=dict(writing_instruction='')))
+    config=dict(document_kind='thesis',bundle=dict(models=dict(writing=dict(execution=dict(policy=old['policy'],input_token_allowance=old['max_input_allowance'])),batch_max_posts=old['batch_max_posts'],max_corrections=old['max_corrections']),prompts=dict(writing_instruction='')))
     assert contract(config,schema_version=4,document_kind='sci')['document_kind']=='sci'
 
 

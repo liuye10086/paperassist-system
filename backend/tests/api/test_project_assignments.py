@@ -319,10 +319,12 @@ def test_assignment_list_filters_progress_status_in_sql_and_lists_required_analy
              {'id': 'customer.analysis.single_cell.differential', 'title': 'Differential', 'delivery_kind': 'analysis'},
              {'id': 'customer.type.spatial', 'title': 'Spatial', 'delivery_kind': 'analysis', 'status': 'not_included'},
              {'id': 'customer.type.bulk', 'title': 'Bulk', 'delivery_kind': 'analysis'}]
-    confirmed = customer.post(waiting + '/requirements', headers={'Idempotency-Key': 'filter-scope'}, json={
-        'expected_revision': 1, 'operation': 'confirm',
-        'content': {'schema_version': 1, 'services': ['analysis'], 'scope_items': scope},
-    })
+    body = {'expected_revision': 1, 'operation': 'confirm',
+            'content': {'schema_version': 1, 'services': ['analysis'], 'scope_items': scope}}
+    missing_species = customer.post(waiting + '/requirements', headers={'Idempotency-Key': 'no-species'}, json=body)
+    assert missing_species.status_code == 422 and missing_species.json()['detail']['code'] == 'research_requirement_invalid'
+    body['content']['study_species'] = ['人类']
+    confirmed = customer.post(waiting + '/requirements', headers={'Idempotency-Key': 'filter-scope'}, json=body)
     assert confirmed.status_code == 201, confirmed.text
     for project in (assigned, analyzing):
         write_requirements(customer, project, 1, 'confirm')

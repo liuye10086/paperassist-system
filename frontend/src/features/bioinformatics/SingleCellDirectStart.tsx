@@ -1,3 +1,4 @@
+import {useState} from 'react'
 import {useI18n} from '../../shared/i18n'
 import useResearchDraft from '../research-results/useResearchDraft'
 import type {AnalysisNavigation} from '../projects/analysisViews'
@@ -20,16 +21,17 @@ const number=(value:number|null)=>value===null?'未知':value.toLocaleString('en
 const memory=(bytes:number|null)=>bytes===null?'未知':`${(bytes/1024**2).toFixed(1)} MiB`
 const resourceReasons:Record<string,string>={single_cell_observations_limit:'细胞数超过当前上限。',single_cell_features_limit:'基因数超过当前上限。',single_cell_nnz_limit:'非零元素数超过当前上限。',single_cell_dense_hvg_limit:'HVG 密集块超过当前上限，请减少 HVG 数量或导入较小矩阵。',single_cell_matrix_dimensions_unknown:'矩阵规模未明确，无法估算资源。'}
 
-type Props={allowNewAnalysis?:boolean;projectId:string;source:RawBioSource;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard;initialParams?:BioRecipeParameters;observationMapVersionId?:string|null;designVersionId?:string|null}
+type Props={guided?:boolean;allowNewAnalysis?:boolean;projectId:string;source:RawBioSource;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard;initialParams?:BioRecipeParameters;observationMapVersionId?:string|null;designVersionId?:string|null}
 type Draft={params:BioRecipeParameters|null;name:string;step:'parameters'|'review'}
 export default function SingleCellDirectStart(props:Props){
  const scope=`single-cell-analysis:${props.source.dataset_id}:${props.source.dataset_version_id}:${props.observationMapVersionId??''}:${props.designVersionId??''}:${JSON.stringify(props.initialParams??null)}`
  return <SingleCellStartForm key={`${props.projectId}:${scope}`} {...props} scope={scope}/>
 }
-function SingleCellStartForm({allowNewAnalysis=true,projectId,source,onNavigate,registerLeaveGuard,initialParams,observationMapVersionId,designVersionId,scope}:Props&{scope:string}){
+function SingleCellStartForm({guided=false,allowNewAnalysis=true,projectId,source,onNavigate,registerLeaveGuard,initialParams,observationMapVersionId,designVersionId,scope}:Props&{scope:string}){
  const {t}=useI18n(),base=projectBase(projectId)
  const read=useBioRead<BioCapabilities>(`${base}/bio-analysis-capabilities?dataset_id=${encodeURIComponent(source.dataset_id)}&version_id=${encodeURIComponent(source.dataset_version_id)}`)
  const [saved,setSaved]=useResearchDraft<Draft>(projectId,scope,()=>({params:initialParams??null,name:'Single-cell exploratory analysis',step:'parameters'}))
+ const [advanced,setAdvanced]=useState(!guided)
  const {params:draft,name,step}=saved
  const setDraft=(params:BioRecipeParameters)=>setSaved(value=>({...value,params}))
  const setName=(name:string)=>setSaved(value=>({...value,name}))
@@ -55,13 +57,14 @@ function SingleCellStartForm({allowNewAnalysis=true,projectId,source,onNavigate,
  }
  return <section className="bio-workspace intake-form"><h3>{t('单细胞探索分析')}</h3>
   {read.value&&<p>{t(reviewQc?'先对所选矩阵运行质控。确认质控结果后，任务才会继续标准化、降维和聚类。':'填写参数后开始分析，任务会连续执行 QC、标准化、降维和聚类，完成后查看图表与结果。')}</p>}
-  <p>{t('来源和参数相同时使用已有分析；修改后建立新分析，已有结果保留。')}</p>
-  <p>{t('未知供者不影响探索；cell 不代表独立供者，marker 仅为探索性 cell 群关联。')}</p>
-  {read.error&&<p role="alert">{t(read.error)}</p>}
+  {!guided&&<p>{t('来源和参数相同时使用已有分析；修改后建立新分析，已有结果保留。')}</p>}
+  {guided?<p>{t(observationMapVersionId?'已关联细胞分组表。':'当前按细胞进行探索，尚未关联供者分组。')}</p>:<p>{t('未知供者不影响探索；cell 不代表独立供者，marker 仅为探索性 cell 群关联。')}</p>}
+  {guided&&!read.value&&!read.error&&<p role="status">{t('正在读取质控参数……')}</p>}
+  {read.error&&<p role="alert">{t(read.error)} {guided&&read.valid&&<button type="button" onClick={read.reload}>{t('重试')}</button>}</p>}
   {read.value&&<><ul>{blockers.map(v=><li key={v}>{t(resourceReasons[v]??bioConditionLabel(v))}</li>)}</ul>
    {estimate&&<section aria-label="资源估算"><h4>{t('矩阵规模与资源估算')}</h4>
     <p>{number(estimate.matrix.observations)} {t('个细胞')} × {number(estimate.matrix.features)} {t('个基因')}；{resourceAvailable?t('当前资源可用'):t('当前资源不足')}</p>
-    <section className="customer-advanced-details"><h4>{t('高级资源详情')}</h4>
+    <section hidden={guided&&!advanced} className="customer-advanced-details"><h4>{t('高级资源详情')}</h4>
       <p>{t('矩阵非零元素')}：{number(estimate.matrix.nnz)}；{t('原始 CSR')}：{memory(estimate.sparse_bytes)}；{t('当前 HVG 密集块上界')}：{memory(denseValues===null?null:denseValues*4)}（{number(denseValues)} values）</p>
       <p>{t('当前上限')}：{number(estimate.configured_limits.max_observations)} {t('个细胞')} / {number(estimate.configured_limits.max_features)} {t('个基因')} / {number(estimate.configured_limits.max_entries)} nnz；HVG {number(estimate.configured_limits.max_dense_values)} values；{t('进程内存限制')} {memory(selectedLimits?.memory_bytes??null)}</p>
       <p>{t('仅为估算：原始 CSR 按 int64 counts 与索引计算，HVG 按当前参数和 float32 计算，QC 后可能减少。未包含 R 模型及校正副本、标准化副本、PCA、邻居、绘图和运行环境开销，不是进程峰值承诺。')}</p>
@@ -70,7 +73,8 @@ function SingleCellStartForm({allowNewAnalysis=true,projectId,source,onNavigate,
    {params&&<form onSubmit={event=>{event.preventDefault();if(blocked||!resourceAvailable)return;if(step==='parameters'){setSaved(value=>({...value,params,step:'review'}));return}if(!allowNewAnalysis)return;void writer.submit(`${base}/single-cell-analysis-runs`,{name,raw_source:source,...(observationMapVersionId?{observation_map_version_id:observationMapVersionId}:{}),...(designVersionId?{design_version_id:designVersionId}:{}),params:{...params,in_tissue_only:false}})}}>
     <fieldset hidden={step!=='parameters'} disabled={blocked||step!=='parameters'}><legend>{t('分析参数')}</legend>
      <label>{t('分析名称')}<input required maxLength={200} value={name} onChange={e=>setName(e.target.value)}/></label>
-     <div className="intake-rows">{fields.map(([key,label,min,max,step])=><label key={key}>{t(label)}<input required type="number" min={min} max={max} step={step} value={String(params[key])} onChange={e=>update(key,Number(e.target.value) as never)}/></label>)}</div>
+     {guided&&<div className="single-cell-actions"><p>{t('首次可直接用当前参数运行质控。')}</p><button type="button" onClick={e=>{if(!advanced||e.currentTarget.form?.reportValidity())setAdvanced(!advanced)}}>{t(advanced?'收起高级参数':'调整高级参数')}</button></div>}
+     <div hidden={!advanced}><div className="intake-rows">{fields.map(([key,label,min,max,step])=><label key={key}>{t(label)}<input required type="number" min={min} max={max} step={step} value={String(params[key])} onChange={e=>update(key,Number(e.target.value) as never)}/></label>)}</div>
      <label>{t('最高 counts（留空为不设限）')}<input type="number" min={1} value={params.max_counts??''} onChange={e=>update('max_counts',e.target.value===''?null:Number(e.target.value))}/></label>
      <label>{t('排除条码，每行一个')}<textarea value={params.exclude_barcodes.join('\n')} onChange={e=>update('exclude_barcodes',e.target.value.split(/\s+/).filter(Boolean))}/></label>
      <label>{t('线粒体规则')}<select value={params.mt_rule.kind} onChange={e=>changeMtRule({kind:e.target.value as BioRecipeParameters['mt_rule']['kind'],feature_ids:[],prefix:null,confirmed:false})}><option value="unknown">{t('未知')}</option><option value="feature_ids">{t('稳定基因 ID 列表')}</option><option value="prefix">{t('基因符号前缀')}</option></select></label>
@@ -79,7 +83,7 @@ function SingleCellStartForm({allowNewAnalysis=true,projectId,source,onNavigate,
      {params.mt_rule.kind!=='unknown'&&<label><input type="checkbox" checked={params.mt_rule.confirmed} onChange={e=>changeMtRule({...params.mt_rule,confirmed:e.target.checked})}/>{t('已核对并确认此线粒体规则')}</label>}
      <label>{t('最高线粒体比例（0–1）')}<input type="number" min={0} max={1} step="any" disabled={!params.mt_rule.confirmed} value={params.max_mt_fraction??''} onChange={e=>update('max_mt_fraction',e.target.value===''?null:Number(e.target.value))}/></label>
      <SingleCellQcFields params={params} libraries={read.value.single_cell_libraries??[]} onChange={setDraft}/>
-     <SingleCellIntegrationFields params={params} onChange={setDraft}/>
+     <SingleCellIntegrationFields params={params} onChange={setDraft}/></div>
      <label>{t('输出语言')}<select value={params.output_language} onChange={e=>update('output_language',e.target.value as 'en'|'zh-CN')}><option value="en">English</option><option value="zh-CN">简体中文</option></select></label>
     </fieldset>
     {step==='review'&&<section aria-label={t('分析前核对')}>

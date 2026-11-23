@@ -1,4 +1,4 @@
-"""Lease-fenced offline-only writer using the shared budgeted model gateway."""
+"""Lease-fenced offline-only writer using the shared model gateway."""
 import json
 import logging
 from threading import Event, Thread
@@ -87,7 +87,6 @@ def run_manuscript_writing_task(task_id,task_revision,*,config=None,directory=No
     try: return execute(repository,lease,provider)
     except LeaseLost: return None
     except StorageError as exc:
-        if exc.code in ('model_budget_missing','model_budget_exceeded'): return wait(repository,lease,'budget_exceeded',exc.code)
         if exc.status>=500: return None
         return repository.fail(lease,exc.code)
     except Exception as exc:

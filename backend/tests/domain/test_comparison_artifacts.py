@@ -247,7 +247,7 @@ def test_v3_admission_keeps_amounts_and_checks_material_before_provider():
     payload,_=worker_material(value,groups,external=confirmation(value))
     derived=plot_policy.derive_execution_policy(plot,payload)
     assert derived['policy']['prompt_version']=='openai_comparison_plot_v3'
-    assert derived['policy']['price']==plot['policy']['price'] and derived['tool_reserve_micro_usd']==plot['tool_reserve_micro_usd']
+    assert derived['policy']['price']==plot['policy']['price'] and 'tool_reserve_micro_usd' not in derived
     with pytest.raises(StorageError) as error: plot_policy.validate_execution_policy({**derived,'input_token_allowance':1},payload)
     assert error.value.code=='plot_input_limit'
     explanation={key:value for key,value in plot.items() if not key.startswith('tool_')}

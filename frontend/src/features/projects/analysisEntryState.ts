@@ -6,7 +6,7 @@ import {bulkRoute} from '../bio-insights/bulkWorkflow'
 import {analysisTypes,deliveryChoices} from '../customer/customerRequirementChoices'
 
 export type AnalysisScope={id:string;title:string;status:string;delivery_kind:string}
-export type EntryImport={id:string;status:string;fileIds:string[];datasetId:string;versionId?:string;createdAt:string}
+export type EntryImport={id:string;status:string;fileIds:string[];datasetId:string;versionId?:string;createdAt:string;parser?:string}
 export type EntrySource={key:string;label:string;status:string;ready:boolean;kind:'table'|'evidence'|'bio-original'|'bio-version'|'missing';purpose:string;fileId?:string;datasetId?:string;versionId?:string;importId?:string}
 export type EntryMethod={id:string;label:string;source:'table'|'bio'|'module';help:string;navigation:AnalysisNavigation}
 export function analysisScopes(version:Version):AnalysisScope[]{

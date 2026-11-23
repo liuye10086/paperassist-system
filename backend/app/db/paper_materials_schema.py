@@ -3,7 +3,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import ARRAY
 
 
-def define_paper_material_notes(metadata, *, include_worksheet_names=True):
+def define_paper_material_notes(metadata, *, include_worksheet_names=True, allow_empty_result=True):
     return sa.Table(
         'paper_material_notes', metadata,
         sa.Column('project_id', sa.Text, primary_key=True),
@@ -30,7 +30,7 @@ def define_paper_material_notes(metadata, *, include_worksheet_names=True):
             name='paper_material_notes_id_check',
         ),
         sa.CheckConstraint(
-            'length(result_text) BETWEEN 1 AND 20000 AND result_text = btrim(result_text)',
+            f'length(result_text) BETWEEN {0 if allow_empty_result else 1} AND 20000 AND result_text = btrim(result_text)',
             name='paper_material_notes_result_check',
         ),
         sa.CheckConstraint(

@@ -61,7 +61,9 @@ class Retrieval:
         evidence = evidence or {}
         if not error and evidence.get('object_key'):
             from .storage import publish
-            publish(db,self.repository.assets.directory,task,self.lease,evidence)
+            progress = self.repository.transaction_progress(db, self.lease)
+            publish(db, self.repository.assets.directory, task, self.lease, evidence, progress=progress)
+            progress(force=True)
         db.execute('''INSERT INTO literature_fetch_receipts
             (id,task_id,project_id,user_id,operation,request_json,request_digest,source_kind,status,error_code,
              object_key,sha256,size_bytes,cached_from_id,attempted_at)
@@ -88,7 +90,12 @@ class Retrieval:
         from . import storage
         with self.repository.connection(write=True) as db:
             task,_,_=self.load(db)
-            hold,restored=storage.admit(db,self.repository.assets.directory,task,self.lease,operation,request,self.source_kind)
+            progress = self.repository.transaction_progress(db, self.lease)
+            hold, restored = storage.admit(
+                db, self.repository.assets.directory, task, self.lease, operation,
+                request, self.source_kind, progress=progress,
+            )
+            progress(force=True)
         if restored:
             raw,evidence=restored
             result=parse_search(raw,request['limit']) if operation=='esearch' else parse_fetch(raw,request['pmids'])

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from app.core.config import ExcelSettings
 
 PREVIEW_ROWS = 20
+HIDDEN_SHEET_WARNING = "这是隐藏工作表，预览仍包含其数据。"
 CellValue = str | int | float | bool | None
 
 
@@ -186,7 +187,7 @@ def parse_workbook(content: bytes, filename: str, settings: ExcelSettings, *,
                 if has_merges:
                     notes.append("工作簿包含合并单元格，预览仅保留实际存储值，不自动填充或还原合并布局。")
                 if sheet.sheet_state != "visible":
-                    notes.append("这是隐藏工作表，预览仍包含其数据。")
+                    notes.append(HIDDEN_SHEET_WARNING)
                 sheets.append(SheetPreview(
                     name=sheet.title, columns=columns, row_count=row_count, column_count=width,
                     preview_rows=[(row + [None] * width)[:width] for row in preview[:row_count]],

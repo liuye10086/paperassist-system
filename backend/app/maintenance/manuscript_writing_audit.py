@@ -34,7 +34,7 @@ def audit_reviews(db):
 def audit_live(db):
     from app.domain.manuscript_writing.authorization import LiveWritingService
     from app.domain.literature.service import digest
-    from app.domain.manuscript_writing.policy import MAX_POSTS, TASK_CAP, BATCH_CAP
+    from app.domain.manuscript_writing.policy import MAX_POSTS
     checks=[]
     for table in ('manuscript_writing_bundles','manuscript_writing_authorizations','manuscript_writing_authorized_tasks','manuscript_writing_call_admissions'):
         rows=db.execute('SELECT * FROM '+table).fetchall();invalid=0
@@ -47,19 +47,19 @@ def audit_live(db):
                     if version['id']!=row['base_version_id'] or version['snapshot_json']!=bundle['base_snapshot']: raise ValueError('Bundle base drift')
                 elif table=='manuscript_writing_authorizations':
                     auth=service.authorization(db,row['project_id'],row['id'])
-                    if auth['max_posts']!=MAX_POSTS or auth['cap_micro_usd']!=BATCH_CAP or len(auth['manifest_json']['tasks'])!=4: raise ValueError('Authorization policy drift')
+                    if auth['max_posts']!=auth['manifest_json']['max_posts'] or not 1<=auth['max_posts']<=MAX_POSTS or not 1<=len(auth['manifest_json']['tasks'])<=4: raise ValueError('Authorization policy drift')
                     if auth['status']=='active' and auth['closed_at'] is not None or auth['status']!='active' and auth['closed_at'] is None: raise ValueError('Authorization state drift')
                 elif table=='manuscript_writing_authorized_tasks':
                     auth=service.authorization(db,row['project_id'],row['authorization_id'])
                     task=next(t for t in auth['manifest_json']['tasks'] if t['logical_task_id']==row['logical_task_id'])
-                    if task['bundles']!=row['bundles_json'] or row['cap_micro_usd']!=TASK_CAP: raise ValueError('Grant drift')
+                    if task['bundles']!=row['bundles_json']: raise ValueError('Grant drift')
                     for ref in row['bundles_json']:
                         if service.bundle(db,row['project_id'],ref['bundle_id'])['bundle_sha256']!=ref['bundle_sha256']: raise ValueError('Grant material drift')
                 else:
                     call=db.execute('SELECT * FROM model_calls WHERE id=%s',(row['model_call_id'],)).fetchone()
                     task=service.store.require_task(db,call['task_id']);execution=task['input_snapshot']['execution']
                     bundle=service.bundle(db,row['project_id'],row['bundle_id'])
-                    if any(call[k]!=row[k] for k in ('project_id','user_id')) or any(execution[k]!=row[k] for k in ('authorization_id','logical_task_id','bundle_id')) or row['reserved_micro_usd']!=bundle['reserved_micro_usd']: raise ValueError('Admission scope drift')
+                    if any(call[k]!=row[k] for k in ('project_id','user_id')) or any(execution[k]!=row[k] for k in ('authorization_id','logical_task_id','bundle_id')) or row['reserved_micro_usd'] not in (0,bundle['reserved_micro_usd']): raise ValueError('Admission scope drift')
                     if row['status']=='reserved' and call['status']!='reserved' or row['status']=='released' and call['status']!='released' or row['status']=='submission_started' and call['status'] in ('reserved','released'): raise ValueError('Submission fence drift')
             except Exception: invalid+=1
         checks.append(dict(table=table,column='frozen_scope_admission',rows=len(rows),invalid=invalid))

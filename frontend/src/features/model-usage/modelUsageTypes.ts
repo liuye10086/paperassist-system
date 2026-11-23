@@ -1,7 +1,3 @@
-export type Budget = {
-  scope_type: 'user' | 'project' | 'task'; limit_micro_usd: number | null; revision: number
-  estimated_micro_usd: number; accounted_micro_usd?: number; reserved_micro_usd: number; available_micro_usd: number | null; exceeded: boolean
-}
 export type CallReconciliation = {
   status: 'pending' | 'partial' | 'reconciled' | 'not_applicable'
   token_micro_usd: number | null; tool_micro_usd: number | null; tool_applicable: boolean
@@ -12,7 +8,7 @@ export type ReconciliationSummary = {
 }
 const modelUsageTaskTypes = [
   'manuscript_writing', 'literature_assistance', 'figure_workbench', 'figure_explanation', 'boxplot',
-  'explanation', 'word_report', 'analysis_recommendation', 'reader_report_narrative',
+  'explanation', 'word_report', 'analysis_recommendation', 'reader_report_narrative', 'school_rule_suggestion',
 ] as const
 export type ModelCall = {
   provider_provenance?: 'synthetic_fixture' | 'openai_live' | null
@@ -22,24 +18,16 @@ export type ModelCall = {
   created_at: string; updated_at: string; reconciliation?: CallReconciliation
 }
 export type ProjectUsage = {
-  currency: 'USD'; period: 'cumulative'; enforcement_scope: 'unified_only'
-  user_budget: Budget; project_budget: Budget; estimated_micro_usd: number; reserved_micro_usd: number
+  currency: 'USD'; period: 'cumulative'
+  estimated_micro_usd: number
   pending_count: number; items: ModelCall[]; total: number; page: number; page_size: number
-  accounted_micro_usd?: number; reconciliation?: ReconciliationSummary
+  reconciliation?: ReconciliationSummary
 }
-export type TaskUsage = ProjectUsage & { task_budget: Budget }
+export type TaskUsage = ProjectUsage
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const nonnegative = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 const nullableAmount = (value: unknown) => value === null || nonnegative(value)
 const date = (value: unknown) => typeof value === 'string' && Number.isFinite(Date.parse(value))
-const optionalAmount = (value: Record<string, unknown>, key: string) => !Object.hasOwn(value, key) || nonnegative(value[key])
-function isBudget(value: unknown, scope: Budget['scope_type']): value is Budget {
-  return record(value) && value.scope_type === scope && nullableAmount(value.limit_micro_usd)
-    && nonnegative(value.revision) && nonnegative(value.estimated_micro_usd) && nonnegative(value.reserved_micro_usd)
-    && optionalAmount(value, 'accounted_micro_usd')
-    && (value.available_micro_usd === null || (typeof value.available_micro_usd === 'number'
-      && Number.isSafeInteger(value.available_micro_usd))) && typeof value.exceeded === 'boolean'
-}
 function isCallReconciliation(value: unknown, status: unknown): value is CallReconciliation {
   if (!record(value) || !nullableAmount(value.token_micro_usd) || !nullableAmount(value.tool_micro_usd)
     || !nullableAmount(value.actual_micro_usd) || typeof value.tool_applicable !== 'boolean'
@@ -75,16 +63,14 @@ function isCall(value: unknown): value is ModelCall {
     && (!Object.hasOwn(value, 'reconciliation') || isCallReconciliation(value.reconciliation, value.status))
 }
 export function isProjectUsage(value: unknown, page: number): value is ProjectUsage {
-  return record(value) && value.currency === 'USD' && value.period === 'cumulative' && value.enforcement_scope === 'unified_only'
-    && isBudget(value.user_budget, 'user') && isBudget(value.project_budget, 'project')
-    && nonnegative(value.estimated_micro_usd) && nonnegative(value.reserved_micro_usd) && nonnegative(value.pending_count)
-    && optionalAmount(value, 'accounted_micro_usd')
+  return record(value) && value.currency === 'USD' && value.period === 'cumulative'
+    && nonnegative(value.estimated_micro_usd) && nonnegative(value.pending_count)
     && Array.isArray(value.items) && value.items.length <= 10 && value.items.every(isCall)
     && nonnegative(value.total) && value.items.length <= value.total && value.page === page && value.page_size === 10
     && (!Object.hasOwn(value, 'reconciliation') || isReconciliationSummary(value.reconciliation, value.total))
 }
 export function isTaskUsage(value: unknown, page: number): value is TaskUsage {
-  return record(value) && isBudget(value.task_budget, 'task') && isProjectUsage(value, page)
+  return isProjectUsage(value, page)
 }
 /** Exact fixed-point rendering; accounting stays in integer micro USD. */
 export function formatMicroUsd(value: number): string {

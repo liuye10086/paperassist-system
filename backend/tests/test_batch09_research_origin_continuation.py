@@ -6,12 +6,10 @@ from tests.integration.test_analysis_recommendation import planning_policy
 from tests.test_batch09_research_recommendation import IntentProvider
 from tests.integration.test_research_plan import research
 from tests.helpers.analysis_plan import run_plan,review_plan
-from tests.helpers.tasks import task_owner
 
 
 def test_explicit_continuation_origin_requires_real_controlled_descendant(client,monkeypatch):
     from app.domain.tasks.recommendation_execution import run_recommendation_task
-    from app.domain.model_usage.service import ModelUsageService
     base,parent=published(client,ROWS)
     policy=planning_policy();policy['policy'].update(prompt_version='analysis_recommendation_v4',output_format='analysis_recommendation_v4')
     monkeypatch.setattr('app.domain.analysis_recommendation.policy.get_execution_policy',lambda payload:policy)
@@ -19,8 +17,6 @@ def test_explicit_continuation_origin_requires_real_controlled_descendant(client
     preview=seed_legacy_recommendation(client, base+'/analysis-recommendations/preview',json=body).json()
     body['external_processing']=dict(version=1,confirmed=True,source_digest=preview['source_digest'],labels={x['key']:x['value'] for x in preview['labels']})
     task=seed_legacy_recommendation(client, base+'/analysis-recommendations',json=body,headers={'Idempotency-Key':'origin-proposal'}).json()
-    owner=task_owner(client);ledger=ModelUsageService(owner)
-    for scope,key in [('user',owner),('project',task['project_id'])]:ledger.set_budget(scope,key,5000000,0)
     provider=IntentProvider()
     assert run_recommendation_task(task['id'],task['revision'],provider_factory=lambda:provider)['status']=='succeeded'
     result=client.get('/api/v1/tasks/'+task['id']+'/analysis-recommendation').json()['recommendation']

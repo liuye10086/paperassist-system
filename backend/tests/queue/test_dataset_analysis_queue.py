@@ -10,7 +10,6 @@ from zipfile import ZipFile
 import pytest
 
 from app.db.database import database_connection
-from app.domain.model_usage.service import ModelUsageService
 from tests.api.test_analysis import add_file, client, selection  # noqa: F401
 from tests.queue.test_dataset_queue import create_version, get_version, wait_task
 from tests.queue.test_real_worker import isolated_worker_stack, worker_stack  # noqa: F401
@@ -88,9 +87,6 @@ def test_full_dataset_chain_candidate_and_receipt_recovery_without_original_read
     project_id = base.split('/')[4]
     original = client.get(base + '/download').content
     owner = client.get('/api/v1/auth/me').json()['user']['id']
-    budgets = ModelUsageService(owner)
-    for scope, key in (('user', owner), ('project', project_id)):
-        budgets.set_budget(scope, key, 10000000, 0)
     version = create_version(client, base, 0)
     override = combined_override(tmp_path)
     worker_stack.compose(stack, ['--file', str(override), 'up', '-d', '--wait', '--wait-timeout', '90'], timeout=180)

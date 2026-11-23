@@ -132,7 +132,7 @@ def execute_live(repository,lease,provider):
         checkpoint(db,task);call=last_call(db,task['id'])
         if call and (call.get('provider_response_id') or call['status'] in ('submitting','submission_unknown')):
             # A changed base blocks publication, but cannot strand an already
-            # submitted response or its held budget. Keep the original identity.
+            # submitted response. Keep the original identity.
             service.writing.row(db,task['project_id'],snapshot['manuscript_id'],task['id'])
         else: service.writing.assert_current(db,task)
         bundle=service.bundle(db,task['project_id'],snapshot['execution']['bundle_id'])

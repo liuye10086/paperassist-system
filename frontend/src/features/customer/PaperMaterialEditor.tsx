@@ -15,7 +15,7 @@ export default function PaperMaterialEditor({ projectId, original, note, targets
   projectId: string; original: PaperFile; note: PaperMaterialNote | undefined; targets: PaperMaterialTarget[]
   /** Suggested main result for a file without one, e.g. where an analysis result came from; saved only with the form. */
   prefill?: string
-  onBack: () => void; onSaved: () => void; onRequirements: () => void; registerLeaveGuard: RegisterLeaveGuard
+  onBack: () => void; onSaved: () => void; onRequirements?: () => void; registerLeaveGuard: RegisterLeaveGuard
 }) {
   const { t } = useI18n()
   const [current, setCurrent] = useState({ file: original, note })
@@ -135,7 +135,7 @@ export default function PaperMaterialEditor({ projectId, original, note, targets
           </fieldset>
           {(current.note?.target_label && !current.note.target_available) &&
             <p className="muted">{t('原关联 · {name}', { name: current.note.target_label })}</p>}
-          {!targets.length && <p>{t('请在项目资料添加发现、小标题或结果章节，再关联此文件。')}{' '}
+          {!targets.length && onRequirements && <p>{t('请在项目资料添加发现、小标题或结果章节，再关联此文件。')}{' '}
             <button type="button" className="button-quiet" disabled={busy} onClick={onRequirements}>{t('前往项目资料')}</button>
           </p>}
           {outdated && <p className="warning-panel" role="status">{t('图表资料已更新，请核对当前资料。')}{' '}

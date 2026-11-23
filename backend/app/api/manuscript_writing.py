@@ -2,7 +2,7 @@ from app.domain.manuscript_writing.live_review_contracts import ScientificReview
 from app.domain.manuscript_writing.live_review import LiveReviewService
 from app.domain.manuscript_writing.live_contracts import LiveWritingRequest, PreviewRequest, AuthorizationRequest,SchoolPreviewRequest,ArticlePreviewRequest
 from app.domain.manuscript_writing.authorization import LiveWritingService
-from fastapi import APIRouter,Response
+from fastapi import APIRouter,Response,UploadFile
 from app.api.dataset_preparation import Store,Key
 from app.domain.manuscript_writing.contracts import WritingRequest,PublishRequest
 from app.domain.manuscript_writing.service import WritingService
@@ -19,6 +19,23 @@ def listing(project_id:str,manuscript_id:str,store:Store): return WritingService
 
 @router.get('/{request_id}')
 def get(project_id:str,manuscript_id:str,request_id:str,store:Store): return WritingService(store).get(project_id,manuscript_id,request_id)
+
+@router.post('/{request_id}/draft-feedback')
+def read_feedback(project_id:str, manuscript_id:str, request_id:str, store:Store, file:UploadFile):
+    from app.domain.manuscript_writing.draft_feedback import read_feedback as extract
+    from app.domain.manuscript_writing.authorization import revisable_draft
+    from app.domain.documents.contracts import DOCX_SETTINGS
+    writing = WritingService(store)
+    with writing.store.connection() as db:
+        row, task = writing.row(db, project_id, manuscript_id, request_id)
+        if (not revisable_draft(row, task) or writing.manuscripts.root(db, project_id, manuscript_id)['current_revision']
+                != row['request_json']['base_revision']):
+            raise StorageError('manuscript_writing_base_incomplete', '请选择当前可修改的正文。', 409)
+    maximum = DOCX_SETTINGS['docx']['max_upload_bytes']
+    raw = file.file.read(maximum + 1)
+    if len(raw) > maximum:
+        raise StorageError('file_too_large', '文件超过上传大小限制。', 413, params={'max_bytes': maximum})
+    return {'text': extract(file.filename or '', raw)}
 
 @router.post('/{request_id}/publish',status_code=201)
 def publish(project_id:str,manuscript_id:str,request_id:str,request:PublishRequest | ReviewedPublishRequest,response:Response,store:Store,idempotency_key:Key):

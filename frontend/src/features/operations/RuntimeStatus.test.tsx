@@ -104,7 +104,7 @@ it('shows observed zero separately from unknown, coverage, identities and desire
  expect(within(screen.getByRole('region',{name:'任务队列'})).getByText('0')).toBeTruthy()
  expect(within(screen.getByRole('region',{name:'任务失败覆盖'})).getByText('0 / 0')).toBeTruthy()
  expect(screen.getByText('仅统计窗口内最后更新的终态任务；历史缺失不代表零。')).toBeTruthy()
- expect(screen.getByText('仅登记的用户预算；不是全局余额或供应商账单。')).toBeTruthy()
+ expect(screen.queryByRole('region',{name:'用户预算观测'})).toBeNull()
  expect(screen.getByText('仅数据所在文件系统。')).toBeTruthy()
  expect(screen.getByText('desired-config')).toBeTruthy();expect(screen.getByText('startup-config')).toBeTruthy()
  expect(screen.getByText('等待显式重启')).toBeTruthy();expect(screen.queryByRole('button',{name:/重启/})).toBeNull()

@@ -8,6 +8,42 @@ import type {Content,MaterialRef} from './contracts'
 import {STANDARD_REQUEST_TIMEOUT_MS} from '../../shared/api/requestTimeouts'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner',onApiSessionChanged:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.useRealTimers();sessionStorage.clear()})
+it('saves a comparison selected by group name and preserves the rest of the assigned design',async()=>{
+ const groups=[
+  {id:'control',name:'对照',experiment_id:'e1'},{id:'treated',name:'处理',experiment_id:'e1'},
+  {id:'unrelated',name:'另一项实验',experiment_id:'e2'},
+ ]
+ const samples=groups.map(group=>({id:'sample-'+group.id,group_id:group.id,experiment_id:group.experiment_id}))
+ const req={operation:'confirm',content:{sample_information:{groups,samples},scope_items:[
+   {id:'customer.type.single_cell',status:'planned'},{id:'customer.type.bulk',status:'not_included'}]}}
+ const content={...emptyDesign(),experiments:[{id:'e2',data_type:'Bulk RNA-seq'}],exclusions:['保留原说明']}
+ const initial={id:'v1',operation:'save',version:1,content}
+ let posted:Content|undefined
+ vi.mocked(apiFetch).mockImplementation(async(url,init)=>{
+  if(init?.method==='POST'){
+   posted=JSON.parse(String(init.body)).content
+   return Response.json({revision:4,version:{...initial,id:'v2',version:2,content:posted},gaps:[]})
+  }
+  return Response.json(url.endsWith('/research-intake')?{revision:3,current_requirement:req,current_design:initial,deliveries:[],capabilities:{},gaps:[]}:url.endsWith('/files')?[]:{items:[],total:0})
+ })
+ render(<ResearchIntake projectId="p1" active designOnly view="design"/>)
+ const save=await screen.findByRole('button',{name:'保存实验设计'})
+ expect(save).toHaveProperty('disabled',true)
+ expect(screen.queryByRole('button',{name:/使用客户所选的.*Bulk/})).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'使用客户所选的「单细胞 RNA 测序数据分析」'}))
+ expect(save).toHaveProperty('disabled',false)
+ fireEvent.change(screen.getByRole('combobox',{name:'比较组'}),{target:{value:'treated'}})
+ expect(save).toHaveProperty('disabled',true)
+ const reference=screen.getByRole('combobox',{name:'对照组'}) as HTMLSelectElement
+ expect(Array.from(reference.options,option=>option.value)).toEqual(['','control'])
+ fireEvent.change(reference,{target:{value:'control'}})
+ fireEvent.change(screen.getByLabelText('哪些样本来自不同个体或独立培养？'),{target:{value:'每个供体一个重复'}})
+ fireEvent.click(save)
+ await waitFor(()=>expect(posted).toMatchObject({groups,samples,exclusions:['保留原说明'],
+   experiments:[{id:'e2',data_type:'Bulk RNA-seq'},{id:'e1',data_type:'单细胞 RNA 测序数据分析'}],
+   comparisons:[{id:expect.any(String),experiment_id:'e1',group_id:'treated',reference_group_id:'control'}],
+   observation:{biological_replicate:{state:'known',value:'每个供体一个重复'}}}))
+})
 it('uses confirmed customer samples in assigned design and sends only material reference fields',async()=>{
  const groups=[{id:'customer-group',experiment_id:'customer-exp',name:'Baseline'}]
  const samples=[{id:'sample-a',group_id:'customer-group',experiment_id:'customer-exp',file_id:'material'}]
@@ -26,11 +62,12 @@ it('uses confirmed customer samples in assigned design and sends only material r
   return Response.json(url.endsWith('/research-intake')?{revision:3,current_requirement:submitted,current_design:old,deliveries:[],capabilities:{},gaps:[]}:url.endsWith('/files')?[{id:'material',filename:'counts.csv'}]:{items:[],total:0})
  })
  render(<ResearchIntake projectId="p1" active designOnly view="design"/>)
+ fireEvent.change(await screen.findByRole('combobox',{name:'更多设计工具'}),{target:{value:'full'}})
  await screen.findByDisplayValue('Previous assay')
  const ids=screen.getAllByLabelText('实验标识') as HTMLInputElement[]
  expect(ids.map(input=>input.value)).toEqual(['previous-exp','customer-exp'])
  fireEvent.change(screen.getAllByLabelText('数据类型')[1],{target:{value:'Bulk RNA-seq'}})
- fireEvent.click(screen.getByRole('button',{name:'保存'}))
+ fireEvent.click(screen.getByRole('button',{name:'保存实验设计'}))
  await waitFor(()=>expect(posted).toBeTruthy())
  expect(posted!.content).toMatchObject({groups,samples,exclusions:['Saved analyst note'],experiments:[{id:'previous-exp',data_type:'Previous assay'},{id:'customer-exp',data_type:'Bulk RNA-seq'}]})
  expect(posted!.material_refs).toHaveLength(1)
@@ -48,7 +85,7 @@ it.each(['legacy','unsubmitted'])('keeps saved design samples for a %s requireme
   revision:3,current_requirement:requirement,current_design:version,deliveries:[],gaps:[],capabilities:{}
  }:url.endsWith('/files')?[]:{items:[],total:0}))
  render(<ResearchIntake projectId="p1" active designOnly view="design"/>)
- fireEvent.click(await screen.findByRole('button',{name:'样本信息'}))
+ fireEvent.click(await screen.findByRole('button',{name:'查看样本明细'}))
  expect(screen.getByText('saved-sample')).toBeTruthy()
  expect(screen.queryByRole('button',{name:'添加样本信息'})).toBeNull()
 })
@@ -65,15 +102,15 @@ it('keeps restored analyst edits while refreshed customer samples and historical
  }:url.endsWith('/old-design')?historical:url.includes('/research-designs?')?{items:[historical],total:1}:url.endsWith('/files')?[]:{items:[],total:0}))
  render(<ResearchIntake projectId="p1" active designOnly view="design"/>)
  await screen.findByDisplayValue('Edited experiment')
- expect(screen.getByRole('button',{name:'保存'})).toHaveProperty('disabled',true)
- fireEvent.click(screen.getByRole('button',{name:'样本信息'}))
+ expect(screen.getByRole('button',{name:'保存实验设计'})).toHaveProperty('disabled',true)
+ fireEvent.click(screen.getByRole('button',{name:'查看样本明细'}))
  expect(screen.getByText('new-sample')).toBeTruthy()
  expect(screen.queryByText('local-stale-sample')).toBeNull()
- fireEvent.click(screen.getByRole('button',{name:'历史记录'}))
+ fireEvent.change(screen.getByRole('combobox',{name:'更多设计工具'}),{target:{value:'history'}})
  fireEvent.click(await screen.findByRole('button',{name:/历史记录 ·/}))
  await screen.findByText('old-sample')
  expect(screen.queryByText('new-sample')).toBeNull()
- expect(screen.queryByRole('button',{name:'保存'})).toBeNull()
+ expect(screen.queryByRole('button',{name:'保存实验设计'})).toBeNull()
  fireEvent.click(screen.getByRole('button',{name:'返回当前草稿'}))
  expect(screen.getByText('new-sample')).toBeTruthy()
  expect(vi.mocked(apiFetch).mock.calls.every(([,init])=>!init?.method)).toBe(true)

@@ -52,6 +52,13 @@
 }
 
 .customer-requirements__groups { display: grid; gap: 8px; }
+.customer-requirements__other-species {
+  display: grid;
+  gap: 4px;
+  max-width: 32rem;
+  margin-top: 10px;
+}
+.customer-requirements__other-species input { width: 100%; min-width: 0; }
 
 .customer-requirements__groups > .customer-requirements__group {
   display: grid;

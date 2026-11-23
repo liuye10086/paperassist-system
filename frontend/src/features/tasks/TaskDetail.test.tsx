@@ -37,6 +37,17 @@ it('links a native interpretation to its exact context and original task',async(
  const link=await screen.findByRole('link',{name:'返回分析报告'})
  expect(link.getAttribute('href')).toBe('#project=p1&section=analysis&view=bio-reader-report&reportContext=context1&reportTask=t1')
 })
+it('lets the analyst continue a previously paused interpretation without submitting on page load', async () => {
+  const input = {kind:'reader_report_narrative',workflow_version:'reader_report_narrative_v1',
+    narrative_id:'n1',binding_sha256:'a'.repeat(64),bundle_sha256:'b'.repeat(64)}
+  const task = {...taskFixture,task_type:'reader_report_narrative',phase:'interpret',input_version:input}
+  const fetch = api({...workspaceFixture,task,wait:{...workspaceFixture.wait,input_version:input},
+    source:{file_id:null,filename:'PBMC',analysis_run_id:null,is_current:true}})
+  render(<TaskDetail {...props} view="actions" allowUsage={false}/>)
+  expect(await screen.findByRole('button',{name:'继续生成详细解读'})).toBeTruthy()
+  expect(screen.queryByText(/联系管理员|预算/)).toBeNull()
+  expect(fetch.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+})
 it('links the fixed report from the task workspace without waiting for report details',async()=>{
  const task={...taskFixture,task_type:'research_report',status:'succeeded',display_status:'succeeded',phase:'export',
   reason_code:null,error_code:null,result_research_report_version_id:'report1',
@@ -64,9 +75,9 @@ it('points a successful journal task to its saved suggestions and labels its eve
 })
 it('uses server resume permission with the exact wait, input version and one idempotency key', async () => {
   const fetch = api(); render(<TaskDetail {...props} />)
-  const button = await screen.findByRole('button', { name: '预算或配置已调整，继续任务' })
+  const button = await screen.findByRole('button', { name: '继续原任务' })
   expect(screen.getByText('分析配置 v1')).toBeTruthy()
-  expect(screen.getByText('继续此任务；尚未提交的模型调用会按原策略和预算执行，已有调用沿用已保存结果。')).toBeTruthy()
+  expect(screen.getByText('继续后将使用原任务的资料，已保存的结果会直接复用。')).toBeTruthy()
   fireEvent.click(button); fireEvent.click(button)
   await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1))
   const [url, init] = fetch.mock.calls.find(([, init]) => init?.method === 'POST')!
@@ -84,7 +95,7 @@ it('pauses hidden-tab polling without aborting or remounting an ongoing resume o
       ? { ...eventsFixture, items: [], next_cursor: 0 } : workspaceFixture)))
   vi.stubGlobal('fetch', fetch); render(<TaskDetail {...props} />)
   await act(async () => {})
-  fireEvent.click(screen.getByRole('button', { name: '预算或配置已调整，继续任务' }))
+  fireEvent.click(screen.getByRole('button', { name: '继续原任务' }))
   const posted = fetch.mock.calls.find(([, init]) => init?.method === 'POST')!
   const beforeHidden = fetch.mock.calls.length
   act(() => { visibility.mockReturnValue('hidden'); document.dispatchEvent(new Event('visibilitychange')) })
@@ -93,7 +104,7 @@ it('pauses hidden-tab polling without aborting or remounting an ongoing resume o
   expect(posted[1]?.signal?.aborted).toBe(false)
   await act(async () => { visibility.mockReturnValue('visible'); document.dispatchEvent(new Event('visibilitychange')) })
   expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
-  expect((screen.getByRole('button', { name: '预算或配置已调整，继续任务' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: '继续原任务' }) as HTMLButtonElement).disabled).toBe(true)
   await act(async () => { completePost(Response.json({ ...taskFixture, revision: 4 })) })
   expect(props.onChanged).toHaveBeenCalled()
 })
@@ -103,6 +114,38 @@ it('unknown submissions have no resume or paid retry form', async () => {
   await screen.findByText('提交结果尚未核实，请联系管理员核对；不能重新发送模型请求。')
   expect(screen.queryByRole('button', { name: /继续任务|重试原任务/ })).toBeNull()
   expect(screen.queryByRole('textbox')).toBeNull()
+})
+it.each(['gateway', 'network', 'timeout'])('recovers a running interpretation after a %s read failure without submitting again', async failure => {
+  vi.useFakeTimers()
+  const task = { ...taskFixture, task_type: 'reader_report_narrative', status: 'running', display_status: 'analyzing',
+    phase: 'interpret', reason_code: null, error_code: null, input_version: { kind: 'reader_report_narrative',
+      workflow_version: 'reader_report_narrative_v1', narrative_id: 'n1', binding_sha256: 'a'.repeat(64), bundle_sha256: 'b'.repeat(64) } }
+  const workspace = { ...workspaceFixture, task, wait: null, allowed_actions: [],
+    source: { file_id: null, filename: '单细胞报告', analysis_run_id: null, is_current: true } }
+  const requests: RequestInit[] = []
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+    requests.push(init)
+    if (requests.length === 1) return Response.json(workspace)
+    if (requests.length === 2) {
+      if (failure === 'gateway') return new Response('', { status: 502 })
+      if (failure === 'network') throw new TypeError('connection lost')
+      return new Promise<Response>(() => {})
+    }
+    expect(init.signal?.aborted).toBe(false)
+    return Response.json({ ...workspace, task: { ...task, status: 'succeeded', display_status: 'succeeded' } })
+  }))
+  render(<TaskDetail {...props} view="result" />)
+  await act(async () => {})
+  expect(screen.getByText('AI 分析中')).toBeTruthy()
+  await act(async () => { vi.advanceTimersByTime(5000) })
+  if (failure === 'timeout') await act(async () => { vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS) })
+  expect(screen.getByText(/正在自动重连/)).toBeTruthy()
+  expect(screen.queryByRole('alert')).toBeNull()
+  await act(async () => { vi.advanceTimersByTime(5000) })
+  expect(screen.getByText('详细解读已保存，可返回分析报告复核解读并生成文件。')).toBeTruthy()
+  expect(screen.queryByText(/正在自动重连/)).toBeNull()
+  await act(async () => { vi.advanceTimersByTime(30000) })
+  expect(requests.map(request => request.method ?? 'GET')).toEqual(['GET', 'GET', 'GET'])
 })
 it('displays exact historical artifacts while a temporary reload failure preserves them', async () => {
   const workspace = { ...workspaceFixture, source: { ...workspaceFixture.source, is_current: false }, allowed_actions: [], wait: null,
@@ -118,7 +161,7 @@ it('displays exact historical artifacts while a temporary reload failure preserv
   const link = await screen.findByRole('link', { name: '下载此任务的 PNG' })
   expect(link.getAttribute('href')).toContain('/r1/figures/fig1/download')
   failure = true; fireEvent.click(screen.getByRole('button', { name: '重新读取任务' }))
-  await screen.findByText('任务详情读取失败，请重试。')
+  await screen.findByText(/正在自动重连/)
   expect(screen.getByText('历史箱线图')).toBeTruthy()
 })
 it('rejects task data for another project without showing its content', async () => {
@@ -149,10 +192,10 @@ it('reuses the same key after an unconfirmed response and a read of unchanged ta
     return Response.json(url.includes('/model-usage') ? usageFixture : url.includes('/events')
       ? { ...eventsFixture, items: [], next_cursor: 0 } : workspaceFixture)
   }); vi.stubGlobal('fetch', fetch); render(<TaskDetail {...props} />)
-  fireEvent.click(await screen.findByRole('button', { name: '预算或配置已调整，继续任务' }))
+  fireEvent.click(await screen.findByRole('button', { name: '继续原任务' }))
   await screen.findByText('恢复请求未确认，请先重新读取任务。')
-  await waitFor(() => expect((screen.getByRole('button', { name: '预算或配置已调整，继续任务' }) as HTMLButtonElement).disabled).toBe(false))
-  fireEvent.click(screen.getByRole('button', { name: '预算或配置已调整，继续任务' }))
+  await waitFor(() => expect((screen.getByRole('button', { name: '继续原任务' }) as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(screen.getByRole('button', { name: '继续原任务' }))
   await waitFor(() => expect(posts).toBe(2))
   const keys = fetch.mock.calls.filter(([, init]) => init?.method === 'POST').map(([, init]) => new Headers(init!.headers).get('Idempotency-Key'))
   expect(keys[0]).toBeTruthy(); expect(keys[0]).toBe(keys[1])
@@ -172,7 +215,7 @@ it('rejects an external artifact download URL', async () => {
 })
 it('renders actions and wait instructions in English without translating saved research', async () => {
   setLocale('en'); api(); render(<TaskDetail {...props} />)
-  await screen.findByRole('button', { name: 'Budget or configuration updated — continue task' })
+  await screen.findByRole('button', { name: 'Continue original task' })
   expect(screen.getByText('实验.xlsx')).toBeTruthy()
   expect(screen.queryByText('任务正在等待预算或模型配置，请联系管理员调整后继续。')).toBeNull()
 })
@@ -186,10 +229,10 @@ it('reuses the exact body and key after a hung resume request reaches its timeou
       ? { ...eventsFixture, items: [], next_cursor: 0 } : workspaceFixture))
   }); vi.stubGlobal('fetch', fetch); render(<TaskDetail {...props} />)
   await act(async () => {})
-  fireEvent.click(screen.getByRole('button', { name: '预算或配置已调整，继续任务' }))
+  fireEvent.click(screen.getByRole('button', { name: '继续原任务' }))
   await act(async () => { vi.advanceTimersByTime(STANDARD_REQUEST_TIMEOUT_MS+1) })
   expect(screen.getByText('恢复请求未确认，请先重新读取任务。')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: '预算或配置已调整，继续任务' }))
+  fireEvent.click(screen.getByRole('button', { name: '继续原任务' }))
   await act(async () => {})
   const calls = fetch.mock.calls.filter(([, init]) => init?.method === 'POST')
   expect(calls).toHaveLength(2)
@@ -207,10 +250,10 @@ it('reloads conflicts and creates a new key only for the newly reviewed revision
     return Response.json(url.includes('/model-usage') ? usageFixture : url.includes('/events')
       ? { ...eventsFixture, items: [], next_cursor: 0 } : current)
   }); vi.stubGlobal('fetch', fetch); render(<TaskDetail {...props} />)
-  fireEvent.click(await screen.findByRole('button', { name: '预算或配置已调整，继续任务' }))
+  fireEvent.click(await screen.findByRole('button', { name: '继续原任务' }))
   await screen.findByText('任务状态已更新，请核对重新读取的内容后再操作。')
-  await waitFor(() => expect((screen.getByRole('button', { name: '预算或配置已调整，继续任务' }) as HTMLButtonElement).disabled).toBe(false))
-  fireEvent.click(screen.getByRole('button', { name: '预算或配置已调整，继续任务' }))
+  await waitFor(() => expect((screen.getByRole('button', { name: '继续原任务' }) as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(screen.getByRole('button', { name: '继续原任务' }))
   await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2))
   const calls = fetch.mock.calls.filter(([, init]) => init?.method === 'POST')
   expect(JSON.parse(String(calls[1][1]?.body))).toEqual({ operation: 'resume', wait_id: 'w2', expected_task_revision: 4, input_version: taskFixture.input_version })
@@ -251,7 +294,7 @@ it('clears private task detail, events and usage after session invalidation', as
   expect(screen.queryByText('实验.xlsx')).toBeNull()
   expect(screen.queryByText('test-model')).toBeNull()
   expect(screen.queryByRole('region', { name: '执行记录' })).toBeNull()
-  expect(screen.queryByRole('button', { name: '预算或配置已调整，继续任务' })).toBeNull()
+  expect(screen.queryByRole('button', { name: '继续原任务' })).toBeNull()
 })
 it.each(['zh-CN', 'en'] as const)('shows exact historical figure with honest missing history and usage in %s', async locale => {
   setLocale(locale)

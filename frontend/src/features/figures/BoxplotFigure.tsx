@@ -95,8 +95,8 @@ function FigurePanel({ base, runId, revision, canGenerate, canExportSavedReport=
   const unknown = !hasCurrentFigure && (task ? task.reason_code === 'submission_unknown' : state?.job?.status === 'uncertain')
   const unavailable = !hasCurrentFigure && task?.error_code === 'model_response_not_found'
   const expired = !hasCurrentFigure && task?.error_code === 'plot_container_expired'
-  const budgetWait = !hasCurrentFigure && task?.status === 'waiting_confirmation' && task.reason_code === 'budget_exceeded'
-  const resume = !hasCurrentFigure && !unavailable && (!storageFailure||storageRetry) && (budgetWait || (task?.status === 'failed' && !!task.error_code && !outputFailures.has(task.error_code)))
+  const legacyWait = !hasCurrentFigure && task?.status === 'waiting_confirmation' && task.reason_code === 'budget_exceeded'
+  const resume = !hasCurrentFigure && !unavailable && (!storageFailure||storageRetry) && (legacyWait || (task?.status === 'failed' && !!task.error_code && !outputFailures.has(task.error_code)))
   const retry = !hasCurrentFigure && !storageFailure && !legacyRecover && !legacyBlocked && (task ? task.status === 'failed' && !resume && !unavailable : state?.job?.status === 'failed')
   const busy = submitting || previewing
   const ready = sessionValid && (canGenerate || originalRecovery) && !disabled && !!state?.is_current && state.current_revision === revision && !loading && !busy && !explanationBusy && !error
@@ -245,11 +245,10 @@ function FigurePanel({ base, runId, revision, canGenerate, canExportSavedReport=
     {unknown && !unconfirmed && <p className="warning-panel">{t('提交结果尚未核实，已停止再次调用。请联系管理员核对。')}</p>}
     {unavailable && <p className="warning-panel">{t('已提交的绘图响应无法恢复，请联系管理员核对。')}</p>}
     {expired && <p className="warning-panel">{t('远端绘图文件已过期，无法继续下载。再次生成可能产生额外费用。')}</p>}
-    {budgetWait && <p className="warning-panel">{t('图表正在等待预算或模型配置；请联系管理员配置后继续。')}</p>}
     {unconfirmed && <p className="warning-panel">{t('上次提交尚未确认。请先重新读取，再确认上次提交；确认不会另建一次生成。')}</p>}
     <div className="analysis-actions">
       {unconfirmed && <button type="button" disabled={!ready} onClick={() => void generate()}>{t('确认上次提交')}</button>}
-      {resume ? <button type="button" disabled={!ready || unknown || unconfirmed} onClick={() => void generate()}>{t(budgetWait ? '预算已配置，继续生成图表' : '继续绘图任务')}</button>
+      {resume ? <button type="button" disabled={!ready || unknown || unconfirmed} onClick={() => void generate()}>{t('继续绘图任务')}</button>
         : legacyBlocked || storageFailure ? null : <button type="button" disabled={!allowed || !!review} onClick={() => void generate()}>{legacyRecover ? t(legacyMode==='local_candidate'?'恢复原绘图候选':'读取原远端响应恢复') : retry ? t("重试生成（再次调用 API）") : figureKind==='boxplot'?t('使用 OpenAI 生成箱线图'):t('使用 OpenAI 生成{figure}',{figure:t(figureLabel)})}</button>}
       <button type="button" disabled={loading || submitting || explanationBusy} onClick={reload}>{t("重新读取图表")}</button>
     </div>

@@ -19,19 +19,22 @@ def explicit_retry(db, task):
         (task['id'], task['revision']-1)).fetchone())
 
 
-def admit_manifest(db, root, task, entries):
+def admit_manifest(db, root, task, entries, *, progress=None):
     """entries = (kind, stable operation, {object_key,size_bytes,sha256})."""
-    if s.reconcile_intents(db, root):
+    progress_options = {'progress': progress} if progress is not None else {}
+    if s.reconcile_intents(db, root, **progress_options):
         raise s.invalid()
     recovering = explicit_retry(db, task)
     # Recheck even when every operation already owns a durable reservation.
     s._scope_check(db, s._project(db, task['project_id']), 0, allow_attributed_unknown=recovering)
-    s._disk_guard(db, root, 0)
+    s._disk_guard(db, root, 0, **progress_options)
     rows = []
     for kind, operation, record in entries:
+        if progress is not None:
+            progress()
         row = s._reserve_reconciled(db, root, task['project_id'], operation, Path(root)/record['object_key'],
             record['size_bytes'], sha256=record['sha256'], kind=kind, task_id=task['id'],
-            allow_attributed_unknown=recovering)
+            allow_attributed_unknown=recovering, **progress_options)
         if (row['task_id'], row['kind'], row['owner_id']) != (task['id'], kind, task['user_id']):
             raise s.invalid()
         if row['state']=='settled':
@@ -44,19 +47,23 @@ def admit_manifest(db, root, task, entries):
         rows.append(row)
     # No journal or object bytes until the complete manifest is admitted.
     for row in rows:
+        if progress is not None:
+            progress()
         s._journal(db, root, row)
     return rows
 
 
-def settle_manifest(db, root, task, rows):
+def settle_manifest(db, root, task, rows, *, progress=None):
     recovering = explicit_retry(db, task)
     for expected in rows:
+        if progress is not None:
+            progress()
         row = db.execute('SELECT * FROM storage_reservations WHERE id=%s', (expected['id'],)).fetchone()
         if not row or any(row[k] != expected[k] for k in (
                 'namespace','project_id','owner_id','task_id','kind','operation_key','object_key','size_bytes','sha256')):
             raise s.invalid()
         if recovering:
-            s.recover_reservation(db, root, row['id'])
+            s.recover_reservation(db, root, row['id'], progress=progress)
         else:
             s.settle(db, root, row['id'])
 

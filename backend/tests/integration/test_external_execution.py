@@ -61,7 +61,6 @@ class ConfirmedExplanationProvider(SyntheticProvider):
 
 
 def test_confirmed_workers_preserve_aliases_and_report_checks(client, monkeypatch):
-    from app.domain.model_usage.service import ModelUsageService
     from app.domain.reports import validate_sources
     from app.domain.tasks.explanation_execution import run_explanation_task
     from tests.domain.test_explanation_policy import execution_policy
@@ -127,7 +126,6 @@ def test_confirmed_workers_preserve_aliases_and_report_checks(client, monkeypatc
     with database_connection(write=True) as db:
         db.execute("UPDATE tasks SET input_snapshot=jsonb_set(input_snapshot,'{explanation_policy}',%s) WHERE id=%s",
                    (Jsonb(execution_policy()), task['id']))
-    ModelUsageService(owner).set_budget('task', task['id'], 1000000, 0)
     explanation_provider = ConfirmedExplanationProvider()
     completed = run_explanation_task(task['id'], 1, provider_factory=lambda: explanation_provider)
     assert completed['status'] == 'succeeded', completed

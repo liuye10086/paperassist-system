@@ -1,7 +1,6 @@
 """Read-only reporting over existing calls, observations, prices and reservations."""
 from datetime import timezone
 
-from app.adapters.model_usage_store import ModelUsageStore
 from app.core.exceptions import StorageError
 from app.db.database import database_connection
 from app.domain.admin_operations import bounds,filtered_time,period,require_identity
@@ -69,7 +68,7 @@ def token_projection(usage):
 def call_projection(row):
     tools,tools_unknown=tool_count(row)
     tokens=token_projection(row['provider_usage'])
-    reservation={'reserved_micro_usd':row['reservation_reserved'] or 0,
+    reservation=None if row['reservation_status'] is None else {'reserved_micro_usd':row['reservation_reserved'] or 0,
                  'accounted_micro_usd':row['reservation_accounted'] or 0,'status':row['reservation_status']}
     accounted,reserved=accounting_projection(dict(row),reservation)
     fields=('id','user_id','user_email','project_id','task_id','task_type','model','status',
@@ -159,11 +158,6 @@ class UsageReporting:
             filters=dict(user_id=user_id,project_id=project_id,task_id=task_id,model=model,start=start,end=end)
             result=usage_summary(db,filters,group_by=group_by,page=page,page_size=page_size,
                                  group_page=group_page,group_page_size=group_page_size)
-            budget_rows=db.execute("SELECT * FROM model_budgets WHERE scope_type='user'"+
-                (' AND user_id=%s' if user_id else '')+' ORDER BY user_id',(user_id,) if user_id else ()).fetchall()
-            budgets=[dict(user_id=row['user_id'],scope_key=row['scope_key'],**ModelUsageStore.budget_view(db,'user',dict(row))) for row in budget_rows]
-            if user_id and not budgets:
-                budgets=[dict(user_id=user_id,scope_key=user_id,**ModelUsageStore.budget_view(db,'user',None))]
             return dict(**result,currency='USD',period=period(start,end),
                 coverage=dict(scope='persisted_unified_model_calls',historical_missing_is_zero=False),
-                user_charge_enabled=False,quota={'configured':False},budget_scope='cumulative_unfiltered',budgets=budgets)
+                user_charge_enabled=False,quota={'configured':False})

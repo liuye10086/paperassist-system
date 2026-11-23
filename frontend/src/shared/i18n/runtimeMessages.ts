@@ -26,8 +26,6 @@ export const runtimeMessages:Record<string,string>={
  '仅统计窗口内最后更新的终态任务；历史缺失不代表零。':'Only terminal tasks last updated within this window are counted; missing history does not mean zero.',
  '外部限流观测':'External rate-limit observations','已记录 429 / 响应数':'Recorded 429 / responses','观测窗口（秒）':'Observation window (seconds)','外部响应采样时间':'External response sample time',
  '仅已记录的供应商响应；不是供应商公布的限流上限。':'Recorded provider responses only; this is not a provider rate ceiling.',
- '用户预算观测':'User budget observations','已登记用户预算数':'Registered user budgets','预算上限（微美元）':'Budget limit (micro-USD)','当前预留（微美元）':'Current reservations (micro-USD)','已记账（微美元）':'Accounted (micro-USD)',
- '仅登记的用户预算；不是全局余额或供应商账单。':'Registered user budgets only; this is not a global balance or provider bill.',
  '磁盘观测':'Disk observations','可用字节':'Free bytes','总字节':'Total bytes','仅数据所在文件系统。':'Data filesystem only.',
  'Worker 并发与配置':'Worker concurrency and configuration','期望并发数':'Desired concurrency','已证实实际并发数':'Verified effective concurrency','部署并发上限':'Deployment concurrency ceiling',
  '重启状态':'Restart status','等待显式重启':'Awaiting explicit restart','与启动配置一致':'Matches startup configuration',

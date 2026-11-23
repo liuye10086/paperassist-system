@@ -1,5 +1,4 @@
 """Real customer, PostgreSQL and DOCX paths with offline synthetic evidence."""
-from copy import deepcopy
 from hashlib import sha256
 from io import BytesIO
 import json
@@ -12,11 +11,8 @@ from PIL import Image, ImageDraw
 from app.adapters.docx_parser import parse_docx
 from app.db.database import database_connection
 from app.domain.literature.execution import run_literature_task
-from app.domain.literature.service import digest
 from app.domain.manuscript_writing.bundle import build_bundle, validate_bundle
 from app.domain.manuscript_writing.execution import run_manuscript_writing_task
-from app.domain.manuscript_writing.live_review_candidate import body_digest
-from app.domain.model_usage.service import ModelUsageService
 from app.domain.tasks.execution import run_task
 from app.domain.tasks.file_parse_execution import run_parse_file_task
 from app.main import app
@@ -24,10 +20,8 @@ from tests.api.test_customer_sci_workflow import article_request, sci_project
 from tests.api.test_customer_workspace import sign_in
 from tests.api.test_file_batches import register
 from tests.api.test_literature import create as create_search
-from tests.api.test_literature_citations import CitationNcbi, binding, draft_body, paragraph
-from tests.api.test_manuscript_writing_language import approve
+from tests.api.test_literature_citations import CitationNcbi
 from tests.api.test_manuscript_writing_live import LiveFixture
-from tests.api.test_manuscript_writing_live_review import decision
 from tests.api.test_manuscripts import body
 
 
@@ -69,7 +63,33 @@ def create_fact(client, project, data):
     return path + '/' + draft['id'], version['snapshot']
 
 
-def submit_candidate(client, project, root, bundle, owner, provider, *, resume=False):
+def selected_pubmed_reference(client, project, language):
+    literature = project + '/literature'
+    response = create_search(client, project.rsplit('/', 1)[-1])
+    assert response.status_code == 202, response.text
+    search = response.json()
+    assert run_literature_task(search['id'], search['revision'], client=CitationNcbi(3))['status'] == 'succeeded'
+    references = request(client, 'GET', literature + '/references')['items']
+    reference = next(ref for ref in references if ref['record']['abstract'])
+    quote = reference['record']['abstract'][0]['text']
+    draft = request(client, 'POST', project + '/manuscripts/selected-references', status=201, key='selected', json=dict(
+        output_language=language, references=[dict(project_reference_id=reference['id'], search_id=search['id'], quote=quote)],
+    ))
+    return draft, literature, search, reference, quote
+
+
+def assert_customer_writing_queued(client, root, task):
+    assert task['status'] == 'queued'
+    assert request(client, 'GET', root)['id'] == root.rsplit('/', 1)[-1]
+    queued = request(client, 'GET', root + '/writing-requests/' + task['id'])
+    assert queued['task']['status'] == 'queued' and queued['candidate'] is None
+    with database_connection() as db:
+        ready = db.execute('''SELECT task_revision FROM task_outbox WHERE task_id=%s AND event_type='task_ready'
+            AND published_at IS NULL''', (task['id'],)).fetchall()
+        assert [row['task_revision'] for row in ready] == [task['revision']]
+
+
+def submit_candidate(client, project, root, bundle, provider, *, resume=False):
     assert bundle['execution_contract']['schema_version'] == 4
     bundle_ref = dict(bundle_id=bundle['id'], bundle_sha256=bundle['bundle_sha256'])
     with database_connection() as db:
@@ -79,10 +99,7 @@ def submit_candidate(client, project, root, bundle, owner, provider, *, resume=F
     ))
     payload = dict(schema_version=2, authorization_id=auth['id'], logical_task_id='article', **bundle_ref)
     task = request(client, 'POST', root + '/writing-requests', status=202, key='write', json=payload)['task']
-    usage = ModelUsageService(owner)
-    for scope, identifier in [('user', owner), ('project', task['project_id']), ('task', task['id'])]:
-        if usage.get_budget(scope, identifier)['limit_micro_usd'] is None:
-            usage.set_budget(scope, identifier, 5_000_000, 0)
+    assert_customer_writing_queued(client, root, task)
     result = run_manuscript_writing_task(task['id'], task['revision'], provider=provider)
     if resume:
         assert result['status'] == 'running', result
@@ -94,42 +111,12 @@ def submit_candidate(client, project, root, bundle, owner, provider, *, resume=F
     assert result['status'] == 'succeeded', result
     assert provider.posts == [bundle['wire_json']]
     path = root + '/writing-requests/' + task['id']
-    context = request(client, 'GET', path + '/review-context')
-    provenance = context['candidate']['writing_provenance']
+    saved = request(client, 'GET', path)
+    provenance = saved['candidate']['writing_provenance']
     assert provenance['provider_provenance'] == 'synthetic_fixture'
     assert provenance['verification_status'] == 'pending'
-    return path, context
-
-
-def publish_word(client, root, path, scientific_decision):
-    science = request(client, 'POST', path + '/reviews', status=201, key='science', json=scientific_decision)
-    payload = dict(schema_version=2, expected_revision=1, review_id=science['id'], review_sha256=science['review_sha256'])
-    assert client.post(path + '/publish', headers={'Idempotency-Key': 'unreviewed'}, json=payload).status_code == 409
-    language_context = request(client, 'GET', path + '/reviews/' + science['id'] + '/language-context')
-    language_decision = approve(language_context)
-    for item, item_decision in zip(language_context['inventory'], language_decision['decisions']):
-        if item['kind'] == 'image':
-            assert item['language_known'] and item['no_text']
-            item_decision.update(decision='no_text', reason='Inspected the text-free synthetic plot.')
-    language = request(client, 'POST', path + '/language-reviews', status=201, key='language', json=language_decision)
-    payload.update(language_review_id=language['id'], language_review_sha256=language['artifact_sha256'])
-    published = request(client, 'POST', path + '/publish', status=201, key='publish', json=payload)['versions'][0]
-    assert published['revision'] == 2 and published['snapshot'] == language['candidate']
-    replay = request(client, 'POST', path + '/publish', key='publish', json=payload)['versions'][0]
-    assert replay['id'] == published['id']
-    assert run_task(published['task_id'], 1)['status'] == 'succeeded'
-    fixed = request(client, 'GET', root + '/versions/2')
-    assert fixed['id'] == published['id'] and fixed['snapshot'] == published['snapshot']
-    job = request(client, 'POST', root + '/versions/2/exports', status=201, key='export', json={})
-    assert run_task(job['task_id'], 1)['status'] == 'succeeded'
-    export = request(client, 'GET', root + '/exports/' + job['id'])
-    assert export['status'] == 'succeeded'
-    download = client.get(export['download_url'])
-    assert download.status_code == 200, download.text
-    assert download.headers['Content-Type'] == DOCX
-    assert '.docx' in download.headers['Content-Disposition']
-    assert sha256(download.content).hexdigest() == export['sha256']
-    return fixed['snapshot'], export['download_url'], download.content
+    assert saved['published_revision'] is None
+    return path + '/draft-reader', saved['candidate']
 
 
 def upload_research_material(client, project):
@@ -155,20 +142,14 @@ def upload_research_material(client, project):
     document_id = request(client, 'GET', documents)['items'][0]['id']
     image = request(client, 'GET', documents + '/' + document_id)['images'][0]
     assert sha256(raw).hexdigest() == image['sha256']
-    source = dict(kind='document_version', id=document_id, file_id=file_id)
-    version = request(client, 'POST', project + '/manuscript-figure-language-versions', status=201, key='figure', json=dict(
-        source=source | dict(image_id=image['id']), original_sha256=image['sha256'],
-        mode='no_text_confirmation', output_language='en', reason='Inspected the synthetic line plot for any lettering.',
-        title='Synthetic line plot', caption='Direction of the supplied synthetic observation.',
-    ))
-    assert version['sha256'] == sha256(raw).hexdigest()
-    figure = dict(kind='figure_language_version', id=version['id'], file_id=file_id, role='image_observation')
-    return source | dict(role='user_results'), figure, raw
+    source = dict(kind='original', id=file_id, file_id=file_id, role='user_results')
+    figure = dict(kind='document_version', id=document_id, file_id=file_id, role='image_observation')
+    return source, figure, raw
 
 
 def test_customer_research_freezes_uploaded_result_numeric_context_and_figure_in_word():
     with TestClient(app) as client, TestClient(app) as other:
-        owner = sign_in(client, 'research-to-word@manuscript.test', 'customer')
+        sign_in(client, 'research-to-word@manuscript.test', 'customer')
         sign_in(other, 'foreign-word@manuscript.test', 'customer')
         project = sci_project(client)
         result_source, figure_source, png = upload_research_material(client, project)
@@ -213,48 +194,31 @@ def test_customer_research_freezes_uploaded_result_numeric_context_and_figure_in
             discussion=dict(text='The supplied fixture describes an upward pattern.', source_aliases=['s1']),
             materials_and_methods=dict(text=PROTOCOL, source_aliases=['s1'], study_numeric_bindings=[method_number]),
         ), pending=True)
-        path, context = submit_candidate(client, project, root, bundle, owner, provider, resume=True)
-        science = decision(context)
-        next(p for p in science['paragraphs'] if p['paragraph_id'] == 'results:1').update(
-            classification='context_claim', scientific_basis='Compared the reported observation and panel with the supplied fixture.',
-            numeric_bindings=[dict(occurrence=0, kind='context', **result_number)],
-        )
-        next(p for p in science['paragraphs'] if p['paragraph_id'] == 'discussion:1').update(
-            classification='study_claim', scientific_basis='Verified the direction and source in the supplied report.',
-        )
-        next(p for p in science['paragraphs'] if p['paragraph_id'] == 'materials_and_methods:1').update(
-            classification='context_claim', scientific_basis='Checked the protocol number against the user-provided method.',
-            numeric_bindings=[dict(occurrence=0, kind='context', **method_number)],
-        )
-        corrected = deepcopy(science)
-        candidate = deepcopy(context['candidate'])
-        altered = 'The supplied fixture describes a directional pattern.'
-        discussion = next(section for section in candidate['sections'] if section['id'] == 'discussion')
-        discussion['paragraphs'][0]['text'] = altered
-        corrected_discussion = next(p for p in corrected['paragraphs'] if p['paragraph_id'] == 'discussion:1')
-        corrected_discussion.update(corrected_text=altered, text_sha256=digest(altered))
-        corrected['consistency']['body_sha256'] = body_digest(candidate)
-        missing_source = request(client, 'POST', path + '/reviews', status=422,
-                                 key='correction-without-source', json=corrected)
-        assert missing_source['detail']['code'] == 'manuscript_writing_review_invalid'
-        corrected_discussion['source_aliases'] = ['s1']
-        changed = request(client, 'POST', path + '/reviews', status=201, key='science-correction', json=corrected)
-        changed_discussion = next(section for section in changed['candidate']['sections'] if section['id'] == 'discussion')
-        assert changed_discussion['paragraphs'][0]['source_ids'] == [result_source['id']]
-        fixed, url, raw = publish_word(client, root, path, science)
-        assert fixed['article_type'] == 'research'
-        assert fixed['keywords'] == ['synthetic fixture']
-        methods = next(section for section in fixed['sections'] if section['id'] == 'materials_and_methods')
-        assert methods['paragraphs'][0]['numeric_bindings'][0]['kind'] == 'context'
-        result = next(section for section in fixed['sections'] if section['id'] == 'results')['paragraphs'][0]
-        assert result['numeric_bindings'][0]['kind'] == 'context' and result['source_ids'] == [result_source['id']]
-        discussion = next(section for section in fixed['sections'] if section['id'] == 'discussion')['paragraphs'][0]
-        assert discussion['source_ids'] == [result_source['id']]
-        paragraphs = [p.text for p in Document(BytesIO(raw)).paragraphs]
-        assert result_text in paragraphs and PROTOCOL in paragraphs
-        with ZipFile(BytesIO(raw)) as archive:
+        reader, candidate = submit_candidate(client, project, root, bundle, provider, resume=True)
+        assert candidate['keywords'] == ['synthetic fixture']
+        assert candidate['article_type'] == 'research'
+        result = next(s for s in candidate['sections'] if s['id'] == 'results')['paragraphs'][0]
+        assert result['text'] == result_text and result['source_ids'] == [result_source['id'], figure_source['id']]
+        assert result['context_numeric_bindings'][0]['value'] == '4'
+        draft = request(client, 'GET', reader + '?revision=1')['draft']
+        results = next(section for section in draft['sections'] if section['id'] == 'results')
+        [figure] = [f for g in results['groups'] for f in g['figures']]
+        assert figure['panels'] == [dict(label='A', description='Text-free synthetic line plot.')]
+        image_url = reader + '/figures/1?revision=1'
+        assert client.get(image_url).content == png
+        assert client.get(reader + '/figures/99?revision=1').status_code == 404
+        assert other.get(image_url).status_code == 404
+        word_url = reader + '/word?revision=1'
+        response = client.get(word_url)
+        assert response.status_code == 200 and response.headers['Content-Type'] == DOCX
+        lines = [p.text for p in Document(BytesIO(response.content)).paragraphs]
+        assert result_text in lines and PROTOCOL in lines
+        assert figure['caption'] in lines and 'A  Text-free synthetic line plot.' in lines
+        with ZipFile(BytesIO(response.content)) as archive:
             assert png in [archive.read(name) for name in archive.namelist() if name.startswith('word/media/')]
-        assert other.get(url).status_code == 404
+        assert client.get(word_url).content == response.content
+        assert len(request(client, 'GET', root)['versions']) == 1
+        assert other.get(word_url).status_code == 404
 
 
 def record_candidate_citation(client, literature, search, reference, context, metadata, quote):
@@ -276,73 +240,14 @@ def record_candidate_citation(client, literature, search, reference, context, me
                 bindings=[dict(review_id=support['id'], metadata_version_id=metadata['id'])])
 
 
-def assert_review_journal_adaptation(client, project, root, fixed, original_headings):
-    from tests.api.test_journal_format import guide, target
-    from tests.api.test_journals import profile, request as recommendation
-
-    journals = project + '/journals'
-    p = request(client, 'POST', journals + '/profiles', status=201, key='review-profile', json=profile())
-    r = request(client, 'POST', journals + '/recommendations', status=202, key='review-recommendation',
-                json=recommendation(article_type='review', hard_filters=[]))
-    assert run_task(r['task']['id'], 1)['status'] == 'succeeded'
-    rules = 'Required sections: Literature sources and inclusion scope | Thematic synthesis\nBody font size: 12 pt'
-    g = request(client, 'POST', journals + '/guides', status=201, key='review-guide',
-                json=guide(p, source_text=rules, article_types=['review']))
-    t = request(client, 'POST', journals + '/targets', status=201, key='review-target',
-                json=target(p, r, g, article_type='review'))
-    parent = request(client, 'GET', root + '/versions/2')
-    combination = dict(target_id=t['id'], manuscript=dict(id=root.rsplit('/', 1)[1], revision=2))
-    check = request(client, 'POST', journals + '/checks', status=202, key='review-check', json=combination)
-    assert run_task(check['task']['id'], 1)['status'] == 'succeeded'
-    check_result = request(client, 'GET', journals + '/checks/' + check['id'])['result']
-    states = {item['key']: item['status'] for item in check_result['items']}
-    assert states['required_sections'] == 'pass' and states['body_font_size_pt'] == 'mismatch'
-    combination['check_id'] = check['id']
-    combination['manuscript']['version_id'] = parent['id']
-    preview = request(client, 'POST', journals + '/adaptations/preview', json=combination)
-    assert [action['key'] for action in preview['actions']] == ['body_font_size_pt']
-    adoption = request(client, 'POST', journals + '/adaptations', status=202, key='review-adapt', json=combination | dict(
-        expected_current_revision=2, preview_sha256=preview['preview_sha256'],
-        selected_action_ids=[preview['actions'][0]['id']],
-    ))
-    task = run_task(adoption['task']['id'], 1)
-    assert task['status'] == 'succeeded', task
-    output = request(client, 'GET', journals + '/adaptations/' + adoption['id'])['result']['output']
-    assert output['parent_version_id'] == parent['id'] and output['revision'] == 3
-    assert run_task(output['task_id'], 1)['status'] == 'succeeded'
-    adapted = request(client, 'GET', root + '/versions/3')['snapshot']
-    for key in ('sections', 'sources', 'references', 'citation_snapshot', 'writing_provenance'):
-        assert adapted[key] == fixed[key]
-    job = request(client, 'POST', root + '/versions/3/exports', status=201, key='review-adapted-export', json={})
-    assert run_task(job['task_id'], 1)['status'] == 'succeeded'
-    export = request(client, 'GET', root + '/exports/' + job['id'])
-    download = client.get(export['download_url'])
-    assert download.status_code == 200 and sha256(download.content).hexdigest() == export['sha256']
-    doc = Document(BytesIO(download.content))
-    assert [p.text for p in doc.paragraphs if p.style.name == 'Heading 1'] == original_headings
-    assert doc.styles['Normal'].font.size.pt == 12
-
-
-def test_customer_narrative_review_exports_checked_literature_and_review_structure():
+def test_customer_narrative_review_exports_suggested_excerpts_and_review_structure():
     with TestClient(app) as client:
-        owner = sign_in(client, 'review-to-word@manuscript.test', 'customer')
+        sign_in(client, 'review-to-word@manuscript.test', 'customer')
         project = sci_project(client, 'narrative_review')
-        literature = project + '/literature'
-        response = create_search(client, project.rsplit('/', 1)[-1])
-        assert response.status_code == 202, response.text
-        search = response.json()
-        assert run_literature_task(search['id'], search['revision'], client=CitationNcbi(3))['status'] == 'succeeded'
-        references = request(client, 'GET', literature + '/references')['items']
-        reference = next(ref for ref in references if ref['record']['abstract'])
-        quote = reference['record']['abstract'][0]['text']
-        claim = request(client, 'POST', literature + '/evidence/claims', status=201, key='initial-claim', json=dict(
-            content=quote, context='Synthetic abstract selection', output_language='en',
-        ))
-        claim, binding_ref, metadata, _ = binding(client, literature, search, reference, claim)
-        draft = request(client, 'POST', literature + '/citations/drafts', status=201, key='citation-draft',
-                        json=draft_body(paragraph(claim, binding_ref)))
-        root, fixed_base = create_fact(client, project, body(methods={}, citation_draft=dict(id=draft['id'], revision=1)))
-        evidence = fixed_base['citation_snapshot']['paragraphs'][0]['fragments'][1]['bindings'][0]['evidence'][0]
+        draft, _, _, reference, quote = selected_pubmed_reference(client, project, 'en')
+        root, fixed_base = create_fact(client, project, body(methods={}, citation_draft=draft))
+        selected = fixed_base['citation_snapshot']['paragraphs'][0]['fragments'][0]['bindings'][0]
+        evidence, metadata = selected['evidence'][0], selected['metadata_source']
         bundle = request(client, 'POST', root + '/writing-previews', status=201, key='preview', json=article_request(
             'narrative_review', selected_evidence_ids=[evidence['id']],
         ))
@@ -358,25 +263,25 @@ def test_customer_narrative_review_exports_checked_literature_and_review_structu
             discussion=dict(text='Full text was unavailable for this engineering exercise.'),
             conclusion=dict(text='The available evidence supports only the quoted account.'),
         ))
-        path, context = submit_candidate(client, project, root, bundle, owner, provider)
-        science = decision(context)
-        bound = record_candidate_citation(client, literature, search, reference, context['claim_contexts']['themes:1'], metadata, quote)
-        next(p for p in science['paragraphs'] if p['paragraph_id'] == 'themes:1').update(
-            classification='literature_claim', claim=bound, scientific_basis='Compared exact prose with the reviewed abstract.',
-        )
-        fixed, _, raw = publish_word(client, root, path, science)
-        assert fixed['article_type'] == 'narrative_review' and not fixed['results_groups']
-        assert len(fixed['references']) == 1
-        theme = next(section for section in fixed['sections'] if section['id'] == 'themes')['paragraphs'][0]
-        assert theme['text'] == quote + ' (1)'
-        assert theme['citations'][0]['review_id'] == bound['bindings'][0]['review_id']
-        document = Document(BytesIO(raw))
+        reader, candidate = submit_candidate(client, project, root, bundle, provider)
+        theme = next(section for section in candidate['sections'] if section['id'] == 'themes')['paragraphs'][0]
+        assert theme['suggested_evidence_aliases'] == ['e1'] and theme['citations'] == []
+        assert candidate['article_type'] == 'narrative_review' and not candidate['results_groups']
+        draft = request(client, 'GET', reader + '?revision=1')['draft']
+        theme = next(section for section in draft['sections'] if section['id'] == 'themes')['paragraphs'][0]
+        [part] = theme['parts']
+        assert part['text'] == quote
+        [cite] = part['citations']
+        assert cite['number'] == 1 and cite['project_reference_id'] == reference['id']
+        assert cite['title'] == metadata['metadata']['title']
+        assert cite['excerpts'] == [dict(id=evidence['id'], quote=quote, reading_scope='abstract')]
+        response = client.get(reader + '/word?revision=1')
+        assert response.status_code == 200 and response.headers['Content-Type'] == DOCX
+        document = Document(BytesIO(response.content))
         headings = [p.text for p in document.paragraphs if p.style.name == 'Heading 1']
         assert {'Literature sources and inclusion scope', 'Thematic synthesis', 'Conclusion', 'References'} <= set(headings)
         assert 'Results' not in headings
-        assert any(item['id'] == 'missing:ethics' for item in fixed['issues'])
-        assert all('No computed Results selected.' not in p.text and 'Ethics information:' not in p.text
-                   for p in document.paragraphs)
-        assert theme['text'] in [p.text for p in document.paragraphs]
-        assert any(p.text.startswith('(1) ') and metadata['metadata']['title'] in p.text for p in document.paragraphs)
-        assert_review_journal_adaptation(client, project, root, fixed, headings)
+        lines = [p.text for p in document.paragraphs]
+        assert all('No computed Results selected.' not in text and 'Ethics information:' not in text for text in lines)
+        assert quote + '[1]' in lines and '[1] ' + draft['references'][0]['text'] in lines
+        assert len(request(client, 'GET', root)['versions']) == 1

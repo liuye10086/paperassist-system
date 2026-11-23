@@ -33,7 +33,7 @@ it('resumes budget wait using the original task and revision', async () => {
   const fetch = vi.fn((url: string, init?: RequestInit) => json(url.endsWith('/disclosure') ? disclosure : url.includes('plot-config') ? { configured: true }
     : init?.method === 'POST' ? task('queued', { revision: 4 }) : { ...empty, task: task('waiting_confirmation', { reason_code: 'budget_exceeded' }) }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
-  fireEvent.click(await screen.findByRole('button', { name: '预算已配置，继续生成图表' }))
+  fireEvent.click(await screen.findByRole('button', { name: '继续绘图任务' }))
   await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1))
   const [url, init] = fetch.mock.calls.find(([, init]) => init?.method === 'POST')!
   expect(url).toBe('/api/v1/tasks/task/retry')
@@ -108,6 +108,6 @@ it('translates budget recovery and container expiration without showing raw erro
   const fetch = vi.fn((url: string) => json(url.endsWith('config') ? { configured: true }
     : { ...empty, task: task('waiting_confirmation', { reason_code: 'budget_exceeded', error_code: 'model_budget_missing' }) }))
   vi.stubGlobal('fetch', fetch); render(<BoxplotFigure {...props} />)
-  expect(await screen.findByRole('button', { name: 'Budget configured — continue plot' })).toBeTruthy()
-  expect(screen.queryByText('预算已配置，继续生成图表')).toBeNull()
+  expect(await screen.findByRole('button', { name: 'Continue the plot task' })).toBeTruthy()
+  expect(screen.queryByText('继续绘图任务')).toBeNull()
 })

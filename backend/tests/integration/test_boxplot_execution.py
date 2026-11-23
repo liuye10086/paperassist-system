@@ -17,7 +17,6 @@ from tests.integration.test_task_execution import expired
 
 
 def queued(client, *, configured=True, key='plot-execution'):
-    from app.domain.model_usage.service import ModelUsageService
     project, request, base, result = boxplot_task_input(client)
     owner = task_owner(client)
     task, _ = TaskService(owner).create(project, request, idempotency_key=key)
@@ -32,11 +31,6 @@ def queued(client, *, configured=True, key='plot-execution'):
         with database_connection(write=True) as db:
             db.execute("UPDATE tasks SET input_snapshot=jsonb_set(input_snapshot,'{boxplot_policy}',%s) WHERE id=%s",
                        (Jsonb(frozen), task['id']))
-        service = ModelUsageService(owner)
-        for scope, scope_key in [('user', owner), ('project', project), ('task', task['id'])]:
-            budget = service.get_budget(scope, scope_key)
-            if budget['limit_micro_usd'] is None:
-                service.set_budget(scope, scope_key, 1000000, 0)
     return task, owner, base, result
 
 
@@ -184,16 +178,16 @@ def test_boxplot_one_post_per_slice_then_original_png_and_ledger(client):
         assert figure['provenance']['model_call_id'] == call['id']
         assert figure['engine']['id'] == 'openai_boxplot_v1'
         assert call['provider_status'] == 'completed'
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'held'}
+        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == set()
         attempts = db.execute('SELECT attempt_no,status FROM task_attempts WHERE task_id=%s', (task['id'],)).fetchall()
         assert [(row['attempt_no'], row['status']) for row in attempts] == [(1, 'succeeded')]
 
 
-def test_boxplot_unconfigured_waits_without_provider(client):
+def test_boxplot_unconfigured_fails_without_provider(client):
     task, _, _, result = queued(client, configured=False)
     provider = SyntheticPlotProvider(result)
     waiting = run(task, provider)
-    assert waiting['status'] == 'waiting_confirmation' and waiting['reason_code'] == 'budget_exceeded'
+    assert waiting['status'] == 'failed' and waiting['error_code'] == 'plot_not_configured'
     assert provider.posts == [] and provider.closed == 0
 
 
@@ -210,19 +204,17 @@ def test_boxplot_unknown_side_effect_never_reposts(client, phase):
     assert provider.posts == calls
     with database_connection() as db:
         assert len(db.execute('SELECT * FROM model_calls').fetchall()) == 1
-        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations')} == {'held'}
+        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations')} == set()
 
 
-def test_boxplot_missing_budget_never_creates_container(client):
+def test_boxplot_starts_without_any_budget(client):
     task, _, _, result = queued(client)
-    with database_connection(write=True) as db:
-        db.execute("DELETE FROM model_budgets WHERE scope_type='task'")
     provider = SyntheticPlotProvider(result)
-    waiting = run(task, provider)
-    assert waiting['status'] == 'waiting_confirmation' and waiting['reason_code'] == 'budget_exceeded'
-    assert provider.posts == []
+    current = run(task, provider)
+    assert current['status'] == 'running' and provider.posts == ['container']
     with database_connection() as db:
-        assert not db.execute('SELECT id FROM model_calls').fetchall()
+        assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 1
+        assert not db.execute('SELECT 1 FROM budget_reservations').fetchone()
 
 
 def change_source():
@@ -411,7 +403,7 @@ def test_boxplot_durable_preparation_expiry_finishes_task_without_another_post(c
     assert failed['status'] == 'failed' and failed['error_code'] == 'plot_container_expired'
     assert provider.posts == ['container']
     with database_connection() as db:
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'held'}
+        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == set()
 
 
 @pytest.mark.parametrize('tamper', ['path', 'provenance'])
@@ -556,4 +548,4 @@ def test_boxplot_late_definite_upload_expiry_finishes_unknown_task_with_ledger_i
     assert failed['status'] == 'failed' and failed['error_code'] == 'plot_container_expired'
     assert store.recover_expired() == 0 and provider.posts == ['container', 'upload']
     with database_connection() as db:
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'held'}
+        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == set()

@@ -199,7 +199,7 @@ def test_paid_successor_requires_request_key_before_loading_policy(client, cloud
         after = persistence_counts()
         assert after['tasks'] == before['tasks'] + 1
         assert after['task_outbox'] == before['task_outbox'] + 1
-        assert after['model_budgets'] == before['model_budgets'] + 1
+        assert after['model_budgets'] == before['model_budgets']
         assert after['model_calls'] == before['model_calls']
         assert after['budget_reservations'] == before['budget_reservations']
         assert loaded == [True] and not cloud.calls and not writer.calls
@@ -223,8 +223,6 @@ def test_keyless_failed_post_preserves_existing_call_and_unknown_submission(clie
     tasks = TaskService(owner)
     running = tasks.transition(initial['id'], expected_revision=initial['revision'], status='running')
     usage = ModelUsageService(owner)
-    for scope, key in [('user', owner), ('project', initial['project_id'])]:
-        usage.set_budget(scope, key, 1000000, 0)
     policy = execution_policy()
     call = usage.reserve_call(CallRequest(task_id=initial['id'], expected_task_revision=running['revision'],
         call_key='explanation:v1', input_digest='a' * 64, policy=policy['policy'],
@@ -237,7 +235,7 @@ def test_keyless_failed_post_preserves_existing_call_and_unknown_submission(clie
         db.execute('UPDATE tasks SET error_code=%s WHERE id=%s', ('explanation_invalid', initial['id']))
     failed = tasks.store.get(initial['id'])
     before = persistence_counts()
-    assert before['model_calls'] == 1 and before['budget_reservations'] == 3
+    assert before['model_calls'] == 1 and before['budget_reservations'] == 0
     monkeypatch.setattr(explanation_policy, 'get_execution_policy', lambda payload: pytest.fail('Existing charge loaded a new policy'))
     response = post(client, url, figure, retry=True)
     assert response.status_code == expected_status, response.text
@@ -369,9 +367,9 @@ def test_resume_missing_policy_freezes_new_config_and_budget_only_before_any_cal
     assert response.status_code == 202, response.text
     with database_connection() as db:
         snapshot = db.execute('SELECT input_snapshot FROM tasks WHERE id=%s', (task['id'],)).fetchone()['input_snapshot']
-        assert snapshot.get('explanation_policy') == execution_policy()
+        assert snapshot.get('explanation_policy') == {k: v for k, v in execution_policy().items() if k != 'task_limit_micro_usd'}
         budget = db.execute("SELECT limit_micro_usd FROM model_budgets WHERE scope_type='task' AND scope_key=%s", (task['id'],)).fetchone()
-        assert budget['limit_micro_usd'] == execution_policy()['task_limit_micro_usd']
+        assert budget is None
     assert not writer.calls
 
 

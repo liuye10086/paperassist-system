@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from contextlib import nullcontext
 from hashlib import sha256
 import re
-from uuid import uuid4
 
 from psycopg.types.json import Jsonb
 
@@ -194,14 +193,6 @@ def retry_boxplot_in_transaction(store, db, task, expected_revision):
         if frozen is None:raise StorageError('plot_not_configured','原任务模型策略未配置。',503)
         task['input_snapshot'] = {**original, 'boxplot_policy': frozen}
         db.execute('UPDATE tasks SET input_snapshot=%s WHERE id=%s', (Jsonb(task['input_snapshot']), task_id))
-        budget = db.execute("SELECT id FROM model_budgets WHERE scope_type='task' AND scope_key=%s", (task_id,)).fetchone()
-        if budget is None:
-            now = datetime.now(timezone.utc)
-            db.execute('''INSERT INTO model_budgets
-                (id,user_id,scope_type,scope_key,project_id,task_id,limit_micro_usd,revision,created_at,updated_at)
-                VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)''',
-                (str(uuid4()), task['user_id'], task_id, task['project_id'], task_id,
-                 frozen['task_limit_micro_usd'], now, now))
     from app.domain.storage_governance.candidates import authorize_task_recovery
     from app.core.config import get_data_dir
     authorize_task_recovery(db,get_data_dir(),task)

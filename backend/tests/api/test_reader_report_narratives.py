@@ -16,7 +16,7 @@ from tests.api.test_school_rule_suggestions import Fixture
 def reader_policy(tmp_path, monkeypatch):
     path = tmp_path / 'reader-policy.json'
     path.write_text(json.dumps(dict(
-        input_token_allowance=100000, task_limit_micro_usd=300000,
+        input_token_allowance=100000,
         policy=dict(model='gpt-6.1-sol', max_output_tokens=22000,
                     price=dict(version='fixture', model='gpt-6.1-sol', input_micro_usd_per_million=1_000_000,
                                cached_input_micro_usd_per_million=100_000, output_micro_usd_per_million=1_000_000)),
@@ -65,7 +65,7 @@ def test_preview_and_idempotent_admission_do_not_call_model(client):
         budgets = db.execute('SELECT scope_type FROM model_budgets WHERE user_id=(SELECT user_id FROM tasks WHERE id=%s)',
                              (queued['task']['id'],)).fetchall()
     assert calls['n'] == 0
-    assert [budget['scope_type'] for budget in budgets] == ['task']
+    assert budgets == []
 
 
 def queue_narrative(client, endpoint, report):
@@ -102,18 +102,6 @@ def worker(queued, provider):
     return run_reader_report_task(queued['task']['id'], queued['task']['revision'], provider=provider)
 
 
-def authorize_user_and_project(queued, *, limit=1_000_000):
-    from app.domain.model_usage.service import ModelUsageService
-
-    task = queued['task']
-    with database_connection() as db:
-        user_id = db.execute('SELECT user_id FROM tasks WHERE id=%s', (task['id'],)).fetchone()['user_id']
-    service = ModelUsageService(user_id)
-    service.set_budget('user', user_id, limit, 0)
-    service.set_budget('project', task['project_id'], limit, 0)
-    return user_id
-
-
 def narrative_fixture():
     from app.adapters.bio_reader_narrative import NARRATIVE_FIELDS
 
@@ -121,29 +109,33 @@ def narrative_fixture():
                            for key in NARRATIVE_FIELDS}, figures=[])
 
 
-def test_budget_wait_retries_original_and_success_is_reusable(client):
+def test_reader_needs_no_budget_and_reuses_paid_pre_upgrade_result(client, monkeypatch):
     endpoint, report = report_request(client)
-    request, queued = queue_narrative(client, endpoint, report)
+    from app.domain.reader_reports import policy
+    from app.domain.reader_reports.content import binding_digest
+    make_bundle = policy.bundle
+    def old_bundle(material):
+        value = {**make_bundle(material), 'task_limit_micro_usd': 1_000_000}
+        value['bundle_sha256'] = binding_digest({k: v for k, v in value.items() if k not in ('bundle_sha256','real_calls_enabled')})
+        return value
+    with monkeypatch.context() as previous:
+        previous.setattr(policy, 'bundle', old_bundle)
+        previous_request, queued = queue_narrative(client, endpoint, report)
     provider = Fixture(narrative_fixture())
-    task = worker(queued, provider)
-    assert task['status'] == 'waiting_confirmation' and task['error_code'] == 'model_budget_missing'
-    assert provider.posts == []
-
+    task = queued['task']
+    done = worker(queued, provider)
+    with database_connection() as db:
+        user_id = db.execute('SELECT user_id FROM tasks WHERE id=%s', (task['id'],)).fetchone()['user_id']
+        assert db.execute('SELECT 1 FROM model_budgets').fetchone() is None
     path = endpoint + '/' + queued['id']
-    waiting = client.get(path).json()
-    assert waiting['allowed_actions'] == ['resume'] and waiting['wait']['kind'] == 'budget_confirmation'
-    user_id = authorize_user_and_project(queued)
-    retry = client.post(path + '/retry', json={'expected_revision': task['revision']})
-    assert retry.status_code == 202, retry.text
-    done = worker(retry.json(), provider)
     assert done['status'] == 'succeeded', done
     assert len(provider.posts) == 1
-
+    preview = client.post(endpoint + '/preview', json=report).json()
+    request = dict(report=report, bundle_sha256=preview['bundle_sha256'], confirmed_external_processing=True)
     saved = client.get(path).json()
     assert saved['artifact_sha256'] and saved['result']['figures'] == []
     assert saved['model_calls'][0]['provider_provenance'] == 'synthetic_fixture'
-    assert client.post(endpoint + '/preview', json=report).json()['cached'] is True
-    assert client.post(endpoint + '/preview', json=report).json()['reserved_micro_usd'] == 0
+    assert preview['cached'] is True and preview['reserved_micro_usd'] == 0
     assert client.get('/api/v1/tasks/' + done['id'] + '/workspace').status_code == 200
     for usage_path in (endpoint.rsplit('/', 1)[0], '/api/v1/tasks/' + done['id']):
         usage = client.get(usage_path + '/model-usage')
@@ -154,6 +146,8 @@ def test_budget_wait_retries_original_and_success_is_reusable(client):
         assert call['estimated_cost_micro_usd'] == 40
     replay = client.post(endpoint, json=request, headers={'Idempotency-Key': 'second-success-key'})
     assert replay.status_code == 200 and replay.json() == saved
+    previous = client.post(endpoint, json=previous_request, headers={'Idempotency-Key': 'previous-confirmation'})
+    assert previous.status_code == 200 and previous.json() == saved
     assert len(provider.posts) == 1
 
     from app.core.exceptions import StorageError
@@ -172,7 +166,6 @@ def test_budget_wait_retries_original_and_success_is_reusable(client):
 def test_unknown_submission_cannot_create_another_billable_attempt(client):
     endpoint, report = report_request(client)
     request, queued = queue_narrative(client, endpoint, report)
-    authorize_user_and_project(queued)
     provider = Fixture(narrative_fixture(), unknown=True)
     task = worker(queued, provider)
     assert task['status'] == 'waiting_confirmation' and task['reason_code'] == 'submission_unknown'
@@ -189,7 +182,6 @@ def test_paid_call_remains_the_reusable_candidate_after_get_retries_are_exhauste
 
     endpoint, report = report_request(client)
     request, queued = queue_narrative(client, endpoint, report)
-    authorize_user_and_project(queued)
 
     class TemporarilyUnavailable(Fixture):
         def retrieve(self, response_id, **options):
@@ -217,7 +209,6 @@ def test_paid_call_remains_the_reusable_candidate_after_get_retries_are_exhauste
 def test_report_page_continues_expired_observation_with_one_get(client, provider_status):
     endpoint, report = report_request(client)
     _, queued = queue_narrative(client, endpoint, report)
-    authorize_user_and_project(queued)
 
     class DelayedResponse(Fixture):
         def retrieve(self, response_id, **options):
@@ -287,7 +278,6 @@ def test_unsubmitted_original_cannot_retry_over_a_replacement(client):
 
     endpoint, report = report_request(client)
     request, queued = queue_narrative(client, endpoint, report)
-    authorize_user_and_project(queued)
     repository = TaskExecutionStore()
 
     def claim_without_submitting(task):
@@ -318,8 +308,6 @@ def test_replay_reuses_failed_unsubmitted_task_with_held_budget(client, monkeypa
 
     endpoint, report = report_request(client)
     request, queued = queue_narrative(client, endpoint, report)
-    limit = client.post(endpoint + '/preview', json=report).json()['reserved_micro_usd']
-    authorize_user_and_project(queued, limit=limit)
     provider = Fixture(narrative_fixture())
 
     def stop_before_post(*args, **kwargs):
@@ -347,7 +335,10 @@ def test_replay_reuses_failed_unsubmitted_task_with_held_budget(client, monkeypa
             legacy.setattr(ReaderReportService, '_reusable', original_admission)
             replay = client.post(endpoint, json=request, headers=headers)
         assert replay.status_code == 202, replay.text
-        replacement = worker(replay.json(), provider)
+        from app.domain.reader_reports import execution
+        with monkeypatch.context() as legacy:
+            legacy.setattr(execution, '_execute', lambda repo, lease, _: execution._wait(repo, lease, 'budget_exceeded', 'model_budget_exceeded'))
+            replacement = worker(replay.json(), provider)
         assert replacement['status'] == 'waiting_confirmation' and replacement['reason_code'] == 'budget_exceeded'
         replacement_path = endpoint + '/' + replay.json()['id']
         assert client.get(replacement_path).json()['model_calls'] == []
@@ -368,7 +359,6 @@ def test_replay_reuses_failed_unsubmitted_task_with_held_budget(client, monkeypa
 def test_invalid_model_output_does_not_become_a_report_record(client):
     endpoint, report = report_request(client)
     request, queued = queue_narrative(client, endpoint, report)
-    authorize_user_and_project(queued)
     provider = Fixture({'narrative': {'abstract': 'Incomplete response'}, 'figures': []})
     task = worker(queued, provider)
     assert task['status'] == 'failed' and task['error_code'] == 'model_response_invalid'
@@ -429,7 +419,6 @@ def test_ordered_fixed_figures_are_sent_once_and_remote_response_is_retrieved(cl
     assert [(item['number'], item['title']) for item in expected['figures']] == [(1, 'Observation panel 2'), (2, 'Observation panel 1')]
 
     _, queued = queue_narrative(client, endpoint, report)
-    authorize_user_and_project(queued)
     draft = narrative_fixture()
     draft['figures'] = [dict(number=index, title=item['title'], reading='Read the selected panel for its saved observation.',
                             observations='The panel contains a single colored region in the synthetic fixture.',
@@ -459,7 +448,8 @@ def test_account_erasure_includes_sealed_narrative_and_receipts(client):
 
     endpoint, report = report_request(client)
     _, queued = queue_narrative(client, endpoint, report)
-    owner = authorize_user_and_project(queued)
+    from tests.helpers.tasks import task_owner
+    owner = task_owner(client)
     assert worker(queued, Fixture(narrative_fixture()))['status'] == 'succeeded'
 
     # A narrative cannot be fetched under another project belonging to the same owner.

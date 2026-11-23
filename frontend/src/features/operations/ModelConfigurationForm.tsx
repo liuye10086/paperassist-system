@@ -12,11 +12,11 @@ export default function ModelConfigurationForm({bundle,catalog,onChange}:{bundle
  const sourceNames={installed_code:'已安装代码',deployment_policy:'部署政策',synthetic_fixture:'合成验收样例'}
  return <section><p>{t('部署限制与用户授权继续优先，后台配置不能解除。')}</p>
  <label className="configuration-check"><input type="checkbox" disabled={catalog.field_readonly['models.real_calls_enabled']!==false} checked={bundle.models.real_calls_enabled} onChange={e=>onChange({...bundle,models:{...bundle.models,real_calls_enabled:e.target.checked}})}/>{t('允许真实模型调用')}</label>
- <p><span>{t('对新任务生效')}</span> · {t('真实连通未测试')}</p><p>{t('启用后仍须单独确认外发，并满足部署凭据、预算与任务授权要求。')}</p>
+ <p><span>{t('对新任务生效')}</span> · {t('真实连通未测试')}</p><p>{t('启用后仍须单独确认外发，并满足部署凭据与任务授权要求。')}</p>
  <label>{t('配置业务')}<select value={business} onChange={e=>setBusiness(e.target.value as ModelBusiness)}>{modelBusinesses.map(key=><option key={key} value={key}>{t(businessNames[key])}</option>)}</select></label>
  {!entry?<><p>{t('此业务尚未配置。')}</p>{installed?<button type="button" onClick={()=>update(structuredClone(installed))}>{t('使用已安装部署基线')}</button>:<p>{t('尚无已登记部署基线，不能创建执行政策。')}</p>}</>:<>
  {business!=='writing'&&<button type="button" onClick={()=>update(null)}>{t('清除此业务配置')}</button>}
- {readonly&&<p>{t('文献供应商政策固定，只允许收紧输入与任务预算。')}</p>}
+ {readonly&&<p>{t('文献供应商政策固定，只允许收紧输入 Token 上限。')}</p>}
  <fieldset disabled={readonly} className="configuration-fields"><legend>{t(businessNames[business])}</legend>
  <label>{t('模型名称')}<select value={policy!.model} onChange={e=>setPolicy({model:e.target.value,price:{...policy!.price,model:e.target.value}})}>{(constraint?.model?[constraint.model]:catalog.installed.models).map(model=><option key={model}>{model}</option>)}</select></label>
  <ReadonlyField label="提示词版本" value={policy!.prompt_version}/><ReadonlyField label="输出格式" value={policy!.output_format}/>
@@ -28,13 +28,12 @@ export default function ModelConfigurationForm({bundle,catalog,onChange}:{bundle
  <label className="configuration-check"><input type="checkbox" checked={policy!.price.cache_write_micro_usd_per_million!==null} onChange={e=>setPolicy({price:{...policy!.price,cache_write_micro_usd_per_million:e.target.checked?0:null}})}/>{t('缓存写价已配置')}</label>
  {policy!.price.cache_write_micro_usd_per_million!==null&&<NumberField label="缓存写入价格（微美元/百万 Token）" value={policy!.price.cache_write_micro_usd_per_million} onChange={n=>setPolicy({price:{...policy!.price,cache_write_micro_usd_per_million:n}})}/>}
  </fieldset>
- <div className="configuration-fields"><NumberField label="输入 Token 预算" min={1} max={installed?.execution.input_token_allowance??entry.execution.input_token_allowance} value={entry.execution.input_token_allowance} onChange={n=>setExecution({input_token_allowance:n})}/><NumberField label="任务预算上限（微美元）" max={installed?.execution.task_limit_micro_usd??entry.execution.task_limit_micro_usd} value={entry.execution.task_limit_micro_usd} onChange={n=>setExecution({task_limit_micro_usd:n})}/>
- {business==='plot'&&<><NumberField label="工具预留（微美元）" min={1} value={entry.execution.tool_reserve_micro_usd??1} onChange={n=>setExecution({tool_reserve_micro_usd:n})}/><label>{t('工具预留版本')}<input required maxLength={128} value={entry.execution.tool_reserve_version??''} onChange={e=>setExecution({tool_reserve_version:e.target.value})}/></label></>}
+ <div className="configuration-fields"><NumberField label="输入 Token 上限" min={1} max={installed?.execution.input_token_allowance??entry.execution.input_token_allowance} value={entry.execution.input_token_allowance} onChange={n=>setExecution({input_token_allowance:n})}/>
  <label>{t('价格来源')}<select value={entry.price_source} onChange={e=>update({...entry,price_source:e.target.value as ModelEntry['price_source']})}>{Object.entries(sourceNames).map(([key,label])=><option key={key} value={key}>{t(label)}</option>)}</select></label>
  <label>{t('价格核实状态')}<select value={entry.price_status} onChange={e=>update({...entry,price_status:e.target.value as ModelEntry['price_status'],price_verified_on:null})}><option value="unverified">{t('来源尚未核实')}</option><option value="synthetic">{t('合成价格')}</option></select></label>
  <label>{t('价格核实日期')}<input type="date" disabled={entry.price_status==='unverified'} value={entry.price_verified_on??''} onChange={e=>update({...entry,price_verified_on:e.target.value||null})}/></label></div>
  </>}
- <div className="configuration-fields"><NumberField label="批次提交上限（次）" min={1} max={6} value={bundle.models.batch_max_posts} onChange={n=>onChange({...bundle,models:{...bundle.models,batch_max_posts:n}})}/><NumberField label="最多纠正次数" max={2} value={bundle.models.max_corrections} onChange={n=>onChange({...bundle,models:{...bundle.models,max_corrections:n}})}/><NumberField label="批次预算上限（微美元）" min={1} max={12000000} value={bundle.models.batch_cap_micro_usd} onChange={n=>onChange({...bundle,models:{...bundle.models,batch_cap_micro_usd:n}})}/></div>
+ <div className="configuration-fields"><NumberField label="批次提交上限（次）" min={1} max={6} value={bundle.models.batch_max_posts} onChange={n=>onChange({...bundle,models:{...bundle.models,batch_max_posts:n}})}/><NumberField label="最多纠正次数" max={2} value={bundle.models.max_corrections} onChange={n=>onChange({...bundle,models:{...bundle.models,max_corrections:n}})}/></div>
  <ReadonlyField label="登记凭据引用" value={bundle.models.credential?bundle.models.credential.alias+' / '+bundle.models.credential.revision:'没有登记引用'}/><p>{t('只保存登记别名与修订，不接收秘密值。')}</p>
  </section>
 }

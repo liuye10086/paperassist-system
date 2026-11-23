@@ -58,7 +58,5 @@
 .task-event-list time { font-size: 11px; color: var(--text); }
 .task-event-dot { height: 8px; width: 8px; border-radius: 50%; margin-top: 6px; background: var(--accent); flex-shrink: 0; }
 .task-model-usage { margin-top: 24px; }
-.task-model-usage .usage-budgets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-@media (max-width: 850px) { .task-model-usage .usage-budgets { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .task-detail { padding: 18px; } .task-facts { grid-template-columns: 1fr; } .task-filters label { flex: 1; min-width: 140px; } }
 @media(max-width:600px) { .task-detail[data-layered='true'] { height:auto; min-height:0; overflow:visible; padding:18px; } .task-detail[data-layered='true'] .task-overview-view,.task-detail[data-layered='true'] .task-actions-view,.task-detail[data-layered='true'] .task-result-view,.task-detail[data-layered='true'] .task-events-view,.task-detail[data-layered='true'] .task-usage-view { overflow:visible; } }

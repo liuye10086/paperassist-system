@@ -9,7 +9,7 @@ import {BioWriteStatus} from './BioSpatialShared'
 import {bioConditionLabel} from './bioPresentation'
 import useBioWrite from './useBioWrite'
 import SingleCellDirectStart from './SingleCellDirectStart'
-type Props={allowNewAnalysis?:boolean;projectId:string;source:RawBioSource;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
+type Props={guided?:boolean;designVersionId?:string|null;observationMapVersionId?:string;allowNewAnalysis?:boolean;projectId:string;source:RawBioSource;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
 export default function BioNewAnalysis(props:Props){
  if(props.source.parser_version==='single_cell_import_v1')return <SingleCellDirectStart {...props}/>
  return <LegacyNewAnalysis {...props}/>

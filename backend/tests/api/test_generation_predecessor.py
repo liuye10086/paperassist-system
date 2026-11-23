@@ -261,6 +261,6 @@ def test_same_key_acceptance_between_request_lookup_and_task_read_replays_accept
     after = persistence_counts()
     assert after['tasks'] == before['tasks'] + 1
     assert after['task_outbox'] == before['task_outbox'] + 1
-    assert after['model_budgets'] == before['model_budgets'] + 1
+    assert after['model_budgets'] == before['model_budgets']
     assert after['model_calls'] == after['budget_reservations'] == 0
     assert not cloud.calls and not writer.calls

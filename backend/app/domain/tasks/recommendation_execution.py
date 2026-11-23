@@ -37,8 +37,8 @@ def run_recommendation_task(task_id,task_revision,*,config=None,directory=None,p
     try:return execute(repository,lease,provider_factory or create_provider,providers)
     except LeaseLost:return None
     except StorageError as exc:
-        if exc.code in ('model_budget_missing','model_budget_exceeded','recommendation_not_configured','explanation_not_configured'):
-            return repository.wait_explanation(lease,'budget_exceeded',exc.code)
+        if exc.code in ('recommendation_not_configured','explanation_not_configured'):
+            return repository.fail(lease,exc.code)
         if exc.status<500:return repository.fail(lease,exc.code)
         return None
     except Exception as exc:

@@ -58,3 +58,12 @@ def historical_collection_export(repository, project, version_id, key):
             (request_id, version_id, revision, RENDERER, key, request_digest, Jsonb([])))
         repository.advance_in_transaction(db, project, request_id)
         return repository.request_view(db, request_id)
+
+
+def historical_model_wait(task):
+    """Recreate a pre-upgrade task paused before its first provider submission."""
+    from app.adapters.task_execution_store import TaskExecutionStore
+    store = TaskExecutionStore()
+    lease = store.claim(task['id'], task['revision'], task_type=task['task_type'])
+    assert lease is not None
+    return store.wait_explanation(lease, 'budget_exceeded', 'model_budget_exceeded')

@@ -62,12 +62,12 @@ def test_sci_customer_routes_are_owner_project_and_material_scoped():
         assert owner.get(analysis + path).status_code == 403
         assert owner.get(thesis + path).status_code == 200
         assert owner.get(thesis + '/journals/config').status_code == 403
-        assert owner.get(sci + '/literature/evidence/material-options').json()['items'][0]['file_id'] == visible['id']
         forbidden_source = dict(kind='original', id=hidden['id'], file_id=hidden['id'], role='user_results')
         assert post(owner, sci + '/manuscripts/preview', body(sources=[forbidden_source]), 'hidden').status_code == 404
         assert owner.get(sci + f'/files/{hidden["id"]}/document-versions').status_code == 404
-        assert owner.get(sci + '/reviews/rounds').status_code == 200
-        for suffix in ('/thesis-profile', '/pdf-exports', '/journals/submission-events'):
+        assert owner.get(thesis + '/reviews/rounds').status_code == 200
+        for suffix in ('/thesis-profile', '/pdf-exports', '/journals/submission-events', '/journals/config',
+                       '/reviews/rounds', '/literature/evidence/material-options', '/literature/citations/drafts'):
             assert owner.get(sci + suffix).status_code == 403
 
 
@@ -80,7 +80,7 @@ def test_citation_candidates_and_todos_hide_quotes_from_invisible_materials():
     with TestClient(app) as customer, TestClient(app) as other:
         sign_in(customer, 'citation-reader@manuscript.test', 'customer')
         uploader = sign_in(other, 'citation-uploader@manuscript.test', 'customer')
-        project = sci_project(customer)
+        project = project_path(create(customer, 'thesis', **project_body('thesis')))
         project_id = project.rsplit('/', 1)[-1]
         search = create_search(customer, project_id).json()
         assert run_literature_task(search['id'], search['revision'], client=CitationNcbi(2))['status'] == 'succeeded'
@@ -259,11 +259,12 @@ def test_excel_paper_material_freezes_selected_sheet_display_and_exact_values():
         wire = json.loads(json.loads(writing.json()['wire_json'])['input'])
         rows = next(row['values'] for row in wire['numeric_context'] if row['location'] == 'illustrations[0].table_cells')
         assert rows == [dict(fact_path='/rows/0/1', value='50.00', display_text='50.00%')]
-        word = post(client, root + '/versions/1/exports', {}, 'selected-table-word')
-        assert word.status_code == 201, word.text
-        assert run_task(word.json()['task_id'], 1)['status'] == 'succeeded'
-        content = client.get(f"{root}/exports/{word.json()['id']}/download").content
-        [table] = Document(BytesIO(content)).tables
+        from tests.api.test_manuscript_writing_live import LiveFixture
+        from tests.integration.test_customer_sci_to_word import submit_candidate
+        reader, _ = submit_candidate(client, project, root, writing.json(), LiveFixture())
+        word = client.get(reader + '/word?revision=1')
+        assert word.status_code == 200, word.text
+        [table] = Document(BytesIO(word.content)).tables
         assert [cell.text for cell in table.rows[1].cells] == ['A', '50.00%']
 
 
@@ -309,39 +310,29 @@ def test_figures_and_panels_use_frozen_file_numbers_across_findings():
 
 
 def test_sci_customer_retries_failed_word_with_its_fixed_input(monkeypatch):
+    from tests.api.test_manuscript_writing_live import LiveFixture
+    from tests.integration.test_customer_sci_to_word import create_fact, request, submit_candidate
+
     with TestClient(app) as client:
         sign_in(client, 'sci-b02-word-retry@manuscript.test', 'customer')
         sci = sci_project(client)
-        response = post(client, sci + '/manuscripts', body(), 'fact')
-        assert response.status_code == 201, response.text
-        manuscript = response.json()
-        version = manuscript['versions'][0]
-        assert run_task(version['task_id'], 1)['status'] == 'succeeded'
-        root = sci + '/manuscripts/' + manuscript['id']
-        response = post(client, root + '/versions/1/exports', {}, 'word')
-        assert response.status_code == 201, response.text
-        export = response.json()
+        plan = request(client, 'GET', sci + '/manuscripts/candidates')['paper_plan']
+        root, _ = create_fact(client, sci, body(title=plan['title'], paper_plan_token=plan['token']))
+        preview = request(client, 'POST', root + '/writing-previews', key='preview', status=201,
+                          json=article_request('research'))
+        provider = LiveFixture()
+        reader, candidate = submit_candidate(client, sci, root, preview, provider)
+        word = reader + '/word?revision=1'
 
         def render_failed(*args, **kwargs):
             raise StorageError('report_render_failed', 'Synthetic first attempt failure.', 422)
 
         with monkeypatch.context() as patch:
-            patch.setattr('app.adapters.manuscript_docx.build_manuscript_docx', render_failed)
-            assert run_task(export['task_id'], 1)['status'] == 'failed'
-
-        task_path = '/api/v1/tasks/' + export['task_id']
-        response = client.get(task_path + '/workspace')
-        assert response.status_code == 200, response.text
-        workspace = response.json()
-        task = workspace['task']
-        assert 'retry' in workspace['allowed_actions']
-        assert task['input_version']['manuscript_version_id'] == version['id']
-        resume = dict(operation='retry', wait_id=None, expected_task_revision=task['revision'], input_version=task['input_version'])
-        response = post(client, task_path + '/resume', resume, 'retry-word')
-        assert response.status_code == 202, response.text
-        queued = response.json()
-        assert post(client, task_path + '/resume', resume, 'retry-word').json() == queued
-        assert run_task(queued['id'], queued['revision'])['status'] == 'succeeded'
-        saved = client.get(root + '/exports/' + export['id']).json()
-        assert saved['version_id'] == version['id']
-        assert client.get(saved['download_url']).status_code == 200
+            patch.setattr('app.domain.sci_draft_reader.draft_word', render_failed)
+            assert client.get(word).status_code == 422
+        assert request(client, 'GET', reader + '?revision=1')['draft']['title'] == candidate['title']
+        downloaded = client.get(word)
+        assert downloaded.status_code == 200
+        assert candidate['title'] == Document(BytesIO(downloaded.content)).paragraphs[0].text
+        assert provider.posts == [preview['wire_json']]
+        assert len(request(client, 'GET', root)['versions']) == 1

@@ -10,7 +10,6 @@ import pytest
 from app.core.config import local_config
 from app.core.paths import PROJECT_ROOT
 from app.db.database import database_connection
-from app.domain.model_usage.service import ModelUsageService
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_boxplot import cloud  # noqa: F401
 from tests.integration.test_explanations import writer  # noqa: F401
@@ -102,10 +101,6 @@ def test_current_figure_and_explanation_real_crash_recovery(client,retained_stac
             external_processing={'confirmed':True,'payload_sha256':preview['payload_sha256']})
         task=submit(store,*args,version,body)['task']
         assert submit(store,*args,version,body)['task']['id']==task['id']
-        service=ModelUsageService(store.tasks.user_id)
-        for scope,key in [('user',store.tasks.user_id),('project',project)]:
-            existing=service.get_budget(scope,key)
-            if existing['limit_micro_usd'] is None:service.set_budget(scope,key,20000000,existing['revision'])
         with database_connection() as db:snapshots[task['id']]=db.execute('SELECT input_snapshot FROM tasks WHERE id=%s',(task['id'],)).fetchone()['input_snapshot']
         cases[mode]=(store,project,result,version,task)
     override=tmp_path/'batch08-worker.json'
@@ -177,15 +172,15 @@ def test_current_figure_and_explanation_real_crash_recovery(client,retained_stac
             assert db.execute('SELECT input_snapshot FROM tasks WHERE id=%s',(tid,)).fetchone()['input_snapshot']==snapshots[tid]
             calls=db.execute('SELECT * FROM model_calls WHERE task_id=%s',(tid,)).fetchall();assert len(calls)==1
             call=dict(calls[0]);reservations=db.execute('SELECT status FROM budget_reservations WHERE call_id=%s',(call['id'],)).fetchall()
-            assert len(reservations)==3
+            assert not reservations
             if mode=='response-unknown':
                 assert state['reason_code']=='submission_unknown' and call['provider_response_id'] is None
-                assert call['usage_status']=='pending' and {r['status'] for r in reservations}=={'held'}
+                assert call['usage_status']=='pending'
                 assert actions==['POST explanation']
                 assert client.post('/api/v1/tasks/'+tid+'/retry',json={'expected_revision':state['revision']}).status_code==409
             else:
                 assert call['status']=='completed' and call['provider_response_id']
-                assert actions.count('GET explanation')>=1 and {r['status'] for r in reservations}=={'settled'}
+                assert actions.count('GET explanation')>=1
                 if mode=='response-saved':assert state['current_attempt']==2
                 value=json.loads(db.execute('SELECT explanation_json FROM explanations WHERE id=%s',(state['result_explanation_id'],)).fetchone()['explanation_json'])
                 assert value['engine']['id']=='figure_explanation_v2' and value['provenance']['model_call_id']==call['id']

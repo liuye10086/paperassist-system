@@ -20,7 +20,7 @@ def test_source_changed_after_reservation_before_effect_fence_never_posts(client
 
     def reserve_then_change_source(self, request, **kwargs):
         call = original(self, request, **kwargs)
-        # Workbook reconstruction and budget reservation are already finished.
+        # The worker reconstructed the workbook and persisted the call.
         change_source()
         return call
 
@@ -34,8 +34,8 @@ def test_source_changed_after_reservation_before_effect_fence_never_posts(client
         assert call['provider_response_id'] is None
         assert (call['provider_state'] or {}).get('phase') == [None, 'container_ready', 'file_ready'][prior_posts]
         reservations = db.execute('SELECT status FROM budget_reservations WHERE call_id=%s', (call['id'],)).fetchall()
-        assert len(reservations) == 3
-        assert {row['status'] for row in reservations} == ({'released'} if prior_posts == 0 else {'held'})
+        assert not reservations
+
         releases = db.execute("SELECT * FROM usage_events WHERE call_id=%s AND event_type='release'",
                               (call['id'],)).fetchall()
         assert len(releases) == (1 if prior_posts == 0 else 0)
@@ -67,8 +67,7 @@ def test_source_failure_release_persistence_error_does_not_finish_task_and_recov
     with database_connection() as db:
         call = db.execute('SELECT * FROM model_calls').fetchone()
         assert call['status'] == ('released' if committed else 'reserved')
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == (
-            {'released'} if committed else {'held'})
+        assert not db.execute('SELECT 1 FROM budget_reservations').fetchall()
     if committed:
         # Even if the isolated input is restored, a released call cannot return
         # to a paid stage after the failure transaction was interrupted.
@@ -81,4 +80,4 @@ def test_source_failure_release_persistence_error_does_not_finish_task_and_recov
     assert provider.posts == []
     with database_connection() as db:
         assert db.execute("SELECT count(*) AS n FROM usage_events WHERE event_type='release'").fetchone()['n'] == 1
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'released'}
+        assert not db.execute('SELECT 1 FROM budget_reservations').fetchall()

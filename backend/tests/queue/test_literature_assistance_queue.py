@@ -10,7 +10,7 @@ from app.core.paths import PROJECT_ROOT
 from app.db.database import database_connection
 from tests.api.test_analysis import client  # noqa: F401
 from tests.api.test_literature import project
-from tests.integration.test_literature_assistance import create, budgets
+from tests.integration.test_literature_assistance import create
 from tests.queue.test_real_worker import worker_stack
 
 pytestmark = pytest.mark.skipif(os.environ.get('PAPERASSIST_RUN_QUEUE_TESTS') != '1',
@@ -45,7 +45,6 @@ def test_linux_authorization_wait_and_restart_keep_single_model_publication(clie
             assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 0
         worker_stack.compose(stack, ['stop', '--timeout', '45', 'worker'], timeout=100)
         task = create(client, pid, key='queue-synthetic-assistance')
-        budgets(client, task)
         override = tmp_path / 'assistance-worker.json'
 
         def boot(mode):

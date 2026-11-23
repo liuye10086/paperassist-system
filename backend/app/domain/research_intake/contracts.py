@@ -1,7 +1,7 @@
 """Strict version-one research intake contracts; unknown is an explicit state."""
-from typing import Literal
+from typing import Annotated, Literal
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 DeliveryKind = Literal['analysis','sci_draft','thesis_draft']
 
@@ -128,6 +128,8 @@ class MaterialChecklistItem(StrictModel):
 
 class RequirementContent(StrictModel):
     schema_version: Literal[1]
+    study_species: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]] = Field(
+        default_factory=list, max_length=100, exclude_if=lambda names: not names)
     contact: Contact = Field(default_factory=Contact)
     services: list[DeliveryKind] = Field(default_factory=list,max_length=3)
     progress: Progress = Field(default_factory=Progress)

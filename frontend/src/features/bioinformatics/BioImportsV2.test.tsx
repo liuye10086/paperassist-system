@@ -6,6 +6,34 @@ vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owne
 afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
 function responses(url:string,init?:RequestInit){return Promise.resolve(Response.json(init?.method==='POST'?{id:'import1'}:url.endsWith('/files')?[{id:'file1',filename:'matrix.h5',file_type:'bio_component'}]:url.includes('/bio-analysis-runs')?{items:[],total:0}:{items:[{id:'dataset1',name:'Existing Visium',revision:2}],total:1}))}
 const customerImport={projectId:'p1',active:true,analysisOnly:true,sectioned:true,qualityMode:false,navigation:{view:'bio-datasets' as const,fileId:'',intent:'single_cell_import' as const},onNavigate:()=>{}}
+it('submits only the three preselected matrix files from the four uploaded materials',async()=>{
+ const names=['matrix.mtx.gz','features.tsv.gz','barcodes.tsv.gz','cell_mapping.csv']
+ vi.mocked(apiFetch).mockImplementation(async(url,init)=>url.endsWith('/files')?
+   Response.json(names.map((filename,id)=>({id:String(id),filename,file_type:'bio_component'}))):responses(url,init))
+ render(<BioImports {...customerImport} entryKey="req:single" initialFileIds={['0','1','2']}/>)
+ for(const filename of names.slice(0,3)){
+   await waitFor(()=>expect(screen.getByRole('checkbox',{name:new RegExp(filename)})).toHaveProperty('checked',true))
+ }
+ expect(screen.queryByRole('checkbox',{name:/cell_mapping\.csv/})).toBeNull()
+ fireEvent.change(screen.getByLabelText('数据集名称'),{target:{value:'PBMC-960'}})
+ fireEvent.click(screen.getByRole('button',{name:'开始结构导入'}))
+ await waitFor(()=>expect(vi.mocked(apiFetch).mock.calls.some(([,init])=>init?.method==='POST')).toBe(true))
+ const post=vi.mocked(apiFetch).mock.calls.find(([,init])=>init?.method==='POST')!
+ expect(JSON.parse(String(post[1]?.body))).toMatchObject({file_ids:['0','1','2'],assay:'single_cell',matrix_representation:'mtx',samples:[]})
+})
+it('explains an unavailable engine on HTTP 409 and preserves the import draft for retry',async()=>{
+ vi.mocked(apiFetch).mockImplementation((url,init)=>init?.method==='POST'
+   ? Promise.resolve(Response.json({detail:{code:'bio_environment_unavailable'}},{status:409}))
+   : responses(url,init))
+ render(<BioImports {...customerImport}/>)
+ fireEvent.click(await screen.findByRole('checkbox',{name:/matrix.h5/}))
+ fireEvent.change(screen.getByLabelText('数据集名称'),{target:{value:'PBMC-960'}})
+ fireEvent.click(screen.getByRole('button',{name:'开始结构导入'}))
+ expect((await screen.findByRole('alert')).textContent).toContain('生信计算环境')
+ expect(screen.getByLabelText('数据集名称')).toHaveProperty('value','PBMC-960')
+ expect(screen.getByRole('checkbox',{name:/matrix.h5/})).toHaveProperty('checked',true)
+ expect(screen.getByRole('button',{name:'开始结构导入'})).toHaveProperty('disabled',false)
+})
 it('waits for the customer file list before presenting five eligible omics files',async()=>{
  let resolveFiles!:(value:Response)=>void
  const pending=new Promise<Response>(resolve=>{resolveFiles=resolve})

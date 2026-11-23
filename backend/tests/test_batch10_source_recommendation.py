@@ -4,7 +4,6 @@ import pytest
 from tests.api.test_analysis import client,selection
 from tests.integration.test_correlation_plan import prepared_correlations
 from tests.integration.test_analysis_recommendation import planning_policy,RecommendationProvider
-from tests.helpers.tasks import task_owner
 from tests.test_batch10_source_contracts import v5_draft
 from tests.integration.test_research_plan import research
 from tests.helpers.analysis_plan import run_plan,review_plan
@@ -12,7 +11,6 @@ from tests.helpers.analysis_plan import run_plan,review_plan
 @pytest.mark.parametrize('status',['matched','unspecified','ambiguous','other'])
 def test_v5_one_call_source_reference_and_frozen_local_mapping(client,monkeypatch,status):
     from app.domain.tasks.recommendation_execution import run_recommendation_task
-    from app.domain.model_usage.service import ModelUsageService
     from app.db.database import database_connection
     class Provider(RecommendationProvider):
         def receipt(self):
@@ -31,8 +29,7 @@ def test_v5_one_call_source_reference_and_frozen_local_mapping(client,monkeypatc
     body['external_processing']=dict(version=1,confirmed=True,source_digest=preview.json()['source_digest'],labels=labels)
     created=client.post(base+'/analysis-recommendations',json=body,headers={'Idempotency-Key':'v5-source'})
     assert created.status_code==202,created.text
-    task=created.json();owner=task_owner(client);ledger=ModelUsageService(owner)
-    for scope,key in [('user',owner),('project',task['project_id'])]:ledger.set_budget(scope,key,5000000,0)
+    task=created.json()
     provider=Provider();done=run_recommendation_task(task['id'],task['revision'],provider_factory=lambda:provider)
     assert done['status']=='succeeded',done
     assert len(provider.posts)==1

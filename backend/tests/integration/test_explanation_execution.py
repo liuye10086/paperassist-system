@@ -94,8 +94,6 @@ def execution_setup(client):
         db.execute("UPDATE tasks SET input_snapshot=jsonb_set(input_snapshot,'{explanation_policy}',%s) WHERE id=%s",
                    (Jsonb(frozen), task['id']))
     service = ModelUsageService(owner)
-    for scope, key in [('user', owner), ('project', task['project_id']), ('task', task['id'])]:
-        service.set_budget(scope, key, 1000000, 0)
     return task, owner, base, result, figure, service
 
 
@@ -187,27 +185,23 @@ def test_pending_response_releases_worker_then_completes_same_call_and_attempt(c
         assert saved['provenance']['input_sha256'] != call['input_digest']
         attempts = db.execute('SELECT attempt_no,status FROM task_attempts WHERE task_id=%s', (task['id'],)).fetchall()
         assert attempts == [{'attempt_no': 1, 'status': 'succeeded'}]
-        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations')} == {'settled'}
+        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations')} == set()
 
 
-def test_budget_missing_waits_without_post_or_call(client, cloud):
-    task, owner, *_ = execution_setup(client)
-    with database_connection(write=True) as db:
-        db.execute("DELETE FROM model_budgets WHERE scope_type='task'")
+def test_explanation_completes_without_any_budget(client, cloud):
+    task, *_ = execution_setup(client)
     provider = SyntheticProvider()
-    waiting = run(task, provider)
-    assert waiting['status'] == 'waiting_confirmation' and waiting['reason_code'] == 'budget_exceeded'
-    assert provider.posts == []
+    assert run(task, provider)['status'] == 'succeeded'
+    assert len(provider.posts) == 1
     with database_connection() as db:
-        assert not db.execute('SELECT id FROM model_calls').fetchall()
+        assert not db.execute('SELECT 1 FROM budget_reservations').fetchone()
 
 
 def test_unconfigured_snapshot_waits_without_initializing_provider(client, cloud):
     task, *_ = queued(client)
     provider = SyntheticProvider()
     waiting = run(task, provider)
-    assert waiting['status'] == 'waiting_confirmation'
-    assert waiting['reason_code'] == 'budget_exceeded'
+    assert waiting['status'] == 'failed'
     assert waiting['error_code'] == 'explanation_not_configured'
     assert provider.posts == [] and provider.closed == 0
 
@@ -221,7 +215,7 @@ def test_unknown_submission_waits_and_never_reposts(client, cloud):
     with database_connection() as db:
         call = db.execute('SELECT * FROM model_calls').fetchone()
         assert call['status'] == 'submission_unknown' and call['provider_response_id'] is None
-        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations')} == {'held'}
+        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations')} == set()
 
 
 def test_bad_business_output_fails_after_usage_is_saved(client, cloud):
@@ -231,7 +225,7 @@ def test_bad_business_output_fails_after_usage_is_saved(client, cloud):
     with database_connection() as db:
         assert not db.execute('SELECT id FROM explanations').fetchall()
         assert db.execute('SELECT status FROM model_calls').fetchone()['status'] == 'completed'
-        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations')} == {'settled'}
+        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations')} == set()
 
 
 @pytest.mark.parametrize('failure', ['explanation', 'success_event'])
@@ -281,7 +275,7 @@ def test_reserved_call_survives_attempt_recovery_without_new_reservation(client,
     assert len(provider.posts) == 1 and not provider.gets
     with database_connection() as db:
         assert [row['id'] for row in db.execute('SELECT id FROM model_calls')] == [call['id']]
-        assert len(db.execute('SELECT * FROM budget_reservations').fetchall()) == 3
+        assert len(db.execute('SELECT * FROM budget_reservations').fetchall()) == 0
 
 
 def test_transient_get_releases_lease_with_longer_delay_and_retains_response(client, cloud):
@@ -313,7 +307,7 @@ def test_known_response_404_fails_without_posting_again(client, cloud):
     assert failed['status'] == 'failed' and failed['error_code'] == 'model_response_not_found'
     assert len(provider.posts) == 1
     with database_connection() as db:
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'held'}
+        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == set()
 
 
 def test_source_changed_after_model_completion_rejects_explanation_but_keeps_usage(client, cloud):
@@ -421,7 +415,7 @@ def test_later_cached_result_does_not_abandon_an_already_submitted_call(client, 
     assert provider.gets == [provider.response_id, provider.response_id] and len(provider.posts) == 1
     with database_connection() as db:
         reservations = db.execute('SELECT status FROM budget_reservations').fetchall()
-        assert len(reservations) == 3 and all(row['status'] == 'settled' for row in reservations)
+        assert reservations == []
 
 
 def test_unknown_on_final_automatic_attempt_still_waits_without_requeue(client, cloud):
@@ -450,7 +444,7 @@ def test_unknown_on_final_automatic_attempt_still_waits_without_requeue(client, 
     assert waiting['status'] == 'waiting_confirmation' and waiting['reason_code'] == 'submission_unknown'
     assert waiting['current_attempt'] == 3
     with database_connection() as db:
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'held'}
+        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == set()
         assert db.execute('SELECT count(*) AS n FROM task_outbox WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 3
 
 
@@ -471,7 +465,7 @@ def test_source_changed_between_slices_still_retrieves_and_accounts_existing_res
         assert not db.execute('SELECT id FROM explanations').fetchall()
         call = db.execute('SELECT * FROM model_calls').fetchone()
         assert call['status'] == 'completed' and call['usage_status'] == 'estimated'
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'settled'}
+        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == set()
 
 
 def test_source_changed_before_first_submission_never_initializes_provider(client, cloud):
@@ -497,4 +491,4 @@ def test_disabled_owner_cannot_retrieve_an_existing_response(client, cloud):
     with database_connection() as db:
         current = db.execute('SELECT * FROM tasks WHERE id=%s', (task['id'],)).fetchone()
         assert current['status'] == 'failed' and current['error_code'] == 'task_owner_unavailable'
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == {'held'}
+        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations')} == set()

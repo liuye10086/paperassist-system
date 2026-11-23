@@ -32,9 +32,9 @@ def configure(monkeypatch, tmp_path):
     return module, path, values
 
 
-def test_policy_requires_explicit_tool_reserve_and_public_configuration_hides_secrets(monkeypatch, tmp_path):
+def test_policy_ignores_retired_tool_reserve_and_public_configuration_hides_secrets(monkeypatch, tmp_path):
     module, _, _ = configure(monkeypatch, tmp_path)
-    assert module.get_execution_policy(None) == execution_policy()
+    assert module.get_execution_policy(None) == {k:v for k,v in execution_policy().items() if k in ('input_token_allowance','policy')}
     public = module.configuration()
     assert public['configured'] and public['model'] == 'test-model'
     assert not {'policy', 'price', 'task_limit_micro_usd', 'tool_reserve_micro_usd', 'path', 'api_key'} & public.keys()
@@ -42,9 +42,7 @@ def test_policy_requires_explicit_tool_reserve_and_public_configuration_hides_se
 
 
 @pytest.mark.parametrize('change', [
-    {'tool_reserve_micro_usd': 0}, {'tool_reserve_micro_usd': True},
-    {'tool_reserve_micro_usd': -1}, {'tool_reserve_version': ''}, {'input_token_allowance': 0},
-    {'task_limit_micro_usd': '50000'}, {'unexpected': 'ignored'},
+    {'input_token_allowance': 0}, {'unexpected': 'ignored'},
 ])
 def test_invalid_policy_has_no_fallback_or_private_error(monkeypatch, tmp_path, change):
     module, path, _ = configure(monkeypatch, tmp_path)
@@ -73,7 +71,7 @@ def test_worker_validates_snapshot_without_live_configuration_and_checks_real_ma
     frozen = execution_policy()
     frozen['input_token_allowance'] = len(INSTRUCTIONS.encode()) + len(canonical_payload(payload).encode()) + 4096
     values.clear()
-    assert module.validate_execution_policy(frozen, payload) == frozen
+    assert module.validate_execution_policy(frozen, payload) == {k:v for k,v in frozen.items() if k in ('input_token_allowance','policy')}
     with pytest.raises(StorageError) as error:
         module.validate_execution_policy(frozen, {'values': [1, 2], 'labels': {'caption': '更多中文'}})
     assert error.value.code == 'plot_input_limit'

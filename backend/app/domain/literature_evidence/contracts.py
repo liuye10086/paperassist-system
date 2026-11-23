@@ -37,6 +37,11 @@ class MaterialRequest(StrictModel):
         return value
 
 
+class AbstractLocation(StrictModel):
+    abstract_index: int = Field(ge=0)
+    start: int = Field(ge=0)
+
+
 class QuoteRequest(StrictModel):
     claim_revision: int = Field(ge=1)
     project_reference_id: str = Field(min_length=1, max_length=128)
@@ -45,12 +50,15 @@ class QuoteRequest(StrictModel):
     search_id: str | None = Field(default=None, min_length=1, max_length=128)
     material_id: str | None = Field(default=None, min_length=1, max_length=128)
     item_id: str | None = Field(default=None, min_length=1, max_length=256)
+    abstract_location: AbstractLocation | None = None
     quote: str = Field(min_length=1, max_length=12000)
 
     @model_validator(mode='after')
     def actual_source(self):
         if not self.quote.strip():
             raise ValueError('Nonempty exact quote required')
+        if self.abstract_location is not None and self.source_kind != 'abstract':
+            raise ValueError('Abstract positions require an abstract source')
         if self.source_kind == 'pmc':
             if not self.pmc_receipt_id or not self.item_id or self.search_id or self.material_id:
                 raise ValueError('PMC requires its saved receipt and item')
@@ -67,6 +75,7 @@ class QuoteRequest(StrictModel):
         result = super().model_dump(**kwargs)
         # Historic request JSON and digests remain byte-structurally unchanged.
         if self.source_kind != 'pmc': result.pop('pmc_receipt_id', None)
+        if self.abstract_location is None: result.pop('abstract_location', None)
         return result
 
 

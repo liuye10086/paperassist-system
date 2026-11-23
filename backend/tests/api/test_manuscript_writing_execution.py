@@ -5,7 +5,7 @@ import pytest
 
 from tests.api.test_manuscripts import client,setup,body
 from tests.api.test_literature_evidence import post
-from tests.integration.test_literature_assistance import SyntheticProvider,budgets
+from tests.integration.test_literature_assistance import SyntheticProvider
 from app.domain.tasks.execution import run_task
 from app.domain.manuscript_writing.execution import run_manuscript_writing_task
 from app.db.database import database_connection
@@ -39,7 +39,7 @@ class WritingProvider(SyntheticProvider):
         return receipt
 
 
-def test_default_writer_waits_without_budget_or_provider_calls(client):
+def test_default_writer_waits_without_authorization(client):
     task,endpoint=create(client)
     result=run_manuscript_writing_task(task['id'],task['revision'])
     assert result['status']=='waiting_confirmation',result
@@ -51,7 +51,7 @@ def test_default_writer_waits_without_budget_or_provider_calls(client):
 
 
 def test_synthetic_async_writer_uses_one_submission_and_persists_traceable_candidate(client):
-    task,endpoint=create(client);budgets(client,task);provider=WritingProvider(pending=True)
+    task,endpoint=create(client);provider=WritingProvider(pending=True)
     waiting=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
     assert waiting['status']=='running',waiting
     provider.pending=False
@@ -67,12 +67,12 @@ def test_synthetic_async_writer_uses_one_submission_and_persists_traceable_candi
         assert usage.json()['items'][0]['task_type']=='manuscript_writing'
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n']==1
-        assert db.execute('SELECT count(*) AS n FROM budget_reservations').fetchone()['n']>0
+        assert db.execute('SELECT count(*) AS n FROM budget_reservations').fetchone()['n'] == 0
         assert db.execute('SELECT count(*) AS n FROM usage_events').fetchone()['n']>0
 
 
 def test_source_changed_between_slices_retrieves_and_accounts_original_response(client):
-    task,endpoint=create(client);budgets(client,task);provider=WritingProvider(pending=True)
+    task,endpoint=create(client);provider=WritingProvider(pending=True)
     original=provider.receipt
     def complete_usage():
         receipt=original();receipt['usage']['input_tokens_details']['cache_write_tokens']=0
@@ -91,39 +91,25 @@ def test_source_changed_between_slices_retrieves_and_accounts_original_response(
         call=db.execute('SELECT * FROM model_calls WHERE task_id=%s',(task['id'],)).fetchone()
         assert provider.gets==[call['provider_response_id']]*2
         assert call['status']=='completed' and call['usage_status']=='estimated'
-        assert {r['status'] for r in db.execute('SELECT status FROM budget_reservations WHERE call_id=%s',(call['id'],))}=={'settled'}
+        assert not db.execute('SELECT 1 FROM budget_reservations WHERE call_id=%s', (call['id'],)).fetchall()
         assert db.execute('SELECT candidate_json FROM manuscript_writing_requests WHERE task_id=%s',(task['id'],)).fetchone()['candidate_json'] is None
 
 
-@pytest.mark.parametrize('mode',['invalid','unknown','no_budget'])
-def test_invalid_unknown_and_no_budget_never_publish(client,mode):
+@pytest.mark.parametrize('mode',['invalid','unknown'])
+def test_invalid_and_unknown_never_publish(client,mode):
     task,endpoint=create(client)
-    if mode!='no_budget': budgets(client,task)
     provider=WritingProvider(invalid=mode=='invalid',unknown=mode=='unknown')
     result=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
     assert result['status']==('failed' if mode=='invalid' else 'waiting_confirmation'),result
     assert client.get(endpoint+'/'+task['id']).json()['candidate'] is None
-    if mode=='no_budget': assert not provider.posts
     if mode=='unknown':
         assert result['reason_code']=='submission_unknown'
         assert run_manuscript_writing_task(task['id'],result['revision'],provider=provider) is None
         assert len(provider.posts)==1
 
 
-def test_budget_wait_can_resume_after_explicit_budget_is_available(client):
-    task,_=create(client);provider=WritingProvider()
-    waiting=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
-    assert waiting['reason_code']=='budget_exceeded'
-    budgets(client,task)
-    workspace=client.get('/api/v1/tasks/'+task['id']+'/workspace').json()
-    response=client.post('/api/v1/tasks/'+task['id']+'/resume',json=dict(operation='resume',wait_id=workspace['wait']['id'],expected_task_revision=waiting['revision'],input_version=waiting['input_version']),headers={'Idempotency-Key':'resume'})
-    assert response.status_code==202,response.text
-    assert run_manuscript_writing_task(task['id'],response.json()['revision'],provider=provider)['status']=='succeeded'
-    assert len(provider.posts)==1
-
-
 def test_finite_get_retries_and_manual_recovery_never_repeat_submission(client):
-    task,_=create(client);budgets(client,task)
+    task,_=create(client)
     provider=WritingProvider(pending=True,get_failures=4)
     current=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
     provider.pending=False
@@ -162,7 +148,7 @@ def test_expired_observation_resume_retrieves_saved_response_once_without_new_bu
     from psycopg.types.json import Jsonb
     from app.domain.model_usage.observation import consume_grant
     from app.domain.model_usage.service import ModelUsageService
-    task,_=create(client);budgets(client,task);provider=WritingProvider(pending=True)
+    task,_=create(client);provider=WritingProvider(pending=True)
     running=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
     with database_connection(write=True) as db:
         call=db.execute('SELECT * FROM model_calls WHERE task_id=%s',(task['id'],)).fetchone()

@@ -9,13 +9,24 @@ from app.domain.manuscripts.sources import require_visible_snapshot, writing_cha
 from app.domain.dataset_preparation.service import require_key, append_checkpoint
 from .bundle import build_bundle, require_current_source_projection, validate_bundle
 from .live_contracts import PreviewRequest, AuthorizationRequest, LiveWritingRequest, WORKFLOW,preview_data
-from .policy import MAX_POSTS, MAX_CORRECTIONS, TASK_CAP, BATCH_CAP, POLICY_VERSION, ENDPOINT, EXTERNAL_STORAGE_NOTICE, capabilities
-from .frozen import contract,bundle_contract,SCI_ARTICLE_PROSE_REVISION
+from .policy import POLICY_VERSION, ENDPOINT, EXTERNAL_STORAGE_NOTICE, capabilities
+from .frozen import contract,bundle_contract,execution_settings,SCI_ARTICLE_PROSE_REVISION
 from app.domain.admin_configuration.bindings import resolve,bind
 from app.domain.manuscripts.delivery_context import resolve_document_context
 
 def denied():
     return StorageError('manuscript_writing_not_authorized','外发包、逻辑任务或有效授权不匹配。',409)
+
+
+def revisable_draft(row, task):
+    candidate, original = row['candidate_json'], row['request_json']
+    if (task['status'] != 'succeeded' or not candidate or row['published_revision'] is not None
+            or original['mode'] != 'full_draft'):
+        return False
+    if candidate.get('thesis_context'):
+        return original.get('schema_version') == 3
+    return (original.get('schema_version') in (2, 4)
+            and candidate.get('article_type', 'research') in ('research', 'narrative_review'))
 
 class LiveWritingService:
     def __init__(self, assets):
@@ -32,10 +43,15 @@ class LiveWritingService:
             configuration=resolve(db,kind='writing_bundle',object_id=bundle_id)
             frozen=result.get('execution_contract')
             if configuration is not None:
-                if frozen is None or frozen!=contract(configuration,schema_version=frozen['schema_version'],
+                if frozen is None:
+                    raise ValueError('Bundle binding mismatch')
+                bound = contract(configuration,schema_version=frozen['schema_version'],
                     instruction_revision=frozen.get('instruction_revision'),document_kind=frozen.get('document_kind','sci'),
                     article_instruction_revision=frozen.get('article_instruction_revision'),
-                    source_selection_version=frozen.get('source_selection_version')):raise ValueError('Bundle binding mismatch')
+                    source_selection_version=frozen.get('source_selection_version'),
+                    school_presentation_version=frozen.get('school_presentation_version'))
+                if execution_settings(frozen) != execution_settings(bound):
+                    raise ValueError('Bundle binding mismatch')
             elif frozen is not None:
                 if frozen.get('schema_version') not in (2,3,4) or frozen.get('origin')!='installed':raise ValueError('Bundle binding mismatch')
         except (ValueError,KeyError,TypeError): raise source_conflict() from None
@@ -48,7 +64,36 @@ class LiveWritingService:
         if (root['current_revision']!=bundle['request_json']['base_revision'] or version['id']!=bundle['base_version_id']
             or version['snapshot_json']!=bundle['base_snapshot'] or changes(self.manuscripts,bundle['project_id'],bundle['base_snapshot'])): raise source_conflict()
         self.require_customer_writing_input(db, bundle['project_id'], bundle['request_json'], bundle['base_snapshot'])
+        if bundle['request_json'].get('revision_of_request_id'):
+            sections = self.revision_sections(db, bundle['project_id'], bundle['manuscript_id'],
+                                              version['id'], bundle['request_json'])
+            if sections != bundle['revision_sections']:
+                raise source_conflict()
         require_current_source_projection(bundle)
+
+    def revision_sections(self, db, project, identity, version_id, request):
+        """Recover the exact successful parent within its original owner/project/manuscript scope."""
+        from .bundle import safe_text
+        row, task = self.writing.row(db, project, identity, request['revision_of_request_id'])
+        candidate, original = row['candidate_json'], row['request_json']
+        school = bool(candidate and candidate.get('thesis_context'))
+        if (not revisable_draft(row, task) or row['base_version_id'] != version_id
+                or school != (request['schema_version'] == 3)
+                or not school and candidate.get('article_type', 'research') != request.get('article_type')
+                or any(original.get(key) != request.get(key) for key in
+                       ('selected_source_ids', 'selected_evidence_ids', 'output_language', 'base_revision',
+                        'document_context_version', 'keywords', 'acknowledgements', 'brief_limits'))
+                or original.get('validation_source_ids', []) != request.get('validation_source_ids', [])):
+            raise source_conflict()
+        def paragraph(p):
+            return dict(text=safe_text(p['text']), source_aliases=p.get('suggested_source_aliases', []),
+                        evidence_aliases=p.get('suggested_evidence_aliases', []))
+        if school:
+            from .school_live import WRITABLE
+            return [dict(id=f'chapter{i}', paragraphs=[paragraph(p) for p in section['paragraphs']])
+                    for i, section in enumerate(candidate['sections'], 1) if section['purpose'] in WRITABLE]
+        return [dict(id=section['id'], paragraphs=[paragraph(p) for p in section['paragraphs']])
+                for section in candidate['sections'] if section['id'] != 'references' and section['paragraphs']]
 
     def require_customer_writing_input(self, db, project, request, snapshot):
         if not self.manuscripts.assets.customer:
@@ -86,12 +131,18 @@ class LiveWritingService:
         from app.domain.manuscripts.research_sources import KINDS
         fixed_research = any(source['id'] in selected and source['kind'] in KINDS and source['content'].get('facts')
                              for source in snapshot['sources'])
-        if not supported_result and not fixed_research:
-            raise StorageError('manuscript_writing_evidence_required', '研究型论文须选择已关联资料的结果或固定计算结果。', 422)
+        findings = {section['id']: section['text'] for section in (plan or {}).get('sections', []) if section['text'].strip()}
+        project_finding = any(
+            paragraph['origin'] == 'user_provided' and not paragraph['source_ids']
+            and paragraph['id'] == 'paper-finding:' + group['id'] and paragraph['text'] == findings[group['id']]
+            for group in snapshot['results_groups'] if group['id'] in findings for paragraph in group['paragraphs']
+        )
+        if not (supported_result or fixed_research or project_finding):
+            raise StorageError('manuscript_writing_evidence_required', '请在项目信息中补充主要结果。', 422)
 
     @staticmethod
     def bundle_view(bundle):
-        return {k:v for k,v in bundle.items() if k not in ('base_snapshot','request_key','request_digest','user_id')}
+        return {k:v for k,v in bundle.items() if k not in ('base_snapshot','request_key','request_digest','user_id','revision_sections')}
 
     def preview(self,project,identity,request,key):
         require_key(key);body=preview_data(request)
@@ -113,10 +164,15 @@ class LiveWritingService:
             configuration=resolve(db)
             schema_version=4 if body['schema_version']==4 else (3 if school else 2)
             prose_revision=SCI_ARTICLE_PROSE_REVISION if schema_version==4 and not school else None
+            from .school_presentation import PRESENTATION_VERSION
+            presentation = (PRESENTATION_VERSION if schema_version == 3 and body['mode'] == 'full_draft'
+                            and body.get('document_context_version') == 'selected-text-v1' else None)
+            sections = self.revision_sections(db, project, identity, version['id'], body) if body.get('revision_of_request_id') else None
             try:
                 frozen=contract(configuration,schema_version=schema_version,document_kind='thesis' if school else 'sci',
-                                article_instruction_revision=prose_revision,source_selection_version=2)
-                data=build_bundle(version['snapshot_json'],body,execution_contract=frozen)
+                                article_instruction_revision=prose_revision,source_selection_version=2,
+                                school_presentation_version=presentation)
+                data=build_bundle(version['snapshot_json'],body,execution_contract=frozen,revision_sections=sections)
             except (ValueError,KeyError,TypeError) as exc:
                 if not school:raise StorageError('manuscript_writing_selection_invalid','文章结构、写作范围或所选证据与冻结基础稿不匹配。',422) from exc
                 raise StorageError('manuscript_writing_selection_invalid','学校章节、语言或所选用途与冻结确认不匹配；受保护章节不能请求模型生成。',422) from exc
@@ -172,16 +228,17 @@ class LiveWritingService:
                         wire_bytes=bundle['wire_bytes'],input_token_allowance=bundle['input_token_allowance'],reserved_micro_usd=bundle['reserved_micro_usd'],policy=bundle['policy_json']))
             if len(body['tasks'])!=4 and any(value['schema_version']==1 for value in limits):
                 raise StorageError('manuscript_writing_not_authorized','包含旧协议请求包时仍需四个明确逻辑任务；新数值协议可只选择实际需要的任务。',422)
-            caps={key:min(value[key] for value in limits) for key in ('batch_max_posts','max_corrections','batch_cap_micro_usd','task_limit_micro_usd')}
+            caps={key:min(value[key] for value in limits) for key in ('batch_max_posts','max_corrections')}
             manifest=dict(schema_version=2,confirmed=True,tasks=body['tasks'],materials=materials,
                 endpoint=ENDPOINT,background=True,store=True,service_tier='default',
                 external_storage_notice=EXTERNAL_STORAGE_NOTICE,
-                max_posts=caps['batch_max_posts'],max_corrections=caps['max_corrections'],cap_micro_usd=caps['batch_cap_micro_usd'],logical_task_cap_micro_usd=caps['task_limit_micro_usd'])
+                max_posts=caps['batch_max_posts'],max_corrections=caps['max_corrections'])
             identity=str(uuid4());timestamp=now()
+            # Historical tables require non-null cap columns. New grants use only the signed call counts.
             db.execute('INSERT INTO manuscript_writing_authorizations(id,project_id,user_id,request_key,request_digest,manifest_json,manifest_sha256,status,revision,max_posts,cap_micro_usd,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,\'active\',1,%s,%s,%s)',
-                (identity,project,self.store.user_id,key,digest(body),Jsonb(manifest),digest(manifest),manifest['max_posts'],manifest['cap_micro_usd'],timestamp))
+                (identity,project,self.store.user_id,key,digest(body),Jsonb(manifest),digest(manifest),manifest['max_posts'],0,timestamp))
             for task in body['tasks']:
-                db.execute('INSERT INTO manuscript_writing_authorized_tasks(authorization_id,logical_task_id,project_id,user_id,bundles_json,cap_micro_usd) VALUES (%s,%s,%s,%s,%s,%s)',(identity,task['logical_task_id'],project,self.store.user_id,Jsonb(task['bundles']),manifest['logical_task_cap_micro_usd']))
+                db.execute('INSERT INTO manuscript_writing_authorized_tasks(authorization_id,logical_task_id,project_id,user_id,bundles_json,cap_micro_usd) VALUES (%s,%s,%s,%s,%s,%s)',(identity,task['logical_task_id'],project,self.store.user_id,Jsonb(task['bundles']),0))
             return self.auth_view(db,self.authorization(db,project,identity)),201
 
     def auth_view(self,db,row):
@@ -212,8 +269,8 @@ class LiveWritingService:
         if not grant or ref not in grant['bundles_json'] or request['bundle_sha256']!=bundle['bundle_sha256']: raise denied()
         expected=next((t for t in auth['manifest_json']['tasks'] if t['logical_task_id']==request['logical_task_id']),None)
         manifest=auth['manifest_json']
-        if (not expected or expected['bundles']!=grant['bundles_json'] or grant['cap_micro_usd']!=manifest['logical_task_cap_micro_usd']
-            or auth['max_posts']!=manifest['max_posts'] or auth['cap_micro_usd']!=manifest['cap_micro_usd']): raise source_conflict()
+        if not expected or expected['bundles']!=grant['bundles_json'] or auth['max_posts']!=manifest['max_posts']:
+            raise source_conflict()
         if current: self.current(db,bundle)
         return auth,grant
 
@@ -230,7 +287,7 @@ class LiveWritingService:
                 if bundle['manuscript_id']!=identity: raise denied()
                 frozen=bundle_contract(bundle);expected_thesis=frozen['schema_version']==3 or (frozen['schema_version']==4 and frozen.get('document_kind')=='thesis')
                 if (resolve_document_context(db,project,self.store.user_id,manuscript_id=identity)['document_kind']=='thesis')!=expected_thesis:raise denied()
-                _,grant=self.require_authorized(db,project,execution,bundle)
+                self.require_authorized(db,project,execution,bundle)
                 request_id=str(uuid4());timestamp=now()
                 snap=dict(schema_version=2,project_id=project,workflow_version=WORKFLOW,input=bundle['request_json'],execution=execution,
                     base_snapshot=bundle['base_snapshot'],base_version_id=bundle['base_version_id'],manuscript_id=identity,
@@ -239,10 +296,6 @@ class LiveWritingService:
                 self.store.insert_task(db,task)
                 configuration=resolve(db,kind='writing_bundle',object_id=bundle['id'])
                 bind(db,kind='task',object_id=request_id,version=configuration)
-                # The task-level budget is the authorized per-task cap; user and project
-                # budgets stay with support/admin configuration.
-                db.execute("INSERT INTO model_budgets(id,user_id,scope_type,scope_key,project_id,task_id,limit_micro_usd,revision,created_at,updated_at) VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)",
-                    (str(uuid4()),self.store.user_id,request_id,project,request_id,grant['cap_micro_usd'],timestamp,timestamp))
                 db.execute('INSERT INTO manuscript_writing_requests(task_id,project_id,user_id,manuscript_id,base_version_id,request_json,input_snapshot,input_digest,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(request_id,project,self.store.user_id,identity,bundle['base_version_id'],Jsonb(bundle['request_json']),Jsonb(snap),digest(snap),timestamp,timestamp))
                 append_checkpoint(db,task,'check','check',dict(schema_version=2,input_digest=task['input_digest']))
                 self.store.append_event(db,task,'created');self.store.enqueue(db,task);status=202
@@ -251,10 +304,11 @@ class LiveWritingService:
 def usage(db,authorization_id):
     from app.domain.model_usage.accounting import accounting_projection
     counts={};occupied={}
-    for row in db.execute("SELECT * FROM manuscript_writing_call_admissions WHERE authorization_id=%s AND status<>'released'",(authorization_id,)):
-        call=db.execute('SELECT * FROM model_calls WHERE id=%s',(row['model_call_id'],)).fetchone()
-        reserve=db.execute('SELECT * FROM budget_reservations WHERE call_id=%s LIMIT 1',(call['id'],)).fetchone()
-        amount=sum(accounting_projection(call,reserve));logical=row['logical_task_id']
+    for call in db.execute('''SELECT c.*, a.logical_task_id FROM manuscript_writing_call_admissions a
+            JOIN model_calls c ON c.id=a.model_call_id
+            WHERE a.authorization_id=%s AND a.status<>'released' ''', (authorization_id,)):
+        amount, _ = accounting_projection(call, None)
+        logical = call['logical_task_id']
         counts[logical]=counts.get(logical,0)+1;occupied[logical]=occupied.get(logical,0)+amount
     return counts,occupied
 
@@ -271,21 +325,23 @@ def admission_context(store,db,task):
     auth,grant=service.require_authorized(db,task['project_id'],snap['execution'],bundle)
     return bundle,auth,grant
 
-def reserve_admission(store,db,task,request,reserved):
+def reserve_admission(store,db,task,request):
     bundle,auth,grant=admission_context(store,db,task)
     expected=bundle['policy_json']
-    if request.policy.model_dump(mode='json')!=expected or request.input_digest!=bundle['gateway_digest'] or request.input_token_allowance!=bundle['input_token_allowance'] or reserved!=bundle['reserved_micro_usd'] or request.tool_reserve_micro_usd!=0: raise denied()
-    counts,occupied=usage(db,auth['id']);logical=grant['logical_task_id']
+    if request.policy.model_dump(mode='json')!=expected or request.input_digest!=bundle['gateway_digest'] or request.input_token_allowance!=bundle['input_token_allowance']: raise denied()
+    counts = {row['logical_task_id']: row['posts'] for row in db.execute(
+        "SELECT logical_task_id,count(*) AS posts FROM manuscript_writing_call_admissions "
+        "WHERE authorization_id=%s AND status<>'released' GROUP BY logical_task_id", (auth['id'],))}
+    logical = grant['logical_task_id']
     next_counts={**counts,logical:counts.get(logical,0)+1}
-    if (sum(next_counts.values())>auth['max_posts'] or sum(max(n-1,0) for n in next_counts.values())>auth['manifest_json']['max_corrections']
-        or sum(occupied.values())+reserved>auth['cap_micro_usd'] or occupied.get(logical,0)+reserved>grant['cap_micro_usd']):
-        raise StorageError('model_budget_exceeded','本批授权次数、修正次数或逻辑任务累计预算不足。',409)
+    if (sum(next_counts.values())>auth['max_posts'] or sum(max(n-1,0) for n in next_counts.values())>auth['manifest_json']['max_corrections']):
+        raise StorageError('manuscript_writing_not_authorized','本次写作超出已确认的调用次数或修正次数，请核对授权。',409)
     return bundle,auth,grant
 
-def insert_admission(db,call,context,reserved):
+def insert_admission(db,call,context):
     bundle,auth,grant=context
     db.execute("INSERT INTO manuscript_writing_call_admissions(model_call_id,bundle_id,authorization_id,logical_task_id,project_id,user_id,reserved_micro_usd,status,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,'reserved',%s)",
-        (call['id'],bundle['id'],auth['id'],grant['logical_task_id'],call['project_id'],call['user_id'],reserved,now()))
+        (call['id'],bundle['id'],auth['id'],grant['logical_task_id'],call['project_id'],call['user_id'],0,now()))
 
 def begin_admission(store,db,task,call):
     bundle,auth,grant=admission_context(store,db,task)

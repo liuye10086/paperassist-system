@@ -15,7 +15,7 @@ def execution_policy():
     from tests.domain.test_explanation_policy import execution_policy as explanation_policy
     value = explanation_policy()
     value['policy'].update(prompt_version='openai_boxplot_v1', output_format='text', tools=['code_interpreter'])
-    return {**value, 'tool_reserve_micro_usd': 100, 'tool_reserve_version': 'synthetic-tool-v1'}
+    return {'policy': value['policy'], 'input_token_allowance': value['input_token_allowance']}
 
 
 @pytest.fixture
@@ -59,7 +59,7 @@ def test_post_only_saves_task_and_get_does_not_execute_or_write(client, cloud, p
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 0
         row = db.execute('SELECT input_snapshot FROM tasks WHERE id=%s',(state['task']['id'],)).fetchone()
         assert row['input_snapshot']['boxplot_policy'] == policy
-        assert db.execute("SELECT count(*) AS n FROM model_budgets WHERE scope_type='task'").fetchone()['n'] == 1
+        assert db.execute("SELECT count(*) AS n FROM model_budgets WHERE scope_type='task'").fetchone()['n'] == 0
 
 
 def test_missing_plot_policy_rejects_new_work_but_existing_task_and_image_still_read(client, cloud, monkeypatch, policy):
@@ -167,7 +167,7 @@ def test_paid_successor_requires_request_key_before_loading_policy(client, cloud
         after = persistence_counts()
         assert after['tasks'] == before['tasks'] + 1
         assert after['task_outbox'] == before['task_outbox'] + 1
-        assert after['model_budgets'] == before['model_budgets'] + 1
+        assert after['model_budgets'] == before['model_budgets']
         assert after['model_calls'] == before['model_calls']
         assert after['budget_reservations'] == before['budget_reservations']
         assert loaded == [True] and not cloud.calls
@@ -243,7 +243,7 @@ def test_missing_policy_can_be_frozen_on_budget_resume_before_any_call(client, p
         saved = db.execute('SELECT input_snapshot FROM tasks WHERE id=%s', (task['id'],)).fetchone()
         assert saved['input_snapshot']['boxplot_policy'] == policy
         budget = db.execute("SELECT limit_micro_usd FROM model_budgets WHERE scope_type='task' AND scope_key=%s", (task['id'],)).fetchone()
-        assert budget['limit_micro_usd'] == policy['task_limit_micro_usd']
+        assert budget is None
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 0
 
 
@@ -351,7 +351,7 @@ def test_expired_retry_requires_definite_call_evidence(client, cloud, policy,
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM tasks').fetchone()['n'] == baseline['tasks'] + (2 if replacement else 1)
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 1
-        assert db.execute("SELECT count(*) AS n FROM budget_reservations WHERE status='held'").fetchone()['n'] == 3
+        assert db.execute("SELECT count(*) AS n FROM budget_reservations WHERE status='held'").fetchone()['n'] == 0
     assert not cloud.calls
 
 
@@ -366,13 +366,9 @@ def failed_call(client, url, policy, call_status, call_error=None, *, response_i
     tasks = TaskService(owner)
     running = tasks.transition(task['id'], expected_revision=task['revision'], status='running')
     service = ModelUsageService(owner)
-    for scope, key in [('user', owner), ('project', task['project_id'])]:
-        service.set_budget(scope, key, 1000000, 0)
     call = service.reserve_call(CallRequest(task_id=task['id'], expected_task_revision=running['revision'],
         call_key='boxplot:v1', input_digest='a' * 64, policy=policy['policy'],
-        input_token_allowance=policy['input_token_allowance'],
-        tool_reserve_micro_usd=policy['tool_reserve_micro_usd'],
-        tool_reserve_version=policy['tool_reserve_version']))
+        input_token_allowance=policy['input_token_allowance']))
     # The gateway's separately tested receipts are seeded without using any provider.
     with database_connection(write=True) as db:
         db.execute('UPDATE model_calls SET status=%s,error_code=%s,provider_response_id=%s,provider_state=%s WHERE id=%s',

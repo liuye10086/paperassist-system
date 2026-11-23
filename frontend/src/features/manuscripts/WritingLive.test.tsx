@@ -5,12 +5,22 @@ import {manuscriptFixture} from './manuscriptFixtures'
 import type {ManuscriptVersion} from './manuscriptTypes'
 import {setApiSession} from '../../shared/api/client'
 import {webcrypto} from 'node:crypto'
-import {authFixture,bundleFixture,liveRequest,unsubmittedRequest} from './writingLiveFixtures'
+import {authFixture,bundleFixture,hash,liveRequest,unsubmittedRequest} from './writingLiveFixtures'
 import WritingLive from './WritingLive'
+import WritingBundlePreview from './WritingBundlePreview'
 import {ManuscriptDraftProvider} from './ManuscriptDraftProvider'
 import {workspaceFixture} from '../tasks/taskFixtures'
 const props={projectId:'p1',manuscriptId:'m1',version:manuscriptFixture.versions[0] as unknown as ManuscriptVersion,onPublished:vi.fn()}
 afterEach(()=>{cleanup();sessionStorage.clear();vi.unstubAllGlobals()})
+it('shows the exact outgoing uploaded text and discloses a shortened excerpt', async () => {
+ vi.stubGlobal('crypto', webcrypto)
+ const input = {sources: [{alias: 's1', document_excerpt: 'A saved paragraph.', document_excerpt_truncated: true}]}
+ const wire = JSON.stringify({input: JSON.stringify(input)})
+ const bundle = {...bundleFixture(), wire_json: wire, wire_bytes: new TextEncoder().encode(wire).length, bundle_sha256: hash(wire), wire_sha256: hash(wire)}
+ render(<WritingBundlePreview bundle={bundle} readableSnapshot={props.version.snapshot} materialsOnly/>)
+ expect(await screen.findByText('A saved paragraph.')).toBeTruthy()
+ expect(screen.getByText('本次仅发送该文档的部分正文。')).toBeTruthy()
+})
 it.each([
  {status:'failed',reason:'task_worker_interrupted',actions:['retry'],button:'重试原任务',operation:'retry'},
  {status:'waiting_confirmation',reason:'observation_expired',actions:['resume'],button:'查询原回执一次',operation:'resume'},
@@ -75,7 +85,7 @@ it.each([false,true])('requires an explicit original-key retry for an unconfirme
   expect(posts).toHaveLength(1)
   fireEvent.click(screen.getByRole('button',{name:'使用原写作请求重试'}))
  }
- await screen.findByText('实际费用未知；仍占预留额度，不自动重发。')
+ await screen.findByText('实际费用未知，请核对原始回执。')
  expect(posts).toHaveLength(interrupted?2:1)
  expect(JSON.parse(String(posts[0].body))).toEqual({schema_version:2,bundle_id:'b1',bundle_sha256:bundle.bundle_sha256,authorization_id:'auth1',logical_task_id:'task-1'})
  if(interrupted){
@@ -88,7 +98,7 @@ it.each([false,true])('requires an explicit original-key retry for an unconfirme
 
 it.each(['reserved','released'] as const)('shows a %s call as not submitted without an executed provider receipt',async status=>{
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/writing-previews')?{items:[],capabilities:{real_calls_enabled:false}}:{items:[unsubmittedRequest(status)]})))
- render(<WritingLive {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'审核此原始候选'}));expect(screen.getByText(/尚未提交；没有供应商回执。/)).toBeTruthy();expect(screen.queryByText(/真实 provider 回执|离线模拟回执/)).toBeNull();expect(screen.getByText(status==='released'?'调用已释放，无执行回执。':'尚未提交；预留额度等待执行或释放。')).toBeTruthy()
+ render(<WritingLive {...props}/>);fireEvent.click(await screen.findByRole('button',{name:'审核此原始候选'}));expect(screen.getByText(/尚未提交；没有供应商回执。/)).toBeTruthy();expect(screen.queryByText(/真实 provider 回执|离线模拟回执/)).toBeNull();expect(screen.getByText(status==='released'?'调用已释放，无执行回执。':'尚未提交，等待执行。')).toBeTruthy()
 })
 
 it('uses the article contract and sends explicit article scope fields',async()=>{
@@ -174,6 +184,14 @@ it.each(['research','narrative_review'] as const)('prepares the SCI customer %s 
 })
 
 // B03 task 7: returning from adding a source reopens the same writing record; drafts never block leaving.
+it('opens a submitted manuscript directly for review without preparing a second writing request', async () => {
+ const fetcher=vi.fn(async(path:string)=>Response.json(path.endsWith('/writing-requests/w1') ? liveRequest : {items:[]}))
+ vi.stubGlobal('fetch',fetcher)
+ render(<WritingLive {...props} customerSci={null} initialWritingRequest="w1"/>)
+ expect(await screen.findByRole('region',{name:'科学核对'})).toBeTruthy()
+ expect(screen.queryByRole('region',{name:'生成正文确认'})).toBeNull()
+ expect(fetcher.mock.calls.some(([path])=>path.includes('writing-previews'))).toBe(false)
+})
 function serveCustomerRecords(){
  vi.stubGlobal('crypto',webcrypto)
  const fetcher=vi.fn(async(path:string)=>Response.json(path.endsWith('/writing-requests')?{items:[liveRequest]}:

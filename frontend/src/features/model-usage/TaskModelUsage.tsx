@@ -3,8 +3,8 @@ import { onApiSessionChanged } from '../../shared/api/client'
 import { safeError, useI18n } from '../../shared/i18n'
 import { taskRequest } from '../tasks/taskApi'
 import { useDocumentVisible } from '../tasks/useDocumentVisible'
-import { formatMicroUsd, isTaskUsage, type Budget, type TaskUsage } from './modelUsageTypes'
-import { AccountedAmount, CallReconciliationDisplay, ReconciliationTotals } from './ReconciliationDisplay'
+import { formatMicroUsd, isTaskUsage, type TaskUsage } from './modelUsageTypes'
+import { CallReconciliationDisplay, ReconciliationTotals } from './ReconciliationDisplay'
 import { UsageViewTabs } from '../operations/UsageSummaryView'
 import '../operations/usageViews.css'
 import './modelUsage.css'
@@ -44,27 +44,16 @@ function Usage({ taskId, active = true, layered = false, refreshKey = 0 }: Props
       .finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false; controller.abort() }
   }, [active, sessionValid, visible, taskId, page, attempt, refreshKey])
-  const budgets: [string, Budget][] = data ? [['任务预算', data.task_budget], ['项目预算', data.project_budget], ['用户预算', data.user_budget]] : []
   return <section className="model-usage-panel task-model-usage" aria-label={t('本次任务用量')} hidden={!active} aria-busy={loading}>
     <div className="usage-heading"><div><h3>{t('本次任务用量')}</h3><p>{t('内部估算，不是供应商账单。')}</p></div>
       <button type="button" disabled={loading || !sessionValid} onClick={() => { setLoading(true); setError(''); setAttempt(value => value + 1) }}>{t('刷新任务用量')}</button></div>
     {loading && <p role="status">{t('正在读取模型用量……')}</p>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {!sessionValid && <p role="alert">{t('会话已失效，请重新登录。')}</p>}
-    {layered && <UsageViewTabs label="任务用量工作视图" items={[['summary','综合汇总'],['budgets','预算额度'],['reconciliation','费用核对'],['calls','逐次调用']]} selected={view} onChange={setView}/>}
+    {layered && <UsageViewTabs label="任务用量工作视图" items={[['summary','综合汇总'],['reconciliation','费用核对'],['calls','逐次调用']]} selected={view} onChange={setView}/>}
     {data && <>
-      <p className="usage-scope-note">{t('账本可能包含离线模拟回执；演示用量与预算占用不代表实际付费。')}</p>
-      <div className="usage-budgets usage-layer" hidden={layered && view !== 'budgets'}>{budgets.map(([label, budget]) => <div className="usage-budget-card" key={label}>
-        <h4>{t(label)}</h4><dl>
-          <div><dt>{t('累计上限')}</dt><dd>{budget.limit_micro_usd === null ? t('未配置') : formatMicroUsd(budget.limit_micro_usd)}</dd></div>
-          <div><dt>{t('内部估算')}</dt><dd>{formatMicroUsd(budget.estimated_micro_usd)}</dd></div>
-          <div><dt>{t('预算已计金额')}</dt><dd><AccountedAmount amount={budget.accounted_micro_usd} /></dd></div>
-          <div><dt>{t('预留金额')}</dt><dd>{formatMicroUsd(budget.reserved_micro_usd)}</dd></div>
-          <div><dt>{t('可用额度')}</dt><dd>{budget.available_micro_usd === null ? t('未配置') : formatMicroUsd(budget.available_micro_usd)}</dd></div>
-        </dl>{budget.exceeded && <p className="usage-exceeded">{t('已超出额度')}</p>}</div>)}</div>
+      <p className="usage-scope-note">{t('用量记录包含已标注来源的离线模拟回执。')}</p>
       <dl className="usage-totals usage-layer" hidden={layered && view !== 'summary'}><div><dt>{t('任务内部估算')}</dt><dd>{formatMicroUsd(data.estimated_micro_usd)}</dd></div>
-        <div><dt>{t('任务预算已计金额')}</dt><dd><AccountedAmount amount={data.accounted_micro_usd} /></dd></div>
-        <div><dt>{t('任务预留')}</dt><dd>{formatMicroUsd(data.reserved_micro_usd)}</dd></div>
         <div><dt>{t('估算待完善调用')}</dt><dd>{data.pending_count}</dd></div></dl>
       <div className="usage-layer" hidden={layered && view !== 'reconciliation'}><ReconciliationTotals summary={data.reconciliation} /></div>
       <div className="usage-layer" hidden={layered && view !== 'calls'}>
@@ -80,7 +69,7 @@ function Usage({ taskId, active = true, layered = false, refreshKey = 0 }: Props
               {call.provider_provenance === 'openai_live' && call.status !== 'released'
                 && (!call.reconciliation || call.reconciliation.actual_micro_usd === null) && <span>{t('实际费用未知')}</span>}
               <CallReconciliationDisplay reconciliation={call.reconciliation} />
-              {(call.status === 'submitting' || call.status === 'submission_unknown') && <small>{t('仍占预留额度，等待核对。')}</small>}
+              {(call.status === 'submitting' || call.status === 'submission_unknown') && <small>{t('请核对已有调用的提交结果。')}</small>}
             </>}</td>
             <td><time dateTime={call.created_at}>{new Date(call.created_at).toLocaleString(locale)}</time></td></tr>)}</tbody></table></div>
         <nav className="usage-pagination" aria-label={t('任务用量分页')}>

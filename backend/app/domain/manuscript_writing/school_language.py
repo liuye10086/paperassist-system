@@ -22,6 +22,7 @@ def validate_options_binding(candidate,options,plan=None):
 
 def inventory(candidate,images,image_items,analysis,options,*,cache=None,frozen=None,school_template=None):
     from .language import RENDERER_VERSION
+    from app.domain.manuscripts.school import chapter_groups
     options=normalized_options(options)
     p=candidate['writing_provenance']
     if frozen is None or frozen.get('mapper_version')=='school-final-map-v2':p['school_pagination_version']=2
@@ -46,7 +47,7 @@ def inventory(candidate,images,image_items,analysis,options,*,cache=None,frozen=
     items=[dict(row,kind='export_text',content_sha256=digest(row['text']),narrative_ranges=[] if row.get('protected_identity') or row.get('scope') in ('label','reference_metadata') else [[0,len(row['text'])]]) for row in mapped]
     for image in image_items:
         row=deepcopy(image);identity=figure_identity(candidate,row)
-        chapters=[s for s in candidate['sections'] if any(g['id'] in s['result_group_ids'] and any(f['id']==identity for f in g['figures']) for g in candidate['results_groups'])]
+        chapters=[s for s in candidate['sections'] if any(f['id']==identity for g in chapter_groups(candidate,s) for f in g['figures'])]
         if len(chapters)!=1:raise ValueError('School image requires one exact chapter language')
         row.update(figure_id=identity,chapter_id=chapters[0]['id'],target_language=chapters[0]['output_language']);items.append(row)
     p['school_docx_sha256']=sha256(raw).hexdigest();p['school_language_renderer']=(p['school_final_render']['docx_renderer_version'] if cache is not None else RENDERER_VERSION)+':'+(p['school_final_render']['mapper_version'] if cache is not None else 'school-final-map-v2')

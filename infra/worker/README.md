@@ -10,7 +10,7 @@
 
 下文阶段02、03的进度/数据库/验收数字保留为当时历史。当前已有Excel整理、OCR核对及本地分析计划的PostgreSQL专用检查点、补资料和恢复消费者；LangGraph、取消和其它未实现通用消费者仍未接入。
 
-本目录提供Linux Worker镜像；Windows上继续使用现有PostgreSQL、Python API和Vite。阶段02前六步均已验收，绘图、解释与Word报告接入统一任务执行，新绘图和解释使用统一模型调用和三级预算。HTTP业务提交只创建排队任务，GET只读取本地保存状态，云端提交、续取和成果保存由Worker执行；第六步增加持久等待记录及原子幂等恢复，由项目任务页读取详情、事件、预算与精确历史成果。
+本目录提供Linux Worker镜像；Windows上继续使用现有PostgreSQL、Python API和Vite。阶段02前六步均已验收，绘图、解释与Word报告接入统一任务执行，新绘图和解释使用统一模型调用。HTTP业务提交只创建排队任务，GET只读取本地保存状态，云端提交、续取和成果保存由Worker执行；第六步增加持久等待记录及原子幂等恢复，由项目任务页读取详情、事件、用量和历史成果。
 
 阶段03第1—3步已验收，阶段清单11/57。`.xlsx`新批次的`parse_file`生成有限预览；文件详情显式创建的`extract_dataset`使用`excel_structure_v1`固定输入，另外生成不可变的完整原始结构及逐Sheet数据集版本。两类任务均由本机Linux Worker在受限独立子进程执行；结构总输出上限4 MiB，失败不发布半成品，旧预览与原件保留。结构生成无模型调用，尚未接入下游分析。历史单文件同步接口保留兼容；开发库为`0016_dataset_versions`，31张业务表加版本表，证据见[第3步交付记录](../../docs/开发记录/阶段03/2026-10-10-Excel结构与数据集版本交付记录.md)。
 
@@ -31,7 +31,7 @@ script/dev.cmd stop
 
 `start` 必要时启动 Docker Desktop，构建固定 Python 镜像、检查 RabbitMQ/Worker/dispatcher 健康，然后启动前后端。首次构建需要下载镜像和依赖；已运行且健康的服务直接复用。API 地址为 http://127.0.0.1:8000，前端为 http://127.0.0.1:5173。
 
-`stop` 先停止本工具管理的前后端，再温停 dispatcher、Worker 和 broker。它保留 RabbitMQ 数据卷、数据库任务和资产，不关闭其他项目、Docker Desktop或 PostgreSQL。停止后的排队任务会在下次启动后继续执行。运行中的绘图、解释、Word及批次解析任务通过租约恢复；具体重试上限由 Worker 配置和任务状态控制。绘图和解释等待云端响应时会主动释放Worker与租约，延迟消息续取同一次尝试，不消耗崩溃恢复次数。已有响应编号时只 GET 原响应；无编号的未知提交保留预算预留并等待人工核对，不能自动再次 POST。
+`stop` 先停止本工具管理的前后端，再温停 dispatcher、Worker 和 broker。它保留 RabbitMQ 数据卷、数据库任务和资产，不关闭其他项目、Docker Desktop或 PostgreSQL。停止后的排队任务会在下次启动后继续执行。运行中的绘图、解释、Word及批次解析任务通过租约恢复；具体重试上限由 Worker 配置和任务状态控制。绘图和解释等待云端响应时会主动释放Worker与租约，延迟消息续取同一次尝试，不消耗崩溃恢复次数。已有响应编号时只 GET 原响应；无编号的未知提交等待人工核对，不能自动再次 POST。
 
 三个容器使用当前工作目录对应的 Compose 项目，RabbitMQ不映射宿主端口。Worker以非root身份运行，资产目录映射到 `/data`。PG 地址由 `localhost` 转为 Docker Desktop 提供的 `host.docker.internal`；本机只读实测显示 PG 接收到的源地址为loopback，无需放宽HBA。其他机器首次运行仍应先执行下述探测。
 
@@ -67,43 +67,42 @@ $env:PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST = $receipt
 
 ## 绘图模型策略
 
-API通过 `PAPERASSIST_PLOT_POLICY_FILE` 读取独立JSON策略，模板见 [plot-policy.example.json](../../backend/plot-policy.example.json)，字段由[绘图策略合同](../../backend/app/domain/plot_policy.py)校验。相对路径以 `backend/` 为基准；密钥读取与解释一致，模板中必填价格和额度为 `null`，不能直接启用，也不从旧 `OPENAI_MODEL` 推导配置。
+API通过 `PAPERASSIST_PLOT_POLICY_FILE` 读取独立JSON策略，模板见 [plot-policy.example.json](../../backend/plot-policy.example.json)，字段由[绘图策略合同](../../backend/app/domain/plot_policy.py)校验。相对路径以 `backend/` 为基准；密钥读取与解释一致，模板中必填价格和输入范围为 `null`，不能直接启用，也不从旧 `OPENAI_MODEL` 推导配置。
 
 - `policy` 显式指定模型、价格快照、输出上限及当前 `openai_boxplot_v1` 提示版本；工具固定为 `code_interpreter`，显式容器为1GB、20分钟闲置过期。
-- `input_token_allowance`、`task_limit_micro_usd`、正数 `tool_reserve_micro_usd` 及 `tool_reserve_version` 均须明确配置；用户和项目累计预算另由[本机管理员命令](../../script/README.md#本机模型预算管理)配置。
-- API创建任务时冻结策略和来源，Worker重算Excel材料并验证预算；每片最多一个外部POST或一次响应续取，创建容器、上传文件、创建响应分别持久化开始标记及回执。
-- 某阶段有开始标记而无回执时保留预算预留并等待核对，不自动重发；已知回执继续原阶段，已知响应只GET。响应到达先记用量再检查和下载，工具费用缺证据时保持待核对，不能把工具预留当作实际收费或免费。
+- `input_token_allowance` 指定输入 token 范围。
+- API创建任务时冻结策略和来源，Worker重算Excel材料；每片最多一个外部POST或一次响应续取，创建容器、上传文件、创建响应分别持久化开始标记及回执。
+- 某阶段已有开始标记且缺少回执时，任务等待核对。已知响应只执行 GET，工具费用根据供应商凭证核对。
 - 明确远端容器或文件过期时停止恢复，只有用户显式接受可能再次收费才建新任务；已校验的本地候选PNG可在继任Worker复核后发布。旧绘图job只兼容续取原响应，历史成果保持可读。
 
-本机项目“测试”已按用户授权配置 `gpt-5.6-sol` 绘图策略，所属用户和项目累计额度各5美元、单绘图任务1美元、工具预留0.10美元；这些不是默认值或供应商账单上限。原 `gpt-5.6` 别名查询返回404，完整名称查询成功；第五步用户验收及只读证据已确认新绘图和解释真实生成并持久化成功。第六步项目任务页及受限等待恢复已交付；资料/研究计划待办尚无消费者，LangGraph、工作流检查点和取消未实现。
 
 ## 受限推荐策略
 
-`PAPERASSIST_ANALYSIS_RECOMMENDATION_POLICY_FILE` 指向独立私有JSON，模板见[analysis-recommendation-policy.example.json](../../backend/analysis-recommendation-policy.example.json)。本批批准模型 `gpt-5.6-sol`，工具为空、单任务上限0.5美元，沿用已确认价格及用户/项目累计预算；模板必填空值不能直接启用。API冻结策略，Worker只用任务快照；不挂载私有策略文件。缺配置仍可使用人工本地计划。
+`PAPERASSIST_ANALYSIS_RECOMMENDATION_POLICY_FILE` 指向模型策略，模板见 [analysis-recommendation-policy.example.json](../../backend/analysis-recommendation-policy.example.json)。Worker 使用任务保存的策略。缺配置时仍可使用人工本地计划。
 
-资料预览只包含选定候选字段元数据、聚合质量和用户单独确认的摘要；不含逐行值或原始研究资料。外发确认、预算确认和分析计划确认是分别记录的决定。建议不能自动发布计划；未知提交保留原调用与费用依据，不能自动重发。自动测试采用合成供应商，真实调用由用户在预览确认后发起。
+资料预览只包含选定候选字段元数据、聚合质量和用户单独确认的摘要；不含逐行值或原始研究资料。外发确认和分析计划确认是分别记录的决定。建议不能自动发布计划；未知提交保留原调用与费用依据，不能自动重发。自动测试采用合成供应商，真实调用由用户在预览确认后发起。
 
 ## 解释模型策略
 
-API 通过 `PAPERASSIST_EXPLANATION_POLICY_FILE` 读取独立 JSON 策略，密钥来自 `OPENAI_API_KEY_FILE`（优先）或 `OPENAI_API_KEY`；相对文件路径以 `backend/` 为基准。策略与密钥均需有效才能提交解释，缺失时显示未配置，不从旧绘图模型配置推导价格或默认额度。本机项目“测试”已按第五步验收授权配置解释策略和预算，模型为 `gpt-5.6-sol`，单解释任务额度0.5美元；新解释已真实生成并持久化成功。
+API 通过 `PAPERASSIST_EXPLANATION_POLICY_FILE` 读取独立 JSON 策略，密钥来自 `OPENAI_API_KEY_FILE` 或 `OPENAI_API_KEY`。相对路径以 `backend/` 为基准。
 
 策略字段由[解释策略合同](../../backend/app/domain/explanation_policy.py)和[模型策略合同](../../backend/app/domain/model_usage/contracts.py)校验：
 
 - `policy` 显式指定 `model`、当前 `prompt_version`、`max_output_tokens` 和模型匹配的 `price` 快照；解释固定 `output_format='analysis_explanation_v1'` 且禁用工具。价格快照包含版本和输入、缓存输入、输出的价格，金额使用整数微美元。
-- `input_token_allowance` 是输入预算估算范围，`task_limit_micro_usd` 是任务累计额度，均须明确配置；用户与项目预算另由[本机管理员命令](../../script/README.md#本机模型预算管理)配置。
-- API 在创建任务的同一事务中冻结策略并建立任务预算。Worker 使用任务快照，不挂载策略文件，不因后续策略文件改动改变已提交调用的模型与价格。
+- `input_token_allowance` 指定输入 token 范围。
+- API 在创建任务的同一事务中冻结策略。Worker 使用任务快照，不挂载策略文件，不因后续策略文件改动改变已提交调用的模型与价格。
 
-预算不足时任务等待确认，管理员调整后由用户显式继续；提交结果未知时必须核对原调用，不能通过继续操作产生第二次付费请求。
+提交结果未知时需核对原调用。有已知响应编号时，任务继续读取原响应。
 
-第六步等待与恢复通过`task_waits`及恢复操作记录持久化。预算/配置等待及已知安全失败阶段按服务端许可恢复，校验任务版本、输入版本与幂等键，在同一事务消费等待并排队；不绕过租约、预算和外部提交标记。尚未提交的模型调用仍按冻结策略和预算执行，已有调用继续使用保存结果。无业务消费者的资料/研究计划待办只读，不提供虚构表单。
+任务等待与恢复通过 `task_waits` 及恢复操作记录持久化。手动继续时，服务端验证任务版本、输入版本和幂等键，在同一事务中消费等待并排队。Worker 复用已保存的回执和结果。
 
 ## 详细研究报告解读
 
-R1 的综合报告采用独立 `reader_report_narrative` 模型任务。复制 [reader-report-policy.example.json](../../backend/reader-report-policy.example.json) 为 Git 忽略的 `backend/.env.reader-report-policy.json`，填写已确认的支持图片输入、后台 Responses 和结构化输出的模型、价格及额度，再配置 `PAPERASSIST_READER_REPORT_POLICY_FILE`。价格单位为每百万 token 的微美元，任务上限为微美元。示例中的空值和占位符不能直接启用；未单独设置策略路径时兼容读取既有解释策略，但其输入及输出额度未必适合多图报告。
+R1 的综合报告采用独立 `reader_report_narrative` 模型任务。复制 [reader-report-policy.example.json](../../backend/reader-report-policy.example.json) 为 Git 忽略的 `backend/.env.reader-report-policy.json`，填写已确认的支持图片输入、后台 Responses 和结构化输出的模型、价格和 token 范围，再配置 `PAPERASSIST_READER_REPORT_POLICY_FILE`。价格单位为每百万 token 的微美元。示例中的空值和占位符不能直接启用；未单独设置策略路径时兼容读取既有解释策略，但其输入及输出额度未必适合多图报告。
 
-`PAPERASSIST_READER_REPORT_MODEL_ENABLED=1` 控制允许真实调用；管理配置中的模型开关也必须允许。API 在创建任务时冻结材料和策略，Worker 只读取冻结记录及独立密钥，不挂载策略文件。变更开关后重新准备并启动 Worker；隔离测试强制关闭真实开关且不挂载开发密钥。用户和项目预算须另行配置，不能由生成操作自动提升。
+`PAPERASSIST_READER_REPORT_MODEL_ENABLED=1` 控制允许真实调用；管理配置中的模型开关也必须允许。API 在创建任务时冻结材料和策略，Worker 只读取冻结记录及独立密钥，不挂载策略文件。变更开关后重新准备并启动 Worker；隔离测试强制关闭真实开关且不挂载开发密钥。
 
-页面先预览事实摘要、每张图的绑定事实、原图注、图件顺序和费用预留，再显式生成解读。全部选定图片通过图片输入发送，科学原值及比较方向保留；内部追溯身份不进入解读正文。相同材料与策略复用已有任务或成功结果；已知响应编号继续取原响应，未知提交保留预留且禁止自动重发。无效终态的再生成必须在页面重新确认。
+页面先预览事实摘要、每张图的绑定事实、原图注、图件顺序和预计费用，再显式生成解读。全部选定图片通过图片输入发送，科学原值及比较方向保留；内部追溯身份不进入解读正文。相同材料与策略复用已有任务或成功结果；已知响应编号继续取原响应，未知提交等待人工核对。无效终态的再生成必须在页面重新确认。
 
 Word/XLSX 导出和下载只消费已冻结且匹配当前选择的解读，不调用模型。已有文件不改写。`PAPERASSIST_RESEARCH_STAGING_DIR` 可选择独立的本机暂存目录；默认位于当前 Worker 私有目录内，容器挂载为 `/research-staging`，与最终 `/data` 资产分开。R1 只覆盖综合报告及通过此入口整理的空间结果；生信直接报告与常规统计入口待后续批次接入。
 

@@ -83,7 +83,7 @@ def test_writing_audit_detects_candidate_binding_tampering(client):
     assert client.get(endpoint+'/'+view['id']).status_code==409
 
 def test_global_audit_accepts_waiting_failed_and_successful_synthetic_writing(client):
-    from tests.api.test_manuscript_writing_execution import create,WritingProvider,budgets
+    from tests.api.test_manuscript_writing_execution import create,WritingProvider
     from app.domain.manuscript_writing.execution import run_manuscript_writing_task
     from app.db.database import database_connection
     from app.maintenance.database_audit import audit_database
@@ -97,13 +97,6 @@ def test_global_audit_accepts_waiting_failed_and_successful_synthetic_writing(cl
         task,_=create(client)
         if mode=='waiting': result=run_manuscript_writing_task(task['id'],task['revision'])
         else:
-            from app.domain.model_usage.service import ModelUsageService
-            with database_connection() as db:
-                user=db.execute('SELECT user_id FROM tasks WHERE id=%s',(task['id'],)).fetchone()['user_id']
-            usage=ModelUsageService(user)
-            for scope,key in (('user',user),('project',task['project_id']),('task',task['id'])):
-                with usage.store.connection() as db: current=usage.store.budget(db,scope,key)
-                usage.set_budget(scope,key,5000000,current['revision'] if current else 0)
             provider=UniqueProvider(invalid=mode=='failed');provider.identity=task['id']
             result=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
         assert result['status']==dict(waiting='waiting_confirmation',failed='failed',succeeded='succeeded')[mode],result

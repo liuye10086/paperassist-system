@@ -18,8 +18,7 @@ from app.domain.tasks.numeric_failure import fail_numeric_task
 
 
 logger = logging.getLogger(__name__)
-BUDGET_ERRORS = frozenset({'model_budget_missing', 'model_budget_exceeded', 'plot_not_configured',
-                           'openai_not_configured', 'boxplot_not_configured'})
+CONFIGURATION_ERRORS = frozenset({'plot_not_configured', 'openai_not_configured', 'boxplot_not_configured'})
 
 
 def create_provider():
@@ -70,8 +69,8 @@ def run_boxplot_task(task_id, task_revision, *, config=None, directory=None, pro
         return fail_numeric_task(repository, lease, exc)
     except (StorageError, PlotError) as exc:
         try:
-            if exc.code in BUDGET_ERRORS:
-                return repository.wait_explanation(lease, 'budget_exceeded', exc.code)
+            if exc.code in CONFIGURATION_ERRORS:
+                return repository.fail(lease, exc.code)
             if isinstance(exc, PlotError) or exc.status < 500 or exc.code == 'plot_input_limit' or exc.code.startswith('storage_'):
                 # Finish only after a safe release has persisted. A failed or
                 # unknown release commit leaves the lease recoverable.
@@ -143,9 +142,7 @@ def _execute(repository, lease, config, provider_factory, providers):
             request = CallRequest(task_id=task['id'], expected_task_revision=task['revision'],
                 call_key='boxplot:v1', input_digest=input_digest(instructions=instructions, payload=payload),
                 policy=ModelPolicy.model_validate(frozen['policy']),
-                input_token_allowance=frozen['input_token_allowance'],
-                tool_reserve_micro_usd=frozen['tool_reserve_micro_usd'],
-                tool_reserve_version=frozen['tool_reserve_version'])
+                input_token_allowance=frozen['input_token_allowance'])
             output = gateway.submit_plot(request, instructions=instructions, payload=payload, execution_lease=lease)
     except ModelGatewayError as exc:
         if exc.code == 'model_receipt_persistence_failed':

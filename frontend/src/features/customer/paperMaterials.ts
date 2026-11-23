@@ -1,4 +1,10 @@
 import { projectBase } from '../research-intake/api'
+import useResearchDraft from '../research-results/useResearchDraft'
+import type { AnalysisPick } from './CustomerAnalysisResults'
+
+export function useMaterialAnalysisPicks(projectId: string) {
+  return useResearchDraft<AnalysisPick[]>(projectId, 'analysis-pick:materials', () => [])
+}
 
 export type PaperMaterialNote = {
   id: string
@@ -12,7 +18,10 @@ export type PaperMaterialNote = {
 }
 
 export type PaperMaterialTarget = { id: string; label: string }
-export type PaperMaterialsRead = { items: PaperMaterialNote[]; targets: PaperMaterialTarget[] }
+export type PaperMaterialsRead = {
+  items: PaperMaterialNote[]; targets: PaperMaterialTarget[]; figure_targets?: PaperMaterialTarget[]
+  template_source_file_ids?: string[]; review_figure_placement?: boolean
+}
 export type PaperFile = { id: string; filename: string; file_type: string }
 export type PaperWorksheet = {
   name: string; columns: string[]; preview_rows: string[][]; row_count: number; values_ready: boolean

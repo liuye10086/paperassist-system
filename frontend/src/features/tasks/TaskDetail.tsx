@@ -31,6 +31,8 @@ import { useDocumentVisible } from './useDocumentVisible'
 
 /** `embedded`: the host page owns the heading and focus (customer legacy task, review task panels). */
 type Props = { allowUsage?: boolean; customerView?: boolean; embedded?: boolean; active?: boolean; view?: TaskDetailView; taskReportReturn?:AnalysisNavigation; onViewChange?: (view: TaskDetailView) => void; registerLeaveGuard?: RegisterLeaveGuard; projectId: string; taskId: string; onChanged: () => void; onOpenFiles?: () => void; onOpenManuscripts?:()=>void; onOpenJournals?:()=>void; onOpenLiterature?: (searchId:string)=>void }
+const pollIntervalMs = 5000
+const reconnectMessage = '暂时连不上服务，正在自动重连。'
 const historicalErrorReasons: Record<string, string> = {
   task_failed: '旧任务执行失败。',
   explanation_invalid: '旧任务的解释未通过事实核验，未保存内容。',
@@ -78,23 +80,33 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
   useEffect(() => {
     if (!active || !sessionValid || !visible) return
     let mounted = true; let timer = 0
-    const controller = new AbortController(); request.current = controller
+    let retryDelay = pollIntervalMs
     async function load() {
+      const controller = new AbortController()
+      request.current = controller
       try {
         const value = await taskRequest(`/api/v1/tasks/${encodeURIComponent(taskId)}/workspace`, controller,
           (result): result is TaskWorkspace => isWorkspace(result, projectId, taskId), '任务详情读取失败，请重试。')
         if (!mounted || controller.signal.aborted) return
         setData(value); setError('')
-        if (!['succeeded', 'failed', 'cancelled'].includes(value.task.status)) timer = window.setTimeout(() => void load(), 5000)
+        retryDelay = pollIntervalMs
+        if (!['succeeded', 'failed', 'cancelled'].includes(value.task.status)) timer = window.setTimeout(() => void load(), pollIntervalMs)
       } catch (cause) {
         if (!mounted) return
-        if (cause instanceof TaskRequestError && cause.status === 404) setData(null)
+        if (cause instanceof TypeError || cause instanceof TaskRequestError &&
+          (cause.status === 408 || cause.status === 429 || cause.status >= 500)) {
+          setError(reconnectMessage)
+          timer = window.setTimeout(() => void load(), retryDelay)
+          retryDelay = Math.min(retryDelay * 2, 30000)
+          return
+        }
+        if (cause instanceof TaskRequestError && [401, 403, 404].includes(cause.status)) setData(null)
         setError(cause instanceof TaskRequestError && cause.status === 404 ? '任务不存在或无权访问，请选择其他任务。'
           : taskErrorMessage(cause, '任务详情读取失败，请重试。', customerView))
       } finally { if (mounted) setLoading(false) }
     }
     void load()
-    return () => { mounted = false; controller.abort(); window.clearTimeout(timer) }
+    return () => { mounted = false; request.current?.abort(); window.clearTimeout(timer) }
   }, [projectId, taskId, active, sessionValid, visible, attempt, customerView])
   function refresh() { request.current?.abort(); setLoading(true); setError(''); setAttempt(value => value + 1) }
   const shown = (name: TaskDetailView) => (name !== 'usage' || allowUsage) && (view === undefined || view === name)
@@ -116,7 +128,8 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
       <button type="button" disabled={loading || !sessionValid} onClick={refresh}>{t('重新读取任务')}</button></div>
     {view !== undefined && onViewChange && <nav className="task-detail-nav" aria-label={t('任务详情视图')}>{taskDetailViews.filter(name => name !== 'usage' || allowUsage).map(name => <button type="button" key={name} aria-current={view === name ? 'page' : undefined} onClick={() => onViewChange(name)}>{t(viewLabels[name])}</button>)}</nav>}
     {loading && !data && <p role="status">{t('正在读取任务详情……')}</p>}
-    {error && <p role="alert" className="error-panel">{t(error)}</p>}
+    {error === reconnectMessage && <p role="status" className="task-scope-note">{t(reconnectMessage)} {data && t('当前显示上次读取的任务状态。')}</p>}
+    {error && error !== reconnectMessage && <p role="alert" className="error-panel">{t(error)}</p>}
     {!sessionValid && <p role="alert">{t('会话已失效，请重新登录。')}</p>}
     {data && sessionValid && <>
       <div className="task-detail-title"><h3>{t(customerView ? customerWordTaskNames[data.task.task_type] ?? taskNames[data.task.task_type] : taskNames[data.task.task_type])}</h3>
@@ -169,7 +182,7 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
         </article>:data.artifacts.report && data.task.task_type!=='pdf_export' && <article><h4>{t(data.task.task_type==='review_document_export'?'独立意见成果 DOCX':data.task.task_type==='layout_docx'?'排版 DOCX 导出':'Word 分析报告')}</h4>
           <ProjectDownloadLink href={data.artifacts.report.download_url} filename={allowUsage?data.artifacts.report.filename:t(customerView?customerWordTitle:'分析报告')+'.docx'}>{t('下载此任务的 Word')}</ProjectDownloadLink></article>}
         {data.artifacts.dataset && !customerView && <ProjectDownloadLink href={data.artifacts.dataset.download_url} filename={allowUsage?data.artifacts.dataset.filename:t('表格结构')+'.json'}>{t('下载完整 JSON')}</ProjectDownloadLink>}
-        {data.task.task_type==='reader_report_narrative' ? <p>{t(data.task.status==='succeeded'?'详细解读已保存，可返回分析报告复核解读并生成文件。':'请返回分析报告查看解读进度。')} <a href={narrativeBack}>{t('返回分析报告')}</a></p>
+        {data.task.task_type==='reader_report_narrative' ? <p>{t(data.task.status==='succeeded'?'详细解读已保存，可返回分析报告复核解读并生成文件。':data.task.status==='running'?'详细解读正在生成，完成后本页会自动更新。':data.task.status==='queued'?'详细解读正在排队，开始后本页会自动更新。':'请返回分析报告查看解读进度。')} <a href={narrativeBack}>{t('返回分析报告')}</a></p>
         : !data.artifacts.literature_assistance?.result && !data.artifacts.literature && !data.artifacts.analysis && !data.artifacts.dataset && !data.artifacts.figure && !data.artifacts.explanation && !data.artifacts.report && <p className="task-empty">{t(data.task.origin === 'legacy'
           ? '无法确认此历史任务关联的成果。' : data.task.task_type==='review_round_plan'?'计划已保存，意见待处理；请返回本轮意见查看。':data.task.task_type==='journal_adaptation'&&data.task.status==='succeeded'?'期刊适配结果与公共新稿已保存，请打开期刊建议查看实际依据与固定版本导出。':data.task.task_type==='journal_format_check'&&data.task.status==='succeeded'?'期刊格式检查结果已保存，请打开期刊建议查看固定版本与调整清单。':data.task.task_type==='journal_recommendation'&&data.task.status==='succeeded'?'期刊建议已保存，请打开期刊建议查看本批结果与来源。':['parse_file', 'extract_dataset', 'review_ocr'].includes(data.task.task_type) && data.task.status === 'succeeded' ? (data.task.task_type === 'extract_dataset' ? '结构版本已保存，请到项目文件区查看。' : '文件已解析，请到项目文件区查看预览。') : data.task.task_type==='delivery_package'?'封包只整理已有固定成员；请返回交付登记查看原快照、下载与接受记录。':'此任务尚无已保存的成果。')}</p>}
       </section>}

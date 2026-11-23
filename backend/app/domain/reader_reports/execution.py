@@ -1,4 +1,4 @@
-"""Prepare narrative output through the budgeted, lease-fenced model worker."""
+"""Prepare narrative output through the lease-fenced model worker."""
 import json
 from threading import Event, Thread
 
@@ -96,8 +96,6 @@ def run_reader_report_task(task_id, task_revision, *, config=None, directory=Non
     except LeaseLost:
         return None
     except StorageError as exc:
-        if exc.code in ('model_budget_missing', 'model_budget_exceeded'):
-            return _wait(repository, lease, 'budget_exceeded', exc.code)
         if exc.status >= 500:
             return None
         return repository.fail(lease, exc.code)

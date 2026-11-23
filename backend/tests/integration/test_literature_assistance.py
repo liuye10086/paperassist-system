@@ -94,18 +94,9 @@ class SyntheticProvider:
         pass
 
 
-def budgets(client, task):
-    from app.domain.model_usage.service import ModelUsageService
-    from tests.helpers.tasks import task_owner
-    service = ModelUsageService(task_owner(client))
-    for scope, key in [('user', task_owner(client)), ('project', task['project_id']), ('task', task['id'])]:
-        # Writing requests already carry their own task budget (revision 1).
-        service.set_budget(scope, key, 5000000, service.get_budget(scope, key)['revision'])
-
-
 def test_synthetic_assistance_uses_budget_usage_and_saved_receipt_without_duplicate_post(client):
     from app.domain.literature_assistance.execution import run_assistance_task
-    task = create(client, project(client)); budgets(client, task)
+    task = create(client, project(client))
     provider = SyntheticProvider(pending=True)
     deferred = run_assistance_task(task['id'], task['revision'], provider_factory=lambda: provider)
     assert deferred['status'] == 'running', deferred
@@ -120,22 +111,20 @@ def test_synthetic_assistance_uses_budget_usage_and_saved_receipt_without_duplic
     assert client.get(endpoint).json()['total'] == 1
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 1
-        assert db.execute('SELECT count(*) AS n FROM budget_reservations').fetchone()['n'] > 0
+        assert db.execute('SELECT count(*) AS n FROM budget_reservations').fetchone()['n'] == 0
         assert db.execute('SELECT count(*) AS n FROM usage_events').fetchone()['n'] > 0
 
 
-@pytest.mark.parametrize('mode', ['no_budget', 'invalid', 'unknown', 'receipt_store_failure'])
+@pytest.mark.parametrize('mode', ['invalid', 'unknown', 'receipt_store_failure'])
 def test_assistance_budget_and_invalid_or_unknown_output_never_publish(client, mode, monkeypatch):
     from app.domain.literature_assistance.execution import run_assistance_task
     task = create(client, project(client))
-    if mode != 'no_budget': budgets(client, task)
     if mode=='receipt_store_failure':
         def fail_record(*args,**kwargs):raise OSError('Synthetic receipt persistence failure')
         monkeypatch.setattr('app.domain.model_usage.service.ModelUsageService.record_response',fail_record)
     provider = SyntheticProvider(invalid=mode == 'invalid', unknown=mode == 'unknown')
     result = run_assistance_task(task['id'], task['revision'], provider_factory=lambda: provider)
     assert result['status'] == ('failed' if mode == 'invalid' else 'waiting_confirmation'), result
-    if mode == 'no_budget': assert not provider.posts
     with database_connection() as db:
         assert db.execute('SELECT result_json FROM literature_assistance_requests').fetchone()['result_json'] is None
 
@@ -174,7 +163,7 @@ def test_stale_claim_rejects_execution_before_model_and_old_task_remains_readabl
 
 def test_review_suggestion_bound_to_actual_quote_never_creates_manual_decision(client):
     from app.domain.literature_assistance.execution import run_assistance_task
-    task,path,claim,request = review_task(client);budgets(client,task)
+    task,path,claim,request = review_task(client)
     provider = SyntheticProvider()
     original = provider.receipt
     def receipt():
@@ -209,7 +198,7 @@ def test_model_output_and_changed_sources_fail_closed(client,mode):
     from app.domain.literature_assistance.execution import run_assistance_task
     from tests.api.test_literature_evidence import post
     from psycopg.types.json import Jsonb
-    task,path,claim,request=review_task(client);budgets(client,task)
+    task,path,claim,request=review_task(client)
     provider=SyntheticProvider()
     original=provider.receipt
     def receipt():
@@ -249,7 +238,7 @@ def test_cross_project_and_forged_evidence_request_rejected(client):
 
 def test_assistance_finite_read_retries_never_repeat_post(client):
     from app.domain.literature_assistance.execution import run_assistance_task
-    task = create(client,project(client));budgets(client,task)
+    task = create(client,project(client))
     provider = SyntheticProvider(pending=True,get_failures=4)
     current = run_assistance_task(task['id'],task['revision'],provider_factory=lambda:provider)
     for count in range(1,5):
@@ -259,17 +248,11 @@ def test_assistance_finite_read_retries_never_repeat_post(client):
     assert len(provider.posts)==1 and len(provider.gets)==4
 
 
-def test_budget_resume_and_worker_recovery_are_existing_task_operations(client):
+def test_worker_recovery_preserves_literature_authorization(client):
     from app.domain.literature_assistance.execution import run_assistance_task
     from app.adapters.task_execution_store import TaskExecutionStore
     task = create(client,project(client));provider=SyntheticProvider()
-    waiting=run_assistance_task(task['id'],task['revision'],provider_factory=lambda:provider)
-    budgets(client,task)
-    workspace=client.get('/api/v1/tasks/'+task['id']+'/workspace').json()
-    resumed=client.post('/api/v1/tasks/'+task['id']+'/resume',json=dict(operation='resume',wait_id=workspace['wait']['id'],
-        expected_task_revision=waiting['revision'],input_version=waiting['input_version']),headers={'Idempotency-Key':'budget-resume'})
-    assert resumed.status_code==202,resumed.text
-    assert run_assistance_task(task['id'],resumed.json()['revision'],provider_factory=lambda:provider)['status']=='succeeded'
+    assert run_assistance_task(task['id'],task['revision'],provider_factory=lambda:provider)['status']=='succeeded'
     second=create(client,task['project_id'],key='worker-recovery')
     repository=TaskExecutionStore();lease=repository.claim(second['id'],second['revision'])
     assert lease is not None
@@ -286,7 +269,7 @@ def test_late_receipt_recovery_and_lease_loss_never_repeat_submission(client):
     from app.adapters.task_execution_store import TaskExecutionStore
     from app.domain.model_usage.service import ModelUsageService
     from tests.helpers.tasks import task_owner
-    task=create(client,project(client));budgets(client,task)
+    task=create(client,project(client))
     provider=SyntheticProvider(unknown=True)
     waiting=run_assistance_task(task['id'],task['revision'],provider_factory=lambda:provider)
     assert waiting['reason_code']=='submission_unknown'
@@ -320,7 +303,7 @@ def test_late_receipt_recovery_and_lease_loss_never_repeat_submission(client):
 @pytest.mark.parametrize('scope',['projects','tasks'])
 def test_completed_assistance_usage_is_readable_in_public_api(client,scope):
     from app.domain.literature_assistance.execution import run_assistance_task
-    task=create(client,project(client));budgets(client,task)
+    task=create(client,project(client))
     provider=SyntheticProvider()
     result=run_assistance_task(task['id'],task['revision'],provider_factory=lambda:provider)
     assert result['status']=='succeeded',result

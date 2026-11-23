@@ -15,7 +15,7 @@ import './schoolTemplates.css'
 import {customerSchoolTemplateView,type SchoolTemplateNavigation,type SchoolTemplateView} from '../projects/manuscriptViews'
 import useDraftLeaveGuard,{type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
 import {AdoptActions,ConflictCards,type AdoptionState} from './CustomerTemplateAdopt'
-import {customerSource,lineRuleId,readableAttributes,readableRuleValue,ruleDetailLabel} from './templateSourceLabel'
+import {customerSource,readableAttributes} from './templateSourceLabel'
 import TemplateChangePreview from './TemplateChangePreview'
 import {isBindingPreview,type AffectedManuscript,type BindingPreview} from './contracts'
 type Props={projectId:string;active:boolean;customerView?:boolean;onChanged?:()=>void;navigation?:SchoolTemplateNavigation;onNavigate?:(next:SchoolTemplateNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard
@@ -41,19 +41,15 @@ function Provenance({source,customerView=false}:{source?:Source;customerView?:bo
  }
  return <details className="template-provenance"><summary>{t('查看来源')}</summary><p>{source.text}</p><small>{source.part} · {source.path}</small></details>
 }
-const ruleIdLike=/^[\w.-]+$/
-function FactList({title,items,customerView=false}:{title:string;items:(Fact|string)[];customerView?:boolean}){
+function FactList({title,items}:{title:string;items:(Fact|string)[]}){
  const {t}=useI18n()
- const rules=new Map(items.flatMap(item=>typeof item!=='string'&&item.id?[[item.id,item.value] as const]:[]))
  return <section><h4>{t(title)}</h4>{items.length?<ul>{items.map((item,index)=>{
   if(typeof item==='string')return <li key={index}>{item}</li>
-  const label=customerView&&item.id&&item.value!==undefined?ruleDetailLabel(item.id,item.label&&!ruleIdLike.test(item.label)?item.label:undefined):item.label
   const value=item.value??item.text??item.message
-  return <li key={index}><strong>{label}</strong> {customerView?readableRuleValue(item.id,value,rules.get(lineRuleId(item.id)??'')):readable(value)}<Provenance source={item.source} customerView={customerView}/></li>
+  return <li key={index}><strong>{item.label}</strong> {readable(value)}<Provenance source={item.source}/></li>
  })}</ul>:<p className="muted">{t('无已记录项目')}</p>}</section>
 }
-const pageNumberFormats:Record<string,string>={decimal:'阿拉伯数字',upperRoman:'大写罗马数字',lowerRoman:'小写罗马数字',upperLetter:'大写英文字母',lowerLetter:'小写英文字母',chineseCounting:'中文数字',chineseCountingThousand:'中文数字',ideographTraditional:'中文数字'}
-function SectionFacts({section,index,customerView=false}:{section:Section;index:number;customerView?:boolean}) {const {t}=useI18n();const pageLabels:Record<string,string>={width_cm:'页面宽度',height_cm:'页面高度',margin_top_cm:'上边距',margin_bottom_cm:'下边距',margin_left_cm:'左边距',margin_right_cm:'右边距'};const format=section.page_number?.format;return <li><h5>{t('第 {index} 节',{index:index+1})}</h5><p>{Object.entries(section.page??{}).map(([key,value])=>`${t(pageLabels[key]??key)} ${value} cm`).join(' · ')}</p><p>{t('首页不同')} {section.different_first_page?'✓':'—'} · {t('奇偶页不同')} {section.different_odd_even_pages?'✓':'—'}</p><p>{t('页码')} · {customerView?t(format?pageNumberFormats[format]??'其他编号格式':'未注明'):format??t('未注明')} · {section.page_number?.mode==='restart'?t('从 {start} 重新编号',{start:section.page_number.start??'—'}):t('延续或默认编号')}</p>{(['headers','footers'] as const).map(kind=><div key={kind}><strong>{t(kind==='headers'?'页眉':'页脚')}</strong><ul>{section[kind]?.map((part,i)=><li key={i}>{t({default:'默认',first:'首页',even:'偶数页'}[part.type]??(customerView?'其他页':part.type))} · {t(part.linked_to_previous?'链接前节':'本节定义')} · {part.text||t('无已记录文字')}{!customerView&&!!part.fields?.length&&<p>{t('域代码')}：{part.fields.join(' / ')}</p>}<Provenance source={part.source} customerView={customerView}/></li>)}</ul></div>)}<Provenance source={section.source} customerView={customerView}/></li>}
+function SectionFacts({section,index}:{section:Section;index:number}) {const {t}=useI18n();const pageLabels:Record<string,string>={width_cm:'页面宽度',height_cm:'页面高度',margin_top_cm:'上边距',margin_bottom_cm:'下边距',margin_left_cm:'左边距',margin_right_cm:'右边距'};return <li><h5>{t('第 {index} 节',{index:index+1})}</h5><p>{Object.entries(section.page??{}).map(([key,value])=>`${t(pageLabels[key]??key)} ${value} cm`).join(' · ')}</p><p>{t('首页不同')} {section.different_first_page?'✓':'—'} · {t('奇偶页不同')} {section.different_odd_even_pages?'✓':'—'}</p><p>{t('页码')} · {section.page_number?.format??t('未注明')} · {section.page_number?.mode==='restart'?t('从 {start} 重新编号',{start:section.page_number.start??'—'}):t('延续或默认编号')}</p>{(['headers','footers'] as const).map(kind=><div key={kind}><strong>{t(kind==='headers'?'页眉':'页脚')}</strong><ul>{section[kind]?.map((part,i)=><li key={i}>{t({default:'默认',first:'首页',even:'偶数页'}[part.type]??part.type)} · {t(part.linked_to_previous?'链接前节':'本节定义')} · {part.text||t('无已记录文字')}{!!part.fields?.length&&<p>{t('域代码')}：{part.fields.join(' / ')}</p>}<Provenance source={part.source}/></li>)}</ul></div>)}<Provenance source={section.source}/></li>}
 export default function SchoolTemplates(props:Props) {return <SchoolTemplatesPanel key={props.projectId} {...props}/>}
 function SchoolTemplatesPanel({projectId,active,customerView=false,onChanged,navigation,onNavigate,registerLeaveGuard,onAdopted,returnPlace,onContinue,onOpenMigration}:Props) {
  const {t}=useI18n();const visible=useDocumentVisible()
@@ -224,7 +220,7 @@ function SchoolTemplatesPanel({projectId,active,customerView=false,onChanged,nav
   if(customerView&&result&&typeof result==='object'&&'id'in result&&typeof result.id==='string')go('detail',result.id)
  }
  if(!visited&&!active)return null
- return <section hidden={!active} className="school-templates project-form" aria-label={t('学校模板')}><header>{!customerView&&<h2>{t('学校模板')}</h2>}<p>{t(customerView?'核对规则后采用这份模板。改用其他模板后，可在章节与复核中核对差异并另存新版本。':'保存原始模板和新旧版本关系，确认后显式绑定。旧稿继续使用原模板，可在稿件页另存迁移版或上传修改稿。')}</p><button type="button" disabled={busy||blocked} onClick={()=>setRefresh(v=>v+1)}>{t('刷新学校模板')}</button></header>
+ return <section hidden={!active} className="school-templates project-form" aria-label={t('学校模板')}><header>{!customerView&&<h2>{t('学校模板')}</h2>}<p>{t(customerView?'采用学校模板后，初稿将使用这份目录和排版。':'保存原始模板和新旧版本关系，确认后显式绑定。旧稿继续使用原模板，可在稿件页另存迁移版或上传修改稿。')}</p><button type="button" disabled={busy||blocked} onClick={()=>setRefresh(v=>v+1)}>{t('刷新学校模板')}</button></header>
  {error&&<p role="alert" className="error-panel">{t(error)}</p>}{blocked&&<p role="alert">{t('会话或项目访问已变化，请重新打开项目。')}</p>}
  {customerView&&profile&&navigation?.templateId&&!items.some(item=>item.id===navigation.templateId)&&
    <p role="alert">{t('指定学校模板版本不可用。')}</p>}
@@ -276,13 +272,19 @@ function TemplateReview({item,previousLabel,onUpdate,projectId,bound,busy,onConf
   return customerView?<section>{title&&<h4>{title}</h4>}{children}</section>:<details open={open}><summary>{title}</summary>{children}</details>
  }
  const invalidChapters=!chapters.length||chapters.length>300||chapters.some(chapter=>!chapter.title.trim()||!Number.isInteger(chapter.level)||chapter.level<1||chapter.level>9)
- const confirmBody=()=>({...(frontMatter?{front_matter:frontMatter}:{}),...(formatProfile?{format_profile:formatProfile}:{}),analysis_sha256:item.analysis_sha256,decisions:analysis!.conflicts.map(conflict=>({conflict_id:conflict.id,option_id:decisions[conflict.id]})),chapters:chapters.map(({id,title,level})=>({id,title:title.trim(),level})),...(textOptions.length?{text_decisions:textOptions.map(option=>({id:option.id,choice:textDecisions[option.id],source_sha256:option.source_sha256}))}:{}),...(suggestion?{schema_version:2,...suggestion}:{})})
  const chapterEditors=<>{chapters.map((chapter,index)=><div className="template-chapter" key={chapter.id}><label>{t('章节标题 {index}',{index:index+1})}<input maxLength={500} value={chapter.title} onChange={event=>setChapters(current=>current.map((entry,i)=>i===index?{...entry,title:event.target.value}:entry))}/></label><label>{t('标题级别 {index}',{index:index+1})}<input type="number" min="1" max="9" value={chapter.level} onChange={event=>setChapters(current=>current.map((entry,i)=>i===index?{...entry,level:Number(event.target.value)}:entry))}/></label><button type="button" onClick={()=>setChapters(current=>current.filter((_,i)=>i!==index))}>{t('移除此章节')}</button><Provenance source={chapter.source} customerView={customerView}/></div>)}<button type="button" onClick={()=>setChapters(current=>[...current,{id:crypto.randomUUID(),title:'',level:1}])}>{t('添加章节')}</button></>
  if(customerView){
-  // One customer view (B04 task 5): status, remaining choices, conflict cards, chapters, text rules, front matter, one action.
+  // The customer sees the decisions needed to adopt the template.
   const frozen=!!item.confirmation
   const remaining=frozen||!analysis?0:analysis.conflicts.filter(conflict=>!conflict.options.some(option=>option.id===decisions[conflict.id])).length+textOptions.filter(option=>!option.choices.includes(textDecisions[option.id] as 'text'|'attributes')).length
   const ready=frozen||!!analysis&&!remaining&&!invalidFront&&!invalidChapters&&!!item.analysis_sha256
+  const confirmBody=()=>({
+   ...(item.available_format_profile?{format_profile:item.available_format_profile}:{}),
+   analysis_sha256:item.analysis_sha256,
+   decisions:analysis!.conflicts.map(conflict=>({conflict_id:conflict.id,option_id:decisions[conflict.id]})),
+   chapters:chapters.map(({id,title,level})=>({id,title:title.trim(),level})),
+   ...(textOptions.length?{text_decisions:textOptions.map(option=>({id:option.id,choice:textDecisions[option.id],source_sha256:option.source_sha256}))}:{}),
+  })
   // B04 task 6: changing another adopted template shows the read-only preview page in place of the review.
   if(preview&&adoption!=='adopted')return <article hidden={hidden} className="template-version" id={`template-${item.id}`}>
    <TemplateChangePreview preview={preview} targetRules={item.confirmation?.rules??analysis?.rules} busy={busy} bindFailed={adoption==='bindFailed'} bindUnknown={adoption==='bindUnknown'} onKeep={onKeep} onChange={onConfirmChange} onRetry={()=>void onRetryAdoption()} onMigrate={onMigrate}/>
@@ -296,12 +298,6 @@ function TemplateReview({item,previousLabel,onUpdate,projectId,bound,busy,onConf
    <ConflictCards conflicts={analysis.conflicts} decisions={decisions} disabled={busy||frozen} onDecide={(conflictId,optionId)=>setDecisions(old=>({...old,[conflictId]:optionId}))}/>
    <fieldset disabled={busy||frozen}><legend>{t('章节核对')}</legend><p>{t('核对并保存本项目适用章节；模板章节可能只是示例。')}</p>{chapterEditors}</fieldset>
    {textOptions.length>0&&(!item.confirmation||!!item.confirmation.text_decisions?.length)&&<fieldset disabled={busy||frozen}><legend>{t('文字规范采用方式')}</legend><p>{t('原选择仅供参考；新版本须明确选择本次采用的来源。')}</p>{textOptions.map(option=><div key={option.id}><label>{t(option.label)}<select value={textDecisions[option.id]??''} onChange={event=>setTextDecisions(old=>({...old,[option.id]:event.target.value}))}><option value="">{t('请选择采用的来源值')}</option>{option.choices.includes('text')&&<option value="text">{t('采用文字说明')} · {option.text_value}</option>}<option value="attributes">{t('采用原样式属性')}</option></select></label><p>{option.source_text??t('原文字说明在此版本中缺失。')}</p>{option.changed&&<p className="warning-panel">{t('来源或样式已变化，请重新核对。')}</p>}{option.suggested_choice&&<p>{t('先前选择可沿用')}：{t(option.suggested_choice==='text'?'采用文字说明':'采用原样式属性')}</p>}<p>{t('原样式属性')}：{readableAttributes(option.attribute_value)}</p></div>)}</fieldset>}
-   <FactList title="模板规则" items={item.confirmation?.rules??analysis.rules??[]} customerView/>
-   <section><h4>{t('分节与页眉页脚实际属性')}</h4><ul>{analysis.sections?.map((section,index)=><SectionFacts key={section.id??index} section={section} index={index} customerView/>)}</ul></section>
-   <FactList title="内嵌说明与引用" items={analysis.notes??[]} customerView/>
-   <FactList title="缺失信息" items={item.confirmation?.missing??analysis.missing??[]} customerView/><FactList title="解析限制" items={item.confirmation?.unsupported??analysis.unsupported??[]} customerView/><FactList title="身份与签名字段" items={analysis.identity_fields??[]} customerView/><p>{t('姓名、学号及签名等必填字段须由本人核对；系统不会代签或推断身份。')}</p>
-   <fieldset disabled={busy||frozen}><FrontMatterEditor customerView value={frontMatter} onChange={setFrontMatter} sources={frontSources} sections={analysis.sections} chapters={chapters}/>
-   {item.available_format_profile==='bsu-gs501-academic-masters-2026'&&<label><input type="checkbox" checked={formatProfile===item.available_format_profile} onChange={event=>setFormatProfile(event.target.checked?item.available_format_profile:undefined)}/>{t('采用北体 GS501 学术型硕士排版')}</label>}</fieldset>
    <AdoptActions name={item.name} change={change} bound={bound} state={adoption} busy={busy} ready={ready} returnPlace={returnPlace} onContinue={onContinue}
     onAdopt={()=>{const body=frozen?{}:confirmBody();void(change?onPreview(body):onAdopt(body))}} onRetry={()=>void onRetryAdoption()}/>
   </>}

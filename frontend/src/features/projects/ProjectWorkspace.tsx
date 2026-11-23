@@ -27,7 +27,7 @@ import {bulkRoute} from '../bio-insights/bulkWorkflow'
 import { PROJECT_PAGE_SIZE, isProject, isProjectPage, typeNames, type Project } from './projectTypes'
 import { apiError, safeError, useI18n } from '../../shared/i18n'
 import AssignedProjectList from '../analyst/AssignedProjectList'
-import AnalystProgress from '../analyst/AnalystProgress'
+import AnalystProgress, { AnalystMaterialsRequest } from '../analyst/AnalystProgress'
 import AnalystDelivery from '../analyst/AnalystDelivery'
 import SubmittedRequirement from '../analyst/SubmittedRequirement'
 import useAnalystWorkspace from '../analyst/useAnalystWorkspace'
@@ -109,6 +109,7 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
   const showingProjectInfo = view === 'project' && section === 'overview' && ['settings', 'activity', 'usage'].includes(overviewView)
   const analystInfoHeader = analysisOnly && !!project && showingProjectInfo
   const showingSubmittedRequirement = assigned && section === 'overview' && overviewView === 'requirements'
+  const showingAssignedDesign = assigned && section === 'overview' && overviewView === 'design'
   const showingAnalystExecution = analysisOnly && !!project && (section === 'files' || section === 'analysis' && !showingResult)
   const showingAnalystResults = analysisOnly && !!project && showingResult
   const showingAnalystDelivery = analysisOnly && !!project && section === 'overview' && overviewView === 'deliveries'
@@ -373,7 +374,7 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
       <button type="button" onClick={() => openProject(selection.unavailableId)}>{t("重试打开项目")}</button>
     </div>}
     {selection.instance && <section ref={selectedRegion} hidden={view !== 'project'} tabIndex={-1} className="selected-project" aria-label={t("当前项目工作区")}>
-      {!analystInfoHeader && !showingSubmittedRequirement && !analystStepTitle && (analysisOnly || !['files','analysis','artifacts','tasks'].includes(section) && !(section === 'overview' && ['requirements','design','settings','activity','usage'].includes(overviewView))) && returnToListButton}
+      {!analystInfoHeader && !showingSubmittedRequirement && !showingAssignedDesign && !analystStepTitle && (analysisOnly || !['files','analysis','artifacts','tasks'].includes(section) && !(section === 'overview' && ['requirements','design','settings','activity','usage'].includes(overviewView))) && returnToListButton}
       {selection.loading && <p role="status">{t("正在读取项目详情……")}</p>}
       {selection.error && <div className="error-panel" role="alert">{t(selection.error)}{' '}
         <button type="button" onClick={selection.refresh}>{t("重试项目详情")}</button>
@@ -415,7 +416,7 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
               </header>}/>}
           </ProjectInfoActions>
           {showingSubmittedRequirement && <SubmittedRequirement projectId={project.id} workspace={analyst}
-            onDesign={()=>selection.changeOverviewView('design')} headerAction={returnToListButton}/>}
+            onDesign={()=>selection.changeOverviewView('design')}/>}
           {!analysisOnly&&overviewView==='deliveries'&&<button type="button" onClick={openResults}>{t('返回成果列表')}</button>}
         </div>
         <div className="result-summary-host" hidden={section !== 'artifacts'||resultNext||selection.artifactNavigation.view.startsWith('research-')}>
@@ -451,7 +452,10 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
           deliveryId={selection.deliveryId} snapshotId={selection.deliverySnapshotId} onSelect={selection.selectDelivery}
           registerLeaveGuard={selection.registerLeaveGuard} workspace={assigned?analyst:undefined}
           onBackToResults={openResults} headerAction={returnToListButton}/>}
-        {(!assigned || bulkDesign || overviewView==='design') && <ResearchIntake analysisOnly={analysisOnly} designOnly={assigned} onDesignSaved={bulkDesign?()=>setBulkOverviewRevision(value=>value+1):undefined} panelRequest={!bulkDesign&&requirementPanelRequest?.projectId===project.id&&requirementPanelRequest.instanceKey===selection.instance!.key?requirementPanelRequest:undefined} onViewChange={selection.changeOverviewView} onRequirementSaved={flow.acceptServices} continueLabel={writingChoice?.projectId===project.id&&writingChoice.awaitingServices?'保存需求并继续':undefined} onContinue={(services,version)=>{flow.acceptServices(services,version);if(writingChoice?.projectId===project.id&&writingChoice.awaitingServices&&services.includes(writingChoice.kind)){continueWriting(writingChoice.kind)}else if(services.includes('analysis')){setWritingChoice(null);selection.selectAnalysis(selection.analysisNavigation.bulkView?bulkRoute('data'):{view:'overview',fileId:selection.analysisNavigation.fileId})}else if(!analysisOnly){continueWriting(services.includes('sci_draft')?'sci_draft':'thesis_draft')}}} deliveryId={selection.deliveryId} snapshotId={selection.deliverySnapshotId} onDeliverySelect={selection.selectDelivery} projectId={project.id} view={section==='analysis'&&selection.analysisNavigation.bulkView?'design':analysisOnly&&overviewView==='deliveries'?'requirements':overviewView} active={view==='project'&&(bulkDesign||section==='overview'&&['requirements','design',...analysisOnly?[]:['deliveries']].includes(overviewView))} registerLeaveGuard={selection.registerLeaveGuard}/>}
+        {(!assigned || bulkDesign || overviewView==='design') && <ResearchIntake analysisOnly={analysisOnly} designOnly={assigned} guidedDesign={showingAssignedDesign}
+          materialRequest={showingAssignedDesign && analyst.value?.requirement && analyst.value.status !== 'delivered'
+            ? <AnalystMaterialsRequest projectId={project.id} workspace={analyst} sampleSheet/> : undefined}
+          onDesignSaved={bulkDesign?()=>setBulkOverviewRevision(value=>value+1):undefined} panelRequest={!bulkDesign&&requirementPanelRequest?.projectId===project.id&&requirementPanelRequest.instanceKey===selection.instance!.key?requirementPanelRequest:undefined} onViewChange={selection.changeOverviewView} onRequirementSaved={flow.acceptServices} continueLabel={writingChoice?.projectId===project.id&&writingChoice.awaitingServices?'保存需求并继续':undefined} onContinue={(services,version)=>{flow.acceptServices(services,version);if(writingChoice?.projectId===project.id&&writingChoice.awaitingServices&&services.includes(writingChoice.kind)){continueWriting(writingChoice.kind)}else if(services.includes('analysis')){setWritingChoice(null);selection.selectAnalysis(selection.analysisNavigation.bulkView?bulkRoute('data'):{view:'overview',fileId:selection.analysisNavigation.fileId})}else if(!analysisOnly){continueWriting(services.includes('sci_draft')?'sci_draft':'thesis_draft')}}} deliveryId={selection.deliveryId} snapshotId={selection.deliverySnapshotId} onDeliverySelect={selection.selectDelivery} projectId={project.id} view={section==='analysis'&&selection.analysisNavigation.bulkView?'design':analysisOnly&&overviewView==='deliveries'?'requirements':overviewView} active={view==='project'&&(bulkDesign||section==='overview'&&['requirements','design',...analysisOnly?[]:['deliveries']].includes(overviewView))} registerLeaveGuard={selection.registerLeaveGuard}/>}
         {!analysisOnly && section === 'artifacts' && <div className="result-next-panel" hidden={!resultNext}><ProjectResultActions projectType={project.project_type} onWriting={continueWriting} onExit={closeProject} onExistingManuscripts={()=>selection.selectManuscriptView('list')} onDeliveries={()=>selection.changeOverviewView('deliveries')}/></div>}
       </div></ProjectWritingScope>}
     </section>}

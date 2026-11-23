@@ -1,4 +1,5 @@
 """Validated current inputs become immutable, locally formatted citation versions."""
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -148,14 +149,14 @@ class LiteratureCitationService:
                 self.metadata_actual(db,project,row)
             except StorageError:
                 actual=False
-        gaps=metadata_gaps(snapshot['metadata'])
+        gaps=metadata_gaps(snapshot['metadata'],extracted_from_pubmed=snapshot['mode']=='extract')
         return dict(id=row['id'],project_reference_id=row['project_reference_id'],revision=row['revision'],
             **snapshot,gaps=gaps,source_current=actual,usable=actual and snapshot['source_verified'] and not gaps,
             created_at=iso(row['created_at']))
 
-    def create_metadata(self,project,reference_id,request,key):
+    def create_metadata(self,project,reference_id,request,key,*,connection=None):
         require_key(key);body=dict(project_reference_id=reference_id,**request_data(MetadataRequest,request))
-        with self.store.connection(write=True) as db:
+        with (self.store.connection(write=True) if connection is None else nullcontext(connection)) as db:
             self.evidence.lock(db,project)
             reference=self.literature.require_reference(db,project,reference_id)
             replay=self.replay(db,'literature_citation_metadata_versions',project,key,body)
@@ -307,8 +308,19 @@ class LiteratureCitationService:
                         self.validate_evidence_receipts(db,project,bound['project_reference_id'],evidence)
                         reference=self.literature.require_reference(db,project,bound['project_reference_id'])
                         current=self.literature.reference_view(db,reference)['source']
-                        if current['receipt_id']!=bound['metadata_source']['source']['receipt_id']:
-                            reasons.append('reference_source_changed')
+                        saved=bound['metadata_source']['source']
+                        if current['receipt_id']!=saved['receipt_id']:
+                            # Simple SCI selection binds a verified record and its exact abstract passages.
+                            # Another search may fetch the identical PMID in a different batch/receipt.
+                            # Explicitly reviewed historical citations retain their original receipt gate.
+                            auto = latest and latest['idempotency_key'].startswith('selected-references-') and evidence and db.execute(
+                                '''SELECT 1 FROM literature_claim_evidence WHERE project_id=%s AND user_id=%s
+                                   AND id=%s AND idempotency_key=%s''',
+                                (project,self.store.user_id,evidence[0]['id'],latest['idempotency_key']+'-part-0')).fetchone()
+                            if auto:
+                                _, fresh = self.actual_receipt(db,project,reference,current['search_id'])
+                            if not auto or any(fresh[k]!=saved[k] for k in ('pmid','record_sha256','source_kind')):
+                                reasons.append('reference_source_changed')
                         versions=self.rows(db,'literature_citation_metadata_versions',project,' AND project_reference_id=%s',(bound['project_reference_id'],))
                         if max(r['revision'] for r in versions)!=bound['metadata_revision']:
                             reasons.append('metadata_version_changed')
@@ -346,7 +358,7 @@ class LiteratureCitationService:
         with self.store.connection(write=True) as db:
             return self.create_draft_in_transaction(db,project,request,key,identity)
 
-    def create_draft_in_transaction(self,db,project,request,key,identity=None):
+    def create_draft_in_transaction(self,db,project,request,key,identity=None,*,version_key=None):
         """Reuse the caller's write lock; never open a nested write connection."""
         require_key(key)
         body=request_data(DraftVersionRequest if identity else DraftRequest,request)
@@ -372,7 +384,7 @@ class LiteratureCitationService:
             identity=root['id']
         version_id=str(uuid4())
         snapshot.update(draft_id=identity,revision=revision,version_id=version_id)
-        version=self.evidence.insert(db,'literature_citation_versions',project,key,body,id=version_id,
+        version=self.evidence.insert(db,'literature_citation_versions',project,version_key or key,body,id=version_id,
             draft_id=identity,revision=revision,snapshot_json=snapshot,snapshot_sha256=digest(snapshot))
         if revision>1:
             root=db.execute('UPDATE literature_citation_drafts SET revision=%s,updated_at=clock_timestamp() WHERE id=%s RETURNING *',(revision,identity)).fetchone()

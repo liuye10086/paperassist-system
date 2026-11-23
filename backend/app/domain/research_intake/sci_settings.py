@@ -43,12 +43,13 @@ class LegacySciProjectSettings(SciIntent):
 
 
 class SciRequirements(SciIntent):
+    target_journal: JournalIntent | None = None
     proposed_title: ShortText
     keywords: PaperKeywords
 
     @model_validator(mode='after')
     def specific_journal(self):
-        if self.target_journal.choice != 'science' and self.target_journal.name is None:
+        if self.target_journal and self.target_journal.choice != 'science' and self.target_journal.name is None:
             raise ValueError('A specific journal name is required.')
         return self
 
@@ -72,12 +73,12 @@ def unique_rows(items):
 
 class SciResearchRequirements(SciRequirements):
     article_type: Literal['research']
-    figure_findings: Annotated[list[FigureFinding], Field(min_length=1), AfterValidator(unique_rows)]
+    figure_findings: Annotated[list[FigureFinding], AfterValidator(unique_rows)] = Field(default_factory=list)
 
 
 class SciReviewRequirements(SciRequirements):
     article_type: Literal['narrative_review']
-    review_sections: Annotated[list[ReviewSection], Field(min_length=1), AfterValidator(unique_rows)]
+    review_sections: Annotated[list[ReviewSection], AfterValidator(unique_rows)] = Field(default_factory=list)
 
 
 SciProjectSettings = Annotated[SciResearchRequirements | SciReviewRequirements, Field(discriminator='article_type')]

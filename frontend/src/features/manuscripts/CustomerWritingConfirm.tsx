@@ -22,8 +22,8 @@ type Props={
  onPreview:()=>void;onSubmit:(bundle:Bundle)=>Promise<void>;onCheckResult:()=>void
 }
 const articleNames:Record<string,string>={research:'研究型论文',brief:'简报',narrative_review:'综述',methods:'方法论文'}
-// Rounded up to the cent, so the shown reservation is never lower than the server's.
-const reserved=(micro:number)=>`US$${(Math.ceil(micro/10000)/100).toFixed(2)}`
+// Rounded up to the cent, so the displayed cost estimate is never lower than the server's.
+const estimatedCost=(micro:number)=>`US$${(Math.ceil(micro/10000)/100).toFixed(2)}`
 // The server names the receiver by its endpoint and the storage scope by an English notice. Only known values are
 // shown, as a service name and a localized sentence; anything else falls back to the generic wording.
 const providerNames:Record<string,string>={'https://api.openai.com/v1/responses':'OpenAI','OpenAI':'OpenAI'}
@@ -61,7 +61,7 @@ export default function CustomerWritingConfirm({bundle,version,capabilities,cust
    <WritingBundlePreview bundle={bundle} customerThesis={customerThesis} readableSnapshot={version.snapshot} materialsOnly savedAt={version.created_at}/>
    {check==='failed'&&<p role="alert">{t(materialsChanged)}</p>}
    <p>{notice}</p>
-   <p>{t('生成正文会产生写作费用。')}{bundle.reserved_micro_usd>0&&t('本次预留 {amount}。',{amount:reserved(bundle.reserved_micro_usd)})}{t('实际费用以用量记录为准。提交失败或结果未知时，不会自动重新提交。')}</p>
+   <p>{t('生成正文会产生写作费用。')}{bundle.reserved_micro_usd!=null&&bundle.reserved_micro_usd>0&&t('预计费用 {amount}。',{amount:estimatedCost(bundle.reserved_micro_usd)})}{t('实际费用以用量记录为准。提交失败或结果未知时，不会自动重新提交。')}</p>
    {generated&&<p className="warning-panel">{t('这一版已经生成过正文。再次生成会产生新的写作费用，之前的生成结果仍可查看。')}</p>}
    <label><input type="checkbox" checked={confirmed} disabled={check!=='ok'||!enabled||busy||sending} onChange={e=>setConfirmed(e.target.checked)}/>{t('我确认用以上材料生成正文，接受本次写作费用和外部保存范围。')}</label>
    <div className="actions"><button type="button" className="button-primary" disabled={!canSubmit} onClick={()=>void submit()}>{t(action)}</button></div>

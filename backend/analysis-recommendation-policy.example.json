@@ -16,6 +16,5 @@
       "cache_write_micro_usd_per_million": null
     }
   },
-  "input_token_allowance": null,
-  "task_limit_micro_usd": 500000
+  "input_token_allowance": null
 }

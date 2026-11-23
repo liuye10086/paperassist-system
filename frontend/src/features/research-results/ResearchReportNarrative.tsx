@@ -11,14 +11,14 @@ export function NarrativePreparation({projectId, enabled, preparation, taskLink}
 }) {
   const {t, locale} = useI18n()
   const {preview, status, ready, read, matching} = preparation
-  const cost = preview && new Intl.NumberFormat(locale, {style: 'currency', currency: 'USD', maximumFractionDigits: 6}).format(preview.reserved_micro_usd / 1_000_000)
+  const cost = preview?.reserved_micro_usd != null && new Intl.NumberFormat(locale, {style: 'currency', currency: 'USD', maximumFractionDigits: 6}).format(preview.reserved_micro_usd / 1_000_000)
   return <section className="research-detail-block">
     {(!matching?.id || preparation.canRegenerate) && !preview && !preparation.operation.unknown && <button type="button" disabled={!enabled || preparation.blocking}
       onClick={() => void preparation.inspect()}>{t(preparation.canRegenerate?'重新生成详细解读（会再次调用模型）':'生成详细解读')}</button>}
     {preview && <section aria-label={t('确认外发材料与费用')}>
       <h4>{t('确认外发材料与费用')}</h4>
       <p>{t(preview.cached?'可复用与当前内容匹配的解读。':'将向外部模型发送所选研究发现的固定结果摘要及下列图片。')}</p>
-      <p>{t('模型 {model} · 本次预算预留 {amount}', {model: preview.model, amount: cost ?? ''})}</p>
+      <p>{t('模型 {model} · 预计费用 {amount}', {model: preview.model, amount: cost || t('待核对')})}</p>
       <p>{t('结果摘要包含 {facts} 项内容，图片 {figures} 张。', {facts: preview.fact_count, figures: preview.figures.length})}</p>
       {(!!preview.figures.length || preview.facts != null) && <ModuleViews label={t('外发材料视图')}>
         {!!preview.figures.length && <ModuleView id="figures" title={t('将发送的图片与图注')}><ol>{preview.figures.map((figure, index) => <li key={figure.number ?? index}>

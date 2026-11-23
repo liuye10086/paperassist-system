@@ -261,10 +261,7 @@ def assert_receipts(task, original_snapshot, *, explanation=False):
             'input_tokens_details': {'cached_tokens': 0, 'cache_write_tokens': 0}}
         assert events[-1]['reason_code'] == (None if explanation else 'tool_cost_unknown')
         reservations = db.execute('SELECT * FROM budget_reservations WHERE call_id=%s', (call['id'],)).fetchall()
-        assert len(reservations) == 3
-        assert {r['accounted_micro_usd'] for r in reservations} == {1}
-        assert {r['status'] for r in reservations} == ({'settled'} if explanation else {'held'})
-        assert all(r['reserved_micro_usd'] > 0 for r in reservations)
+        assert reservations == []
         assert db.execute('SELECT count(*) AS n FROM task_attempts WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 1
         if explanation:
             value = json.loads(db.execute('SELECT explanation_json FROM explanations WHERE id=%s',
@@ -354,26 +351,21 @@ def test_configured_unknown_submission_repeated_delivery_and_resume_never_posts_
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM task_resume_requests WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 0
         reservations = db.execute('SELECT * FROM budget_reservations WHERE call_id=%s', (call['id'],)).fetchall()
-        assert len(reservations) == 3 and {r['status'] for r in reservations} == {'held'}
-        assert {r['accounted_micro_usd'] for r in reservations} == {0}
-        assert all(r['reserved_micro_usd'] > 0 for r in reservations)
+        assert reservations == []
 
 
 @pytest.mark.parametrize('kind', ['plot', 'explanation'])
-def test_configured_budget_resume_replays_receipt_and_keeps_budget_revision(client, monkeypatch, kind):
-    from app.domain.model_usage.service import ModelUsageService
+def test_old_budget_wait_resumes_without_settings_and_replays_receipt(client, monkeypatch, kind):
+    from tests.helpers.tasks import historical_model_wait
     from app.domain.tasks.workspace import TaskWorkspaceService
     from app.domain.tasks.resume import TaskResumeService
     workbench, _, _, _, task, provider, worker = configured_case(client, monkeypatch, 2, kind)
     snapshot = raw_task(task)['input_snapshot']
-    service = ModelUsageService(workbench.tasks.user_id)
-    service.set_budget('task', task['id'], 0, 1)
-    waiting = step(task, provider, worker)
+    waiting = historical_model_wait(task)
     assert waiting['status'] == 'waiting_confirmation' and waiting['reason_code'] == 'budget_exceeded'
     assert provider.posts == []
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM model_calls WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 0
-    service.set_budget('task', task['id'], 1000000, 2)
     workspace = TaskWorkspaceService(workbench.tasks.user_id).get(task['id'])
     request = {'operation': 'resume', 'wait_id': workspace['wait']['id'],
         'expected_task_revision': waiting['revision'], 'input_version': waiting['input_version']}
@@ -388,7 +380,7 @@ def test_configured_budget_resume_replays_receipt_and_keeps_budget_revision(clie
     assert raw_task(task)['input_snapshot'] == snapshot
     with database_connection() as db:
         budget = db.execute("SELECT * FROM model_budgets WHERE scope_type='task' AND scope_key=%s", (task['id'],)).fetchone()
-        assert budget['revision'] == 3 and budget['limit_micro_usd'] == 1000000
+        assert budget is None
         assert db.execute('SELECT count(*) AS n FROM task_resume_requests WHERE task_id=%s', (task['id'],)).fetchone()['n'] == 1
         wait = db.execute('SELECT * FROM task_waits WHERE id=%s', (workspace['wait']['id'],)).fetchone()
         assert wait['status'] == 'resolved'

@@ -1,9 +1,12 @@
 """Version two consent and raw candidate contracts. Aliases are suggestions only."""
-from typing import Literal
+from typing import Annotated, Literal
 from pydantic import Field, field_validator, model_validator
 from .contracts import Strict, SectionId, WritingRequest
 
 WORKFLOW = 'manuscript_writing_v2'
+# Absent from older frozen request JSON and therefore from its persisted digest.
+DocumentContextVersion = Annotated[Literal['selected-text-v1'] | None, Field(exclude_if=lambda value: value is None)]
+RevisionParent = Annotated[str | None, Field(min_length=1, max_length=64, exclude_if=lambda value: value is None)]
 
 class PreviewRequest(WritingRequest):
     schema_version: Literal[2]
@@ -24,12 +27,16 @@ class BundleRef(Strict):
 
 class SchoolPreviewRequest(WritingRequest):
     schema_version:Literal[3]
+    document_context_version: DocumentContextVersion = None
+    revision_of_request_id: RevisionParent = None
     output_language:Literal['en','zh-CN']
     selected_source_ids:list[str]=Field(max_length=100)
     selected_evidence_ids:list[str]=Field(max_length=100)
 
     @model_validator(mode='after')
     def unique_school_selection(self):
+        if self.revision_of_request_id and (self.mode != 'full_draft' or not self.instructions.strip()):
+            raise ValueError('School revision requires a full draft and advisor feedback')
         if any(len(v)!=len(set(v)) for v in (self.selected_source_ids,self.selected_evidence_ids)):raise ValueError('Duplicate school material selection')
         if self.keywords or self.acknowledgements:raise ValueError('School keywords and acknowledgements remain explicit local export material')
         return self
@@ -99,6 +106,8 @@ class BriefLimits(Strict):
 class ArticlePreviewRequest(PreviewRequest):
     """Opt-in W1 only; historical preview dumps and schema3 remain unchanged."""
     schema_version:Literal[4]
+    document_context_version: DocumentContextVersion = None
+    revision_of_request_id: RevisionParent = None
     document_kind:Literal['sci','thesis']='sci'
     article_type:Literal['research','brief','narrative_review','methods']='research'
     mode:Literal['full_draft','rewrite_section','results_discussion','expand_restructure','polish']
@@ -110,6 +119,10 @@ class ArticlePreviewRequest(PreviewRequest):
 
     @model_validator(mode='after')
     def target_gate(self):
+        if self.revision_of_request_id is not None and (
+            self.mode != 'full_draft' or self.document_kind != 'sci' or not self.instructions.strip()
+        ):
+            raise ValueError('Draft revision requires a complete SCI draft and reviewer feedback')
         if (self.mode=='rewrite_section')!=(self.target_section is not None):raise ValueError('A rewrite requires exactly one target section')
         if any(not w.strip() or len(w)>200 for w in self.keywords):raise ValueError('Invalid keywords')
         if self.mode in ('polish','expand_restructure') and not self.target_sections:raise ValueError('Explicit target sections required')

@@ -21,7 +21,7 @@ def upgrade():
     metadata = sa.MetaData()
     for table in (projects, files):
         table.to_metadata(metadata)
-    define_paper_material_notes(metadata, include_worksheet_names=False).create(op.get_bind())
+    define_paper_material_notes(metadata, include_worksheet_names=False, allow_empty_result=False).create(op.get_bind())
     install_file_reference_barriers(op.execute, ('paper_material_notes',))
 
 

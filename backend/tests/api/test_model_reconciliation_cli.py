@@ -239,7 +239,7 @@ def test_tool_partial_full_and_negative_correction_via_cli(context, tmp_path, ca
     assert main(arguments('apply', tool_record, saved['id'])) == 0
     partial = json.loads(capsys.readouterr().out)
     assert partial['reconciliation_status'] == 'partial'
-    assert partial['reserved_after_micro_usd'] == 600
+    assert partial['reserved_after_micro_usd'] == 0
     token_record = record_file(tmp_path, event_key='token-proof', expected_revision=1,
         amount_usd='0.001000')
     assert main(arguments('apply', token_record, saved['id'])) == 0

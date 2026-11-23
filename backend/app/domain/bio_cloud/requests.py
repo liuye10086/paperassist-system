@@ -1,6 +1,5 @@
 """Public requests contain project-owned identities, never cloud credentials."""
 import base64
-from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -49,8 +48,13 @@ class RunRequest(StrictRequest):
     group: str = Field(default='', max_length=100)
     fastqs: list[FastqInput] = Field(min_length=2, max_length=100)
     external_processing_confirmed: Literal[True]
-    budget_approved: Literal[True]
-    budget_limit_usd: Decimal = Field(gt=0, le=100000, max_digits=10, decimal_places=2)
+
+    @model_validator(mode='before')
+    @classmethod
+    def previous_client(cls, value):
+        if isinstance(value, dict):
+            return {k: v for k, v in value.items() if k not in ('budget_approved', 'budget_limit_usd')}
+        return value
 
     @model_validator(mode='after')
     def pairs(self):

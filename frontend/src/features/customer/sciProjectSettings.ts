@@ -10,7 +10,7 @@ type FigureFinding = { id: string; finding: string }
 type ReviewSection = { id: string; heading: string; content: string }
 
 type SciIntent = {
-  target_journal: { choice: JournalChoice; name: string | null }
+  target_journal: { choice: JournalChoice; name: string | null } | null
   keywords: string[]
 }
 
@@ -49,7 +49,7 @@ export function sciSettingsDraft(settings: SciSettings | null = null): SciSettin
   return {
     article_type: settings?.article_type ?? '',
     proposed_title: requirements?.proposed_title ?? '',
-    target_journal: { choice: settings?.target_journal.choice ?? '', name: settings?.target_journal.name ?? '' },
+    target_journal: { choice: settings?.target_journal?.choice ?? '', name: settings?.target_journal?.name ?? '' },
     keywords: settings?.keywords ?? [],
     figure_findings: requirements?.article_type === 'research' ? requirements.figure_findings : [],
     review_sections: requirements?.article_type === 'narrative_review' ? requirements.review_sections : [],
@@ -73,21 +73,18 @@ export function prepareSciSettings(draft: SciSettingsDraft): { settings: SciRequ
   if (!article_type) return { error: '请选择论文类型。' }
   const proposed_title = draft.proposed_title.trim()
   if (!proposed_title) return { error: '请填写拟定论文题目。' }
-  if (!target_journal.choice) return { error: '请选择一个目标期刊。' }
   const name = target_journal.choice === 'science' ? '' : target_journal.name.trim()
-  if (target_journal.choice !== 'science' && !name) return { error: '请填写具体期刊名称。' }
   const prepared = preparePaperKeywords(draft)
   if ('error' in prepared) return prepared
-  const intent = { proposed_title, target_journal: { choice: target_journal.choice, name: name || null }, keywords: prepared.keywords }
+  const journal = target_journal.choice && (name || target_journal.choice === 'science')
+    ? { choice: target_journal.choice, name: name || null } : null
+  const intent = { proposed_title, target_journal: journal, keywords: prepared.keywords }
   if (article_type === 'research') {
-    const figure_findings = draft.figure_findings.map(({ id, finding }) => ({ id, finding: finding.trim() }))
-    if (!figure_findings.length || figure_findings.some(item => !item.finding)) {
-      return { error: '请至少填写一条主要发现。' }
-    }
+    const figure_findings = draft.figure_findings.map(({ id, finding }) => ({ id, finding: finding.trim() })).filter(item => item.finding)
     return { settings: { ...intent, article_type, figure_findings } }
   }
   const review_sections = draft.review_sections.map(({ id, heading, content }) => ({ id, heading: heading.trim(), content: content.trim() }))
-  if (!review_sections.length || review_sections.some(item => !item.heading || !item.content)) {
+  if (review_sections.some(item => !item.heading || !item.content)) {
     return { error: '请至少添加一个小标题，并填写每项需要涵盖的内容。' }
   }
   return { settings: { ...intent, article_type, review_sections } }

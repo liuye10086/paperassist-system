@@ -38,12 +38,12 @@ def domain_errors(domain,bundle):
             if name=='literature' and ceiling and policy!=ceiling['execution']['policy']:
                 errors.append('literature_fixed_provider_policy')
             if ceiling:
-                for field in ('input_token_allowance','task_limit_micro_usd'):
-                    if execution[field]>ceiling['execution'][field]:errors.append(name+'_'+field+'_exceeds_deployment')
+                if execution['input_token_allowance'] > ceiling['execution']['input_token_allowance']:
+                    errors.append(name+'_input_token_allowance_exceeds_deployment')
                 if policy['max_output_tokens']>ceiling['execution']['policy']['max_output_tokens']:
                     errors.append(name+'_output_exceeds_deployment')
             elif name!='literature':
-                # No deployed policy means no evidence for raising a previously absent budget.
+                # A new model entry requires its installed execution policy.
                 errors.append(name+'_deployment_policy_missing')
             if entry['price_status']=='synthetic' and entry['price_source']!='synthetic_fixture':errors.append(name+'_price_provenance_mismatch')
             if entry['price_status']=='unverified' and entry['price_verified_on'] is not None:errors.append(name+'_unverified_price_date')

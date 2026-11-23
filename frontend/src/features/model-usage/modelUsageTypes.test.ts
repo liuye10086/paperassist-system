@@ -2,6 +2,11 @@ import { expect, test } from 'vitest'
 import { isProjectUsage, isTaskUsage } from './modelUsageTypes'
 import { reconciliationCall, reconciliationFixture, reconciliationTime } from './reconciliationFixtures'
 
+test('shows school template suggestions in thesis project usage', () => {
+  const usage = {...reconciliationFixture, items: [{...reconciliationCall, task_type: 'school_rule_suggestion'}]}
+  expect(isProjectUsage(usage, 1)).toBe(true)
+})
+
 test('accepts frozen reconciliation projection with partial, complete zero, pending and released calls', () => {
   expect(isProjectUsage(reconciliationFixture, 1)).toBe(true)
   expect(isTaskUsage(reconciliationFixture, 1)).toBe(true)
@@ -17,13 +22,11 @@ test('accepts frozen reconciliation projection with partial, complete zero, pend
   }
 })
 
-test('rejects malformed optional accounted amounts at every scope', () => {
-  for (const amount of [null, undefined, -1, 0.5, '0', false, Number.MAX_SAFE_INTEGER + 1]) {
-    expect(isProjectUsage({ ...reconciliationFixture, accounted_micro_usd: amount }, 1)).toBe(false)
-    for (const key of ['user_budget', 'project_budget', 'task_budget'] as const) {
-      expect(isTaskUsage({ ...reconciliationFixture, [key]: { ...reconciliationFixture[key], accounted_micro_usd: amount } }, 1)).toBe(false)
-    }
-  }
+test('reads usage without any budget projections', () => {
+  const value = {currency: 'USD', period: 'cumulative', estimated_micro_usd: 0, pending_count: 0,
+    items: [], total: 0, page: 1, page_size: 10}
+  expect(isProjectUsage(value, 1)).toBe(true)
+  expect(isTaskUsage(value, 1)).toBe(true)
 })
 
 test('rejects malformed summaries while accepting a zero sum with only pending calls', () => {

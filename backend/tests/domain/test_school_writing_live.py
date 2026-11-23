@@ -41,6 +41,20 @@ def fixture(bilingual=False):
     output=dict(sections=[dict(id=alias,paragraphs=[dict(id=alias+'-p1',text='正文待研究人员核对。' if row['output_language']=='zh-CN' else 'Researcher verification is required.',source_aliases=[],evidence_aliases=[],study_numeric_bindings=[])]) for alias,row in bundle['local_manifest']['school']['chapters'].items() if alias in bundle['local_manifest']['school']['writable_aliases']])
     return snapshot,bundle,output,analysis
 
+@pytest.mark.parametrize('quote', ['Sequenced with GS FLX+ (454/Roche).', 'The range was −(12).'])
+def test_school_keeps_literature_with_unusable_numeric_notation_as_qualitative_evidence(quote):
+    base, request, _ = material()
+    binding = dict(metadata={'title':'Independent evidence'}, evidence=[
+        dict(id='excerpt', quote=quote, reading_scope='abstract'),
+        dict(id='count', quote='There were 17 subjects.', reading_scope='abstract')])
+    base['citation_snapshot'] = dict(paragraphs=[dict(id='p1', fragments=[dict(bindings=[binding])])])
+    request['selected_evidence_ids'] = ['excerpt', 'count']
+    bundle = build_bundle(base, request, execution_contract=contract(schema_version=3))
+    payload = json.loads(json.loads(bundle['wire_json'])['input'])
+    first, second = payload['evidence']
+    assert first['quote'] == quote and first['numeric_facts'] == []
+    assert second['numeric_facts'] == [dict(fact_path='/quote/numbers/0', value='17')]
+
 @pytest.mark.parametrize('bilingual',[False,True])
 def test_school_contract_freezes_dynamic_aliases_and_excludes_identity(bilingual):
     snapshot,bundle,output,_=fixture(bilingual)
@@ -64,6 +78,44 @@ def test_school_output_rejects_reordered_or_protected_chapters():
     snapshot,bundle,output,_=fixture()
     for changed in [dict(sections=list(reversed(output['sections']))),dict(sections=[dict(id='chapter1',paragraphs=output['sections'][0]['paragraphs'])])]:
         with pytest.raises(ValueError):compose_live_candidate(changed,snapshot,bundle,'call','synthetic_fixture')
+
+
+def test_customer_school_presentation_is_frozen_and_uses_exact_citation_sentences():
+    from app.domain.sci_draft_reader import paragraph_parts
+    from app.domain.manuscript_writing.school_presentation import PRESENTATION_VERSION
+
+    snapshot, _, output, _ = fixture(True)
+    base, request = snapshot['base_snapshot'], snapshot['input']
+    binding = dict(project_reference_id='reference', metadata={'title':'Independent evidence'},
+                   evidence=[dict(id='excerpt', quote='Clustering improved reproducibility.', reading_scope='abstract')])
+    base['citation_snapshot'] = dict(paragraphs=[dict(id='source', fragments=[dict(bindings=[binding])])])
+    request['selected_evidence_ids'] = ['excerpt']
+    frozen = contract(schema_version=3, school_presentation_version=PRESENTATION_VERSION)
+    bundle = build_bundle(base, request, execution_contract=frozen)
+    bundle['id'] = 'school-presentation'
+    validate_bundle(dict(bundle, base_snapshot=base, request_json=request))
+    payload = json.loads(json.loads(bundle['wire_json'])['input'])
+    assert payload['draft_presentation']['source_title'] == base['title']
+    assert 'PRIVATE AUTHOR' not in bundle['wire_json']
+    output['presentation'] = dict(english_title='Reproducibility of Clustering',
+        keywords=[dict(id=c, values=['聚类'] if row['output_language']=='zh-CN' else ['clustering'])
+                  for c,row in bundle['local_manifest']['school']['chapters'].items() if row['purpose']=='abstract'],
+        chapter_titles=[], figure_titles=[])
+    for s in output['sections']:
+        s['paragraphs'][0]['citation_anchors'] = []
+    item = output['sections'][0]['paragraphs'][0]
+    item.update(text='已有研究观察到聚类表现改善。研究条件待核对。', evidence_aliases=['e1'],
+                citation_anchors=[dict(sentence='已有研究观察到聚类表现改善。', evidence_aliases=['e1'])])
+    candidate = compose_live_candidate(output, snapshot, bundle, 'call', 'synthetic_fixture')
+    validate_live_candidate(candidate, snapshot, bundle)
+    assert candidate['school_presentation']['english_title'] == 'Reproducibility of Clustering'
+    para = next(p for s in candidate['sections'] for p in s['paragraphs'] if p.get('suggested_evidence_aliases'))
+    parts = paragraph_parts(para, candidate, bundle['local_manifest']['evidence'], {'reference':dict(number=1)})
+    assert [p['text'] for p in parts] == ['已有研究观察到聚类表现改善。', '研究条件待核对。']
+    assert parts[0]['citations'][0]['number'] == 1 and not parts[1]['citations']
+    item['citation_anchors'][0]['sentence'] = '聚类表现'
+    with pytest.raises(ValueError):
+        compose_live_candidate(output, snapshot, bundle, 'call', 'synthetic_fixture')
 
 def test_school_rewrite_keeps_all_non_target_content():
     snapshot,bundle,output,_=fixture(True)

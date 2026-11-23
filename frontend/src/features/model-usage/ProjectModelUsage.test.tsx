@@ -20,28 +20,29 @@ function deferred<T>() {
 beforeEach(() => setApiSession('usage-test'))
 afterEach(() => { cleanup(); clearApiSession(); setLocale('zh-CN'); vi.useRealTimers(); vi.unstubAllGlobals() })
 
-test('renders honest empty scope and cumulative USD budgets in both languages', async () => {
+test('renders cumulative usage and an empty call history in both languages', async () => {
   const fetch = vi.fn(async () => Response.json(fixture()))
   vi.stubGlobal('fetch', fetch)
   render(<ProjectModelUsage projectId="p1" />)
   expect(await screen.findByText('尚无统一模型调用记录。')).toBeTruthy()
   expect(screen.getByText('历史绘图和历史解释未计入统一账本；本面板统计新绘图和新解释等统一入口的调用。')).toBeTruthy()
-  expect(screen.getAllByText('未配置').length).toBeGreaterThan(0)
-  expect(screen.getByText('累计额度 · USD')).toBeTruthy()
+  expect(screen.queryByText('未配置')).toBeNull()
+  expect(screen.getByText('累计用量 · USD')).toBeTruthy()
   act(() => setLocale('en'))
   expect(screen.getByText('No unified model calls yet.')).toBeTruthy()
-  expect(screen.getByText('Cumulative allowance · USD')).toBeTruthy()
+  expect(screen.getByText('Cumulative usage · USD')).toBeTruthy()
   expect(fetch).toHaveBeenCalledTimes(1)
 })
 
-test('keeps unknown costs distinct from estimates and shows over-budget state without identifiers', async () => {
+test('keeps unknown costs distinct from estimates and ignores legacy limits', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...fixture(), total: 2, pending_count: 1,
     project_budget: { ...budget, scope_type: 'project', limit_micro_usd: 1_000_000, revision: 1,
       estimated_micro_usd: 2_000_000, available_micro_usd: -1_000_000, exceeded: true }, estimated_micro_usd: 2_000_000,
     items: [call(), { ...call('known-model'), id: 'internal-known', status: 'completed', usage_status: 'estimated',
       estimated_cost_micro_usd: 2_000_000, provider_response_id: 'private-response', input_digest: 'private-digest' }] })))
   render(<ProjectModelUsage projectId="p1" />)
-  expect(await screen.findByText('已超出额度')).toBeTruthy()
+  await screen.findByText('model-visible')
+  expect(screen.queryByText('已超出额度')).toBeNull()
   const row = screen.getByText('model-visible').closest('tr')!
   expect(within(row).getByText('待核对')).toBeTruthy()
   expect(within(row).queryByText(/0\.00/)).toBeNull()
@@ -140,20 +141,20 @@ test('displays confirmed zero and keeps partial estimate pending while translati
   expect(within(screen.getByText('partial-model').closest('tr')!).getByText('USD 0.000005')).toBeTruthy()
   expect(within(screen.getByText('partial-model').closest('tr')!).getByText('待核对')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '刷新模型用量' }))
-  expect((await screen.findByRole('alert')).textContent).toBe('尚未配置模型预算，请联系管理员配置后通过原任务的预算恢复入口继续；已有调用和用量保留。')
+  expect((await screen.findByRole('alert')).textContent).toBe('请查看原任务并确认是否继续。')
   act(() => setLocale('en'))
-  expect(screen.getByRole('alert').textContent).toBe('The model budget is not configured. Ask the administrator to configure it, then use budget recovery on the original task. Existing calls and usage are retained.')
+  expect(screen.getByRole('alert').textContent).toBe('Review the original task before continuing.')
   expect(screen.queryByText('private-provider-body')).toBeNull()
 })
 
-test('submitting requires confirmation and unknown outcomes preserve reservations', async () => {
+test('submitting requires confirmation and unknown outcomes require receipt reconciliation', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...fixture(), total: 2, pending_count: 2,
     items: [{ ...call('await-confirmation'), id: 'confirm', status: 'submitting' }, call('unknown-outcome')] })))
   render(<ProjectModelUsage projectId="p1" />)
   expect(await screen.findByText('提交待确认')).toBeTruthy()
   expect(screen.getByText('提交结果未知')).toBeTruthy()
-  expect(screen.getByText('提交待确认或结果未知的调用保留预留预算，等待核对。')).toBeTruthy()
+  expect(screen.getByText('提交待确认或结果未知的调用需核对原始回执。')).toBeTruthy()
   act(() => setLocale('en'))
   expect(screen.getByText('Submission awaiting confirmation')).toBeTruthy()
-  expect(screen.getByText('Calls awaiting submission confirmation or with unknown outcomes keep their budget reservations until reconciled.')).toBeTruthy()
+  expect(screen.getByText('Check the original receipt for calls awaiting submission confirmation or with an unknown outcome.')).toBeTruthy()
 })

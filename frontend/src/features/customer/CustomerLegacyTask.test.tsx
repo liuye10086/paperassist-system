@@ -1,5 +1,5 @@
-// B05 task 9: the customer's old task page uses the customer view for every project type, has one heading and a way
-// back, and keeps the task actions the server allows.
+// The research and thesis legacy task pages use the customer view, with one heading and a way
+// back, and keep the task actions the server allows.
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setLocale } from '../../shared/i18n'
@@ -25,6 +25,7 @@ function serve(projectType: 'research' | 'sci' | 'thesis', allowed: string[] = [
     if (url === `/api/v1/tasks/${taskId}/workspace`) return Response.json(taskWorkspace ?? workspace)
     if (url.includes('/events')) return Response.json({ task_id: taskId, items: [], next_cursor: 0 })
     if (url.startsWith(base + '/files?')) return Response.json({ items: [], total: 0, page: 1, page_size: 5 })
+    if (url === base + '/sci-current-draft') return Response.json({ draft: null })
     if (url === base + '/sci-settings') return Response.json({ settings: null })
     // A complete requirements record: "返回项目资料" renders the thesis details page, which needs the language.
     if (url === base + '/thesis-requirements') return Response.json({ revision: 1, education_level: '硕士', language: 'zh-CN',
@@ -41,7 +42,7 @@ afterEach(() => {
   window.history.replaceState(null, '', window.location.pathname)
 })
 
-describe.each([['research', 'upload'], ['sci', 'materials'], ['thesis', 'materials']] as const)('old task page (%s)', (projectType, filesStep) => {
+describe.each([['research', 'upload'], ['thesis', 'materials']] as const)('old task page (%s)', (projectType, filesStep) => {
   it('shows the customer view with one focused heading, the allowed actions and ways out', async () => {
     const address = serve(projectType)
     window.history.replaceState(null, '', address)
@@ -76,6 +77,17 @@ describe.each([['research', 'upload'], ['sci', 'materials'], ['thesis', 'materia
   })
 })
 
+it('opens the current SCI draft from an old task link without requesting the legacy task', async () => {
+  window.history.replaceState(null, '', serve('sci'))
+  render(<CustomerWorkspace />)
+  await screen.findByRole('button', { name: '补充 SCI 建项资料' })
+  expect(screen.getByRole('heading', { name: '文献与初稿', level: 1 })).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: '任务详情' })).toBeNull()
+  const urls = vi.mocked(fetch).mock.calls.map(([url]) => String(url))
+  expect(urls).toContain('/api/v1/projects/legacy-sci/sci-current-draft')
+  expect(urls.some(url => url.startsWith('/api/v1/tasks/'))).toBe(false)
+})
+
 it('keeps only the actions the server allows', async () => {
   window.history.replaceState(null, '', serve('research', ['retry']))
   render(<CustomerWorkspace />)
@@ -87,7 +99,7 @@ it('keeps only the actions the server allows', async () => {
 
 it('has English for the way back', async () => {
   setLocale('en')
-  window.history.replaceState(null, '', serve('sci'))
+  window.history.replaceState(null, '', serve('thesis'))
   render(<CustomerWorkspace />)
   expect(await screen.findByRole('button', { name: 'Back to project details' })).toBeTruthy()
 })
@@ -103,18 +115,18 @@ it.each([
   ['layout_docx', '导出排版后的 Word', 'Formatted Word export'],
   ['review_document_export', '意见成果 Word 导出', 'Review document Word export'],
 ] as const)('uses a bilingual customer Word title for the %s task', async (kind, chinese, english) => {
-  const projectId = 'legacy-sci'
+  const projectId = 'legacy-thesis'
   const task = { ...taskFixture, id: taskId, project_id: projectId, task_type: kind, phase: 'export', status: 'failed',
     display_status: 'failed', reason_code: null, error_code: 'insufficient_disk_space', input_version: wordTasks[kind] }
   const workspace = { ...workspaceFixture, task, wait: null, allowed_actions: [], source: { file_id: null, filename: '稿件.docx', analysis_run_id: null, is_current: true },
     artifacts: { figure: null, explanation: null, report: null, manuscript: kind === 'manuscript_docx' ? { id: 'm1', revision: 3, version_id: 'v3', download_url: null } : null } }
-  window.history.replaceState(null, '', serve('sci', [], workspace))
+  window.history.replaceState(null, '', serve('thesis', [], workspace))
   const page = render(<CustomerWorkspace />)
   const heading = await screen.findByRole('heading', { level: 3 })
   expect.soft(heading.textContent).toBe(chinese)
   if (kind === 'manuscript_docx') {
     const link = await screen.findByRole('link', { name: '查看此版本的 Word' })
-    expect.soft(link.getAttribute('href')).toBe('#customer-project=legacy-sci&step=word&manuscript=m1&revision=3&view=exports')
+    expect.soft(link.getAttribute('href')).toBe('#customer-project=legacy-thesis&step=word&manuscript=m1&revision=3&view=exports')
   }
   page.unmount()
   setLocale('en')

@@ -116,8 +116,9 @@ def seed_review_sections(snapshot):
             paragraphs = common.get(identity, [])
         section['paragraphs'] = deepcopy(paragraphs)
         sections.append(section)
-    return dict(snapshot, sections=sections, article_type='narrative_review',
-                article_structure_version=VERSION)
+    seeded = dict(snapshot, sections=sections, article_type='narrative_review', article_structure_version=VERSION)
+    add_review_figure_references(seeded, sections)
+    return seeded
 
 
 def writing_keywords(base, request):
@@ -128,10 +129,42 @@ def illustration_groups(snapshot, section):
     groups = snapshot.get('results_groups', [])
     if section['id'] == 'results':
         return groups
-    if ((snapshot.get('paper_plan') or {}).get('kind') == 'narrative_review'
-            and section.get('parent_id') == 'themes'):
-        return [group for group in groups if group['id'] in section['result_group_ids']]
+    plan = snapshot.get('paper_plan') or {}
+    if plan.get('kind') == 'narrative_review':
+        if section.get('parent_id') == 'themes':
+            return [group for group in groups if group['id'] in section['result_group_ids']]
+        from app.domain.paper_materials import REVIEW_FIGURE_SECTIONS
+        if plan.get('review_figure_placement_version') == 1 and section['id'] in REVIEW_FIGURE_SECTIONS:
+            return [group for group in groups if group['id'] == section['id']]
     return []
+
+
+def add_review_figure_references(snapshot, sections):
+    from app.domain.manuscripts.illustrations import BODY_REFERENCE, reference_text
+
+    if (snapshot.get('paper_plan') or {}).get('review_figure_placement_version') != 1:
+        return
+    language = snapshot['output_language']
+    used_ids = {p['id'] for section in snapshot['sections'] for p in section['paragraphs']}
+    for section in sections:
+        mentioned = {int(match['number']) for p in section['paragraphs'] for match in BODY_REFERENCE.finditer(p['text'])
+                     if match['kind'].lower() not in ('table', '表')}
+        for group in illustration_groups(snapshot, section):
+            missing = [figure for figure in group['figures'] if figure['number'] not in mentioned]
+            if not missing:
+                continue
+            refs = [dict(kind='figure', target_id=f['id'], number=f['number'], panel_label=None) for f in missing]
+            labels = (', ' if language == 'en' else '、').join(reference_text(r, language) for r in refs)
+            base_id = 'review-illustrations:' + group['id']
+            identity = base_id
+            suffix = 1
+            while identity in used_ids:
+                identity = f'{base_id}:{suffix}'
+                suffix += 1
+            used_ids.add(identity)
+            section['paragraphs'].append(dict(id=identity, origin='image_observation',
+                source_ids=[sid for f in missing for sid in f['source_ids']], citations=[], cross_references=refs,
+                text=(f'See {labels}.' if language == 'en' else f'见{labels}。')))
 
 
 def visible_illustration_groups(snapshot, excluded_section_ids=frozenset()):
@@ -213,7 +246,7 @@ def has_validation(payload):
     return bool(payload.get('validation_source_aliases'))
 
 
-def build_bundle(base,request,frozen,*,include_reported_results=True):
+def build_bundle(base,request,frozen,*,include_reported_results=True,revision_sections=None):
     from .bundle import build_bundle as common,safe_text
     from .context import paragraph_sources_selected
     from .school_live import build_bundle as school_bundle
@@ -266,6 +299,10 @@ def build_bundle(base,request,frozen,*,include_reported_results=True):
         place_illustrations(base, payload, mapping)
         add_illustration_context(base, payload, local)
     output_ids=[mapping[sid] for sid in editing['target_section_ids']]
+    if request.get('revision_of_request_id'):
+        if not revision_sections or [s['id'] for s in revision_sections] != output_ids:
+            raise ValueError('Missing original draft or changed article structure')
+        payload['original_draft'] = revision_sections
     payload.update(schema_version=4,article_scope_version=VERSION,document_kind=request['document_kind'],article_type=request['article_type'],
         mode=request['mode'],target_section=mapping.get(request['target_section']),brief_limits=request['brief_limits'])
     wire_scope=dict(output_section_ids=output_ids,mode=request['mode'],
@@ -324,7 +361,8 @@ def build_bundle(base,request,frozen,*,include_reported_results=True):
     size=len(wire.encode());allowance=size+frozen['protocol_allowance']
     if allowance>frozen['max_input_allowance']:raise StorageError('manuscript_writing_input_limit','文章完整外发包超过冻结输入上限，请减少所选材料。',422)
     sha=hashlib.sha256(wire.encode()).hexdigest()
-    return dict(execution_contract=frozen,wire_json=wire,wire_sha256=sha,bundle_sha256=sha,wire_bytes=size,
+    return dict(**({'revision_sections':revision_sections} if revision_sections is not None else {}),
+        execution_contract=frozen,wire_json=wire,wire_sha256=sha,bundle_sha256=sha,wire_bytes=size,
         gateway_digest=input_digest(instructions=parts['instructions'],payload=payload),input_token_allowance=allowance,
         reserved_micro_usd=reserve_micro_usd(policy,allowance,0),policy_json=policy.model_dump(mode='json'),
         local_manifest=local,omitted_manifest=seed['omitted_manifest'],policy_version=POLICY_VERSION)
@@ -447,6 +485,8 @@ def compose(output,snapshot,bundle,call_id,provenance,composition_version):
                 s['paragraphs']=merged
         final.append(s)
     result['sections']=final
+    if request['mode'] == 'full_draft':
+        add_review_figure_references(result, final)
     all_ids=[p['id'] for s in final for p in s['paragraphs']]
     if len(all_ids)!=len(set(all_ids)):raise ValueError('Duplicate paragraph identity across candidate')
     if not school:
@@ -468,6 +508,12 @@ def compose(output,snapshot,bundle,call_id,provenance,composition_version):
         if [s['id'] for s in original]!=list(STRUCTURES['research']):result.pop('journal_display_context',None)
         from .live_notice import update_notice
     enforce_science(result,payload,seen)
+    if request.get('revision_of_request_id'):
+        def section_text(sections):
+            return {s['id']: ' '.join(' '.join(p['text'] for p in s['paragraphs']).split())
+                    for s in sections if s['paragraphs'] and s['id'] != 'references'}
+        if section_text(result['sections']) == section_text(payload['original_draft']):
+            raise ValueError('Revision text is unchanged')
     if request['article_type']=='brief' and not request['brief_limits']:
         result['issues'].append(dict(id='brief_limits',kind='missing',field='brief_limits',message='Brief word and figure limits are unconfirmed; target compliance is not established.',values=[]))
     update_notice(result,request)

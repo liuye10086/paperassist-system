@@ -45,7 +45,16 @@ export type JournalAdaptationInputVersion={kind:'journal_adaptation';adaptation_
 export type ReviewRoundInputVersion={kind:"review_round_plan";round_id:string;base_version_id:string;workflow_version:"review_round_plan_v1";setup_revision?:never;output_language?:never}
 export type ReviewRevisionInputVersion={kind:'review_revision';revision_id:string;round_id:string;base_version_id:string;workflow_version:'review_revision_v1';setup_revision?:never;output_language?:never}
 export type ReviewDocumentInputVersion={kind:'review_document_export';export_id:string;document_id:string;document_sha256:string;revision_id:string;round_id:string;workflow_version:'review_document_export_v1';setup_revision?:never;output_language?:never}
-export type BioImportInputVersion={kind:'bio_import';import_id:string;dataset_id:string;source_file_ids:string[];output_language:'zh-CN'|'en';setup_revision?:never}&({workflow_version:'bio_import_v1';parser_version:'geo_visium_import_v1'}|{workflow_version:'bio_import_v2';parser_version:'geo_visium_import_v2';matrix_representation:'mtx'|'10x_h5';compare_alternate:boolean;engine_version:'visium_explore_v1.0.0';environment_digest:string;code_digest:string}|{workflow_version:'bio_import_v3';parser_version:'tabular_assay_import_v1';engine_version:'tabular_quantitative_v1.0.0';environment_digest:string;code_digest:string;assay:TabularAssay})
+export type BioImportInputVersion = {
+  kind: 'bio_import'; import_id: string; dataset_id: string; source_file_ids: string[]; output_language: 'zh-CN'|'en'; setup_revision?: never
+} & (
+  { workflow_version: 'bio_import_v1'; parser_version: 'geo_visium_import_v1' } |
+  ({ environment_digest: string; code_digest: string } & (
+    { workflow_version: 'bio_import_v2'; parser_version: 'geo_visium_import_v2'; engine_version: 'visium_explore_v1.0.0'; matrix_representation: 'mtx'|'10x_h5'; compare_alternate: boolean } |
+    { workflow_version: 'bio_import_v3'; parser_version: 'tabular_assay_import_v1'; engine_version: 'tabular_quantitative_v1.0.0'; assay: TabularAssay } |
+    { workflow_version: 'bio_import_v4'; parser_version: 'single_cell_import_v1'; engine_version: 'visium_explore_v1.0.0'; assay: 'single_cell'; matrix_representation: 'mtx'|'10x_h5'|'h5ad' }
+  ))
+)
 export type BioAnalysisInputVersion={schema_version:1;kind:'bio_analysis';run_id:string;recipe_version_id:string;raw_source:RawBioSource;workflow_version:'bio_analysis_v1'|'bio_analysis_v2'|'bio_analysis_v3';engine_version:string;environment_digest:string;output_language:'zh-CN'|'en';setup_revision?:never}
 export type BioFigureInputVersion={schema_version:1;kind:'bio_figure';figure_version_id:string;processed_source:ProcessedBioSource;workflow_version:'bio_figure_v1';output_language:'zh-CN'|'en';setup_revision?:never}
 export type ResearchInputVersion={kind:'research_figure'|'research_report'|'research_fact_draft'|'delivery_package';schema_version:1;workflow_version:'research_figure_v1'|'research_report_v1'|'research_results_methods_v1'|'delivery_package_v1';source_sha256:string;output_language:'zh-CN'|'en';real_model_calls:false;real_network_calls:false;setup_revision?:never}
@@ -109,7 +118,27 @@ function version(value: unknown, parse: boolean | string = false): value is Inpu
   if(typeof parse==='string'&&['research_figure','research_report','research_fact_draft','delivery_package'].includes(parse))return record(value)&&Object.keys(value).length===7&&value.kind===parse&&value.schema_version===1&&value.workflow_version===(parse==='research_fact_draft'?'research_results_methods_v1':parse+'_v1')&&text(value.source_sha256)&&/^[a-f0-9]{64}$/.test(value.source_sha256)&&['zh-CN','en'].includes(String(value.output_language))&&value.real_model_calls===false&&value.real_network_calls===false
   if(parse==='bio_analysis')return record(value)&&Object.keys(value).length===9&&value.kind==='bio_analysis'&&value.schema_version===1&&id(value.run_id)&&id(value.recipe_version_id)&&record(value.raw_source)&&typeof value.raw_source.project_id==='string'&&isRawBioSource(value.raw_source,value.raw_source.project_id)&&(['bio_analysis_v1','bio_analysis_v3'].includes(String(value.workflow_version))&&value.engine_version==='visium_explore_v1.0.0'&&!isTabularRaw(value.raw_source)||value.workflow_version==='bio_analysis_v2'&&value.engine_version==='tabular_quantitative_v1.0.0'&&isTabularRaw(value.raw_source))&&text(value.environment_digest)&&/^[a-f0-9]{64}$/.test(value.environment_digest)&&['zh-CN','en'].includes(String(value.output_language))
   if(parse==='bio_figure')return record(value)&&Object.keys(value).length===6&&value.kind==='bio_figure'&&value.schema_version===1&&id(value.figure_version_id)&&record(value.processed_source)&&typeof value.processed_source.project_id==='string'&&isProcessedBioSource(value.processed_source,value.processed_source.project_id)&&value.workflow_version==='bio_figure_v1'&&['zh-CN','en'].includes(String(value.output_language))
-  if(parse==='bio_import')return record(value)&&value.kind==='bio_import'&&id(value.import_id)&&id(value.dataset_id)&&Array.isArray(value.source_file_ids)&&value.source_file_ids.length>0&&value.source_file_ids.length<=10&&value.source_file_ids.every(id)&&new Set(value.source_file_ids).size===value.source_file_ids.length&&['zh-CN','en'].includes(String(value.output_language))&&(value.workflow_version==='bio_import_v1'&&Object.keys(value).length===7&&value.parser_version==='geo_visium_import_v1'||value.workflow_version==='bio_import_v2'&&Object.keys(value).length===12&&value.parser_version==='geo_visium_import_v2'&&['mtx','10x_h5'].includes(String(value.matrix_representation))&&typeof value.compare_alternate==='boolean'&&value.engine_version==='visium_explore_v1.0.0'&&['environment_digest','code_digest'].every(k=>text(value[k])&&/^[a-f0-9]{64}$/.test(String(value[k])))||value.workflow_version==='bio_import_v3'&&Object.keys(value).length===11&&value.parser_version==='tabular_assay_import_v1'&&value.engine_version==='tabular_quantitative_v1.0.0'&&tabularAssays.includes(value.assay as TabularAssay)&&['environment_digest','code_digest'].every(k=>text(value[k])&&/^[a-f0-9]{64}$/.test(String(value[k]))))
+  if (parse === 'bio_import') {
+    if (!record(value) || value.kind !== 'bio_import' || !id(value.import_id) || !id(value.dataset_id)
+      || !Array.isArray(value.source_file_ids) || !value.source_file_ids.length || value.source_file_ids.length > 10
+      || !value.source_file_ids.every(id) || new Set(value.source_file_ids).size !== value.source_file_ids.length
+      || !['zh-CN', 'en'].includes(String(value.output_language))) return false
+    const fields = Object.keys(value).length
+    if (value.workflow_version === 'bio_import_v1') return fields === 7 && value.parser_version === 'geo_visium_import_v1'
+    if (![value.environment_digest, value.code_digest].every(digest => text(digest) && /^[a-f0-9]{64}$/.test(digest))) return false
+    switch (value.workflow_version) {
+      case 'bio_import_v2':
+        return fields === 12 && value.parser_version === 'geo_visium_import_v2' && value.engine_version === 'visium_explore_v1.0.0'
+          && ['mtx', '10x_h5'].includes(String(value.matrix_representation)) && typeof value.compare_alternate === 'boolean'
+      case 'bio_import_v3':
+        return fields === 11 && value.parser_version === 'tabular_assay_import_v1' && value.engine_version === 'tabular_quantitative_v1.0.0'
+          && tabularAssays.includes(value.assay as TabularAssay)
+      case 'bio_import_v4':
+        return fields === 12 && value.parser_version === 'single_cell_import_v1' && value.engine_version === 'visium_explore_v1.0.0'
+          && value.assay === 'single_cell' && ['mtx', '10x_h5', 'h5ad'].includes(String(value.matrix_representation))
+      default: return false
+    }
+  }
   if(parse==='review_revision')return record(value)&&Object.keys(value).length===5&&value.kind==='review_revision'&&['revision_id','round_id','base_version_id'].every(k=>id(value[k]))&&value.workflow_version==='review_revision_v1'
   if(parse==='review_document_export')return record(value)&&Object.keys(value).length===7&&value.kind==='review_document_export'&&id(value.revision_id)&&id(value.round_id)&&id(value.export_id)&&id(value.document_id)&&text(value.document_sha256)&&/^[a-f0-9]{64}$/.test(value.document_sha256)&&value.workflow_version==='review_document_export_v1'
   if(parse==='review_round_plan')return record(value)&&Object.keys(value).length===4&&value.kind==='review_round_plan'&&id(value.round_id)&&id(value.base_version_id)&&value.workflow_version==='review_round_plan_v1'
@@ -143,7 +172,19 @@ export function sameInputVersion(a: InputVersion, b: InputVersion): boolean {
   if(['bio_resource_import','bio_comparison','bio_result_import','bio_enrichment','bio_candidate','bio_integration','bio_feature_extract','bio_insight_figure','research_figure','research_report','research_fact_draft','delivery_package'].includes(String(a.kind))||['bio_resource_import','bio_comparison','bio_result_import','bio_enrichment','bio_candidate','bio_integration','bio_feature_extract','bio_insight_figure','research_figure','research_report','research_fact_draft','delivery_package'].includes(String(b.kind)))return JSON.stringify(a)===JSON.stringify(b)
   if(a.kind==='bio_analysis'||b.kind==='bio_analysis')return a.kind==='bio_analysis'&&b.kind==='bio_analysis'&&a.schema_version===b.schema_version&&a.workflow_version===b.workflow_version&&a.run_id===b.run_id&&a.recipe_version_id===b.recipe_version_id&&a.engine_version===b.engine_version&&a.environment_digest===b.environment_digest&&a.output_language===b.output_language&&sameRawBioSource(a.raw_source,b.raw_source)
   if(a.kind==='bio_figure'||b.kind==='bio_figure')return a.kind==='bio_figure'&&b.kind==='bio_figure'&&a.figure_version_id===b.figure_version_id&&a.output_language===b.output_language&&sameProcessedBioSource(a.processed_source,b.processed_source)
-  if(a.kind==='bio_import'||b.kind==='bio_import')return a.kind==='bio_import'&&b.kind==='bio_import'&&a.import_id===b.import_id&&a.dataset_id===b.dataset_id&&a.workflow_version===b.workflow_version&&a.parser_version===b.parser_version&&a.output_language===b.output_language&&a.source_file_ids.length===b.source_file_ids.length&&a.source_file_ids.every((id,i)=>id===b.source_file_ids[i])&&(a.workflow_version==='bio_import_v1'&&b.workflow_version==='bio_import_v1'||a.workflow_version==='bio_import_v2'&&b.workflow_version==='bio_import_v2'&&a.matrix_representation===b.matrix_representation&&a.compare_alternate===b.compare_alternate&&a.engine_version===b.engine_version&&a.environment_digest===b.environment_digest&&a.code_digest===b.code_digest||a.workflow_version==='bio_import_v3'&&b.workflow_version==='bio_import_v3'&&a.assay===b.assay&&a.engine_version===b.engine_version&&a.environment_digest===b.environment_digest&&a.code_digest===b.code_digest)
+  if (a.kind === 'bio_import' || b.kind === 'bio_import') {
+    if (a.kind !== 'bio_import' || b.kind !== 'bio_import' || a.workflow_version !== b.workflow_version
+      || a.import_id !== b.import_id || a.dataset_id !== b.dataset_id || a.parser_version !== b.parser_version
+      || a.output_language !== b.output_language || a.source_file_ids.length !== b.source_file_ids.length
+      || !a.source_file_ids.every((fileId, index) => fileId === b.source_file_ids[index])) return false
+    if (a.workflow_version === 'bio_import_v1' || b.workflow_version === 'bio_import_v1') return true
+    if (a.engine_version !== b.engine_version || a.environment_digest !== b.environment_digest || a.code_digest !== b.code_digest) return false
+    if (a.workflow_version === 'bio_import_v2' && b.workflow_version === 'bio_import_v2')
+      return a.matrix_representation === b.matrix_representation && a.compare_alternate === b.compare_alternate
+    if (a.workflow_version === 'bio_import_v3' && b.workflow_version === 'bio_import_v3') return a.assay === b.assay
+    return a.workflow_version === 'bio_import_v4' && b.workflow_version === 'bio_import_v4'
+      && a.assay === b.assay && a.matrix_representation === b.matrix_representation
+  }
   if(a.kind==='review_revision'||b.kind==='review_revision')return a.kind==='review_revision'&&b.kind==='review_revision'&&a.revision_id===b.revision_id&&a.round_id===b.round_id&&a.base_version_id===b.base_version_id&&a.workflow_version===b.workflow_version
   if(a.kind==='review_document_export'||b.kind==='review_document_export')return a.kind==='review_document_export'&&b.kind==='review_document_export'&&a.export_id===b.export_id&&a.document_id===b.document_id&&a.document_sha256===b.document_sha256&&a.revision_id===b.revision_id&&a.round_id===b.round_id&&a.workflow_version===b.workflow_version
   if(a.kind==='review_round_plan'||b.kind==='review_round_plan')return a.kind==='review_round_plan'&&b.kind==='review_round_plan'&&a.round_id===b.round_id&&a.base_version_id===b.base_version_id&&a.workflow_version===b.workflow_version

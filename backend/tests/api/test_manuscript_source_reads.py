@@ -14,6 +14,86 @@ from tests.api.test_literature_evidence import post
 from tests.api.test_manuscripts import body
 
 
+def test_uploaded_excel_parse_version_is_readable_as_bounded_writing_context(client):
+    import json
+    from io import BytesIO
+    from openpyxl import Workbook
+    from tests.api.test_file_batches import register
+    from tests.api.test_customer_sci_workflow import sci_project
+    from tests.api.test_customer_workspace import sign_in
+    from tests.domain.test_file_parse_execution import deterministic
+    from app.domain.tasks.execution import run_task
+
+    sign_in(client, 'writing-xlsx@example.test', 'customer')
+    project_url = sci_project(client)
+    project = {'id': project_url.rsplit('/', 1)[-1]}
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = 'Assessment'
+    sheet.append(['Arm', 'Change', 'Formula'])
+    for index in range(22):
+        sheet.append([f'Group-{index:02}', index, '=1+1'])
+    hidden = workbook.create_sheet('HiddenSheet')
+    hidden.sheet_state = 'hidden'
+    hidden.append(['PRIVATE HIDDEN DATA'])
+    stream = BytesIO()
+    workbook.save(stream)
+    workbook.close()
+    url, batch, item, raw = register(client, project, stream.getvalue())
+    uploaded = client.post(url + '/' + batch['id'] + '/items/' + item['client_id'], files={'file': ('data.xlsx', raw)}).json()
+    assert run_parse_file_task(uploaded['task']['id'], 1, parser=deterministic)['status'] == 'succeeded'
+    path = project_url + '/manuscripts'
+    candidates = client.get(path + '/candidates').json()
+    candidate = next(row for row in candidates['items'] if row['kind'] == 'document_version')
+    selection = {key: candidate[key] for key in ('kind', 'id', 'file_id')} | {'role': 'user_results'}
+    manuscript_input = body(sources=[selection], paper_plan_token=candidates['paper_plan']['token'],
+                            title=candidates['paper_plan']['title'],
+                            reported_result={'text': 'The two arms were compared.', 'source_ids': [selection['id']]})
+    created = post(client, path, manuscript_input, 'write-workbook')
+    assert created.status_code == 201, created.text
+    root = created.json()
+    assert run_task(root['versions'][0]['task_id'], 1)['status'] == 'succeeded'
+    url = path + '/' + root['id'] + '/writing-previews'
+    request = dict(schema_version=4, base_revision=1, mode='full_draft', output_language='en',
+                   selected_source_ids=[selection['id']], selected_evidence_ids=[], document_context_version='selected-text-v1')
+    preview = post(client, url, request, 'workbook-preview')
+    assert preview.status_code == 201, preview.text
+    entry, = json.loads(json.loads(preview.json()['wire_json'])['input'])['sources']
+    excerpt = entry['document_excerpt']
+    assert 'Arm' in excerpt and 'Group-19' in excerpt
+    assert all(value not in excerpt for value in ('Group-20', 'HiddenSheet', 'PRIVATE', '=1+1'))
+    assert entry['document_excerpt_truncated'] and entry['facts'] == []
+    # Exercise admission and receipt replay. No worker consumes this writing task.
+    bundle = preview.json()
+    ref = dict(bundle_id=bundle['id'], bundle_sha256=bundle['bundle_sha256'])
+    logical = 'a' * 64
+    grant = post(client, project_url + '/writing-authorizations', dict(schema_version=2, confirmed=True,
+                 tasks=[dict(logical_task_id=logical, bundles=[ref])]), 'confirm-workbook')
+    assert grant.status_code == 201, grant.text
+    execution = dict(schema_version=2, authorization_id=grant.json()['id'], logical_task_id=logical, **ref)
+    write_url = path + '/' + root['id'] + '/writing-requests'
+    accepted = post(client, write_url, execution, 'submit-workbook')
+    assert accepted.status_code == 202, accepted.text
+    replay = post(client, write_url, execution, 'submit-workbook')
+    assert replay.status_code == 200 and replay.json()['id'] == accepted.json()['id']
+    assert replay.json()['input']['document_context_version'] == 'selected-text-v1' and not replay.json()['model_calls']
+
+
+def test_customer_writing_lists_the_original_image_instead_of_unreadable_ocr_versions(client):
+    from tests.api.test_customer_sci_workflow import sci_project
+    from tests.api.test_customer_workspace import sign_in
+    from tests.api.test_file_batches import register
+    from tests.helpers.ocr_samples import ocr_result
+
+    sign_in(client, 'writing-image@example.test', 'customer')
+    project = sci_project(client)
+    url, batch, item, raw = register(client, {'id': project.rsplit('/', 1)[-1]}, b'fixture image', 'image.png')
+    uploaded = client.post(url + '/' + batch['id'] + '/items/' + item['client_id'], files={'file': ('image.png', raw)}).json()
+    assert run_parse_file_task(uploaded['task']['id'], 1, parser=ocr_result)['status'] == 'succeeded'
+    options = client.get(project + '/manuscripts/candidates').json()['items']
+    assert [row['kind'] for row in options if row['file_id'] == uploaded['file_id']] == ['original']
+
+
 def test_list_reuses_source_bytes_but_verifies_every_task_and_workspace_rereads(client, monkeypatch):
     project, _, _, uploaded, _ = uploaded_docx(client)
     assert run_parse_file_task(uploaded['task']['id'], 1, parser=parse_docx)['status'] == 'succeeded'

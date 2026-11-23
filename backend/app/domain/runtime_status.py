@@ -13,7 +13,7 @@ import shutil
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.config import get_data_dir, local_config
 from app.core.errors import error_response
@@ -95,15 +95,6 @@ class Failures(Closed):
     coverage: Literal['terminal_tasks_updated_in_window']
 
 
-class Budgets(Closed):
-    status: Literal['known', 'unknown']
-    registered_user_budgets: Count
-    limit_micro_usd: Count | None
-    reserved_micro_usd: Count | None
-    accounted_micro_usd: Count | None
-    coverage: Literal['registered_user_budgets_only_not_global_balance']
-
-
 class Disk(Closed):
     free_bytes: Count
     total_bytes: Count
@@ -116,10 +107,17 @@ class Receipt(Envelope):
     services: Services
     queue: Queue | None
     failures: Failures | None
-    budgets: Budgets | None
     disk: Disk | None
     external_limits: ExternalLimits | None
     worker_startup: Startup | None
+
+    @model_validator(mode='before')
+    @classmethod
+    def read_previous_receipts(cls, data):
+        # Older collectors included a budget summary in their status receipts.
+        if isinstance(data, dict) and 'budgets' in data:
+            return {key: value for key, value in data.items() if key != 'budgets'}
+        return data
 
 
 def now_utc():
@@ -270,7 +268,7 @@ def collect(observation, *, now=None):
         raise ValueError('Observation input is stale.')
     services = observed_services(observation['services'], now)
     limits = observation['external_limits']
-    queue = failures = budgets = disk = None
+    queue = failures = disk = None
     database = dict(status='unknown', observed_at=None)
     try:
         with database_connection(capture=True) as db:
@@ -281,28 +279,11 @@ def collect(observation, *, now=None):
                 FROM tasks WHERE status IN ('failed','succeeded') AND updated_at >= %s AND updated_at <= %s""", (start, now)).fetchone()
             failures = dict(failed=row['failed'], denominator=row['n'],ratio=row['failed']/row['n'] if row['n'] else None,
                 window_seconds=FAILURE_WINDOW_SECONDS,window_start=start.isoformat(),window_end=now.isoformat(),coverage='terminal_tasks_updated_in_window')
-            row = db.execute("""SELECT count(*) AS n,sum(limit_micro_usd) AS amount FROM model_budgets WHERE scope_type='user'""").fetchone()
-            from app.domain.model_usage.accounting import accounting_projection
-            reservations = db.execute("""SELECT c.status,c.usage_status,c.estimated_cost_micro_usd,c.policy_snapshot,
-                c.actual_token_micro_usd,c.actual_tool_micro_usd,r.reserved_micro_usd,r.accounted_micro_usd,
-                r.status AS reservation_status FROM budget_reservations r JOIN model_budgets b ON b.id=r.budget_id
-                JOIN model_calls c ON c.id=r.call_id WHERE b.scope_type='user'""").fetchall()
-            accounted = reserved = 0
-            for reservation in reservations:
-                call = dict(reservation)
-                used, held = accounting_projection(call, {**call, 'status':call['reservation_status']})
-                accounted += used
-                reserved += held
-            budgets = dict(status='known' if row['n'] else 'unknown',registered_user_budgets=row['n'],
-                limit_micro_usd=int(row['amount']) if row['n'] else None,
-                reserved_micro_usd=reserved if row['n'] else None,
-                accounted_micro_usd=accounted if row['n'] else None,
-                coverage='registered_user_budgets_only_not_global_balance')
             limits = recorded_provider_limits(db, now) or limits
         database = dict(status='healthy', observed_at=now.isoformat())
     except Exception:
         # No logging here: collection must not recursively invoke request telemetry.
-        queue = failures = budgets = None
+        queue = failures = None
         database = dict(status='unavailable', observed_at=now.isoformat())
     try:
         usage = shutil.disk_usage(get_data_dir())
@@ -316,7 +297,7 @@ def collect(observation, *, now=None):
     if limits and (not fresh(limits['observed_at'], now) or limits['observed_429'] > limits['observed_calls']):
         limits = None
     receipt = dict(binding(), observed_at=now.isoformat(), database=database, services=services,
-        queue=queue, failures=failures, budgets=budgets, disk=disk, external_limits=limits,worker_startup=startup)
+        queue=queue, failures=failures, disk=disk, external_limits=limits,worker_startup=startup)
     return Receipt.model_validate(receipt).model_dump()
 
 
@@ -337,12 +318,12 @@ def current_receipt(*, include_stale=False):
         value['database'] = dict(status='unknown', observed_at=historical_timestamp(value['database']['observed_at'], now))
         value['services'] = {name:dict(status='unknown', observed_at=historical_timestamp(item['observed_at'], now))
             for name,item in value['services'].items()}
-        value.update(queue=None, failures=None, budgets=None, disk=None, external_limits=None, worker_startup=None)
+        value.update(queue=None, failures=None, disk=None, external_limits=None, worker_startup=None)
         return value
     if not fresh(value['database']['observed_at'], now_utc()):
         value['database'] = dict(status='unknown', observed_at=historical_timestamp(value['database']['observed_at'], now))
     if value['database']['status'] != 'healthy':
-        value.update(queue=None, failures=None, budgets=None)
+        value.update(queue=None, failures=None)
     if value['external_limits'] and not fresh(value['external_limits']['observed_at'], now_utc()):
         value['external_limits'] = None
     return value
@@ -380,7 +361,7 @@ def admin_status(db):
         observed_at=receipt['observed_at'] if receipt else None,sample_seconds=SAMPLE_SECONDS,stale_after_seconds=STALE_SECONDS,
         historical_missing_is_zero=False),services=services,
         database=receipt['database'] if receipt else dict(status='unknown',observed_at=None),
-        **{field:receipt[field] if receipt else None for field in ('queue','failures','budgets','disk','external_limits')},
+        **{field:receipt[field] if receipt else None for field in ('queue','failures','disk','external_limits')},
         concurrency=dict(desired=desired,effective=effective,deployment_ceiling=concurrency_ceiling(),
             pending_restart=(min(desired,concurrency_ceiling())!=effective or (startup['configuration_sha256'] if startup else None)!=(version['sha256'] if version else None)) if effective is not None else None,
             desired_configuration_id=version['id'] if version else None,desired_configuration_sha256=version['sha256'] if version else None,

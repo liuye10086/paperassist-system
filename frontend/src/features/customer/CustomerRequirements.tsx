@@ -13,7 +13,7 @@ import { useResearchRead } from '../research-results/api'
 import useResearchDraft from '../research-results/useResearchDraft'
 import {
   analysisTypeChoices, analysisTypes, buildRequirementContent, deliveryChoices, mergeRequirementInput, readRequirementInput,
-  sameRequirementInput, toggleRequirementChoice, type Choice, type RequirementInput,
+  sameRequirementInput, selectedSpecies, speciesChoices, toggleRequirementChoice, type Choice, type RequirementInput,
 } from './customerRequirementChoices'
 import { customerBase, type Progress } from './customerWorkspaceApi'
 import './customerRequirements.css'
@@ -32,6 +32,7 @@ type PendingWrite = { key: string; body: { expected_revision: number; operation:
 type LocalState = { draft: Draft | null; pending: PendingWrite | null }
 type WriteResult = { revision: number; version: Version }
 const emptyLocalState = (): LocalState => ({ draft: null, pending: null })
+const speciesRequired = '请至少选择或填写一种研究物种。'
 
 export default function CustomerRequirements(props: Props) {
   return <RequirementsForm key={props.projectId} {...props}/>
@@ -50,9 +51,10 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
   const [{ draft, pending }, setLocal] = useResearchDraft(projectId, 'customer-requirements', emptyLocalState)
   const sessionValid = useRef(true)
   const request = useRef<AbortController | null>(null)
+  const speciesField = useRef<HTMLFieldSetElement>(null)
 
   const baseline = readRequirementInput(root?.current_requirement ?? null)
-  const input = draft?.input ?? baseline
+  const input = draft ? {...baseline, ...draft.input} : baseline
   const sampleInformation = input.sampleInformation ?? baseline.sampleInformation
   const files = useResearchRead<{id:string; filename:string}[]>(base+'/files', !!root)
   const sources: MaterialSource[] = [
@@ -177,6 +179,11 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
       setError('请选择至少一种分析类型。')
       return
     }
+    if (operation === 'confirm' && !selectedSpecies(input).length) {
+      setError(speciesRequired)
+      speciesField.current?.focus()
+      return
+    }
     const content = buildRequirementContent(root, input, operation, t)
     if (Array.isArray(content.scope_items) && content.scope_items.length > 100) {
       setError('新选项与已有范围合计超过 100 项，请减少本次选择。')
@@ -247,6 +254,24 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
           </div>
         </fieldset>
       </div>
+      <div className="customer-requirements__row">
+        <span id={`${headingId}-species`}>{t('研究物种')}</span>
+        <fieldset ref={speciesField} tabIndex={-1} aria-labelledby={`${headingId}-species`}
+          aria-describedby={`${headingId}-species-help`} disabled={disabled}>
+          <p id={`${headingId}-species-help`}>{t('可多选，提交需求时至少填写一种。')}</p>
+          <ChoiceGroup choices={speciesChoices} selected={input.species ?? []} onChange={(name, checked) => {
+            const selected = new Set(input.species)
+            if (checked) selected.add(name)
+            else selected.delete(name)
+            updateInput({...input, species: speciesChoices.map(choice => choice.id).filter(id => selected.has(id))})
+          }}/>
+          <label className="customer-requirements__other-species">{t('其他物种')}
+            <input type="text" value={input.otherSpecies ?? ''} placeholder={t('多个名称用逗号或顿号分隔')}
+              onChange={event => updateInput({...input, otherSpecies:event.target.value})}/>
+          </label>
+          {error === speciesRequired && <p role="alert" className="error-panel">{t(error)}</p>}
+        </fieldset>
+      </div>
       <div className="customer-requirements__samples">
         {files.error && <div className="customer-requirements__source-error">
           <p>{t('样本来源列表读取失败，仍可手动填写样本信息。')}</p>
@@ -259,7 +284,7 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
           }})}/>
       </div>
     </div>}
-    {error && <p role="alert" className="error-panel">{t(error)}</p>}
+    {error && error !== speciesRequired && <p role="alert" className="error-panel">{t(error)}</p>}
     {conflict && !pending && <div className="customer-requirements__recovery">
       <p role="status">{t(needsReload
         ? '服务器已有新版本，草稿已保留。重新读取后核对并合并，再保存。'

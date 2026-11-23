@@ -61,7 +61,7 @@ export default function TemplateChangePreview({preview,targetRules=[],busy,bindF
   </div>
   {preview.manuscripts.length>0&&<section aria-labelledby={`${id}-manuscripts`}><h4 id={`${id}-manuscripts`}>{t('已有稿件')}</h4><ul>{preview.manuscripts.map((item,index)=><li key={item.manuscript_id}>
    <strong id={`${id}-m${index}`}>{item.title}</strong>
-   <p>{t('已下载的 Word 保持原样；第 {N} 版要按新模板导出，需要先把稿件迁移到新模板。',{N:item.revision})}</p>
+   <p>{t(onMigrate ? '已下载的 Word 保持原样；第 {N} 版要按新模板导出，需要先把稿件迁移到新模板。' : '第 {N} 版使用原模板。之后生成的初稿将使用新模板。',{N:item.revision})}</p>
    {onMigrate&&<button type="button" disabled={busy} aria-describedby={`${id}-m${index}`} onClick={()=>onMigrate(item)}>{t('迁移到新模板')}</button>}
   </li>)}</ul></section>}
   {bindFailed&&<p role="alert">{t('规则已确认，但还没有改用。')}</p>}

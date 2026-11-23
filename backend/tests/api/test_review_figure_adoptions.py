@@ -25,7 +25,6 @@ def actual_plot(client, monkeypatch, *, project=None, second=False):
     from app.domain.figure_workbench.contracts import SaveConfiguration, ConfirmProjection, GenerateFigure
     from app.domain.figure_workbench.tasks import submit
     from app.domain.figure_workbench.execution import run_figure_workbench_task
-    from app.domain.model_usage.service import ModelUsageService
     rows = [['X','Y','Observation'],[1,2,9],[2,4,8],[3,6,7],[4,None,6],[None,10,5]]
     if second:rows = [['X','Y','Observation'],[1,3,2],[2,8,5],[3,4,11],[4,9,18],[5,None,20]]
     with monkeypatch.context() as upload:
@@ -63,9 +62,6 @@ def actual_plot(client, monkeypatch, *, project=None, second=False):
     projection = confirm_projection(workbench, *args, vid, ConfirmProjection(input_sha256=checked['input_sha256'], approved=True))
     monkeypatch.setattr('app.domain.figure_workbench.tasks.policy_for', frozen_policy)
     task = submit(workbench, *args, vid, GenerateFigure(idempotency_key='synthetic-B' if second else 'synthetic-A', external_processing=dict(confirmed=True,payload_sha256=workbench.external_preview(*args,vid)['payload_sha256'])))['task']
-    for scope, key in [('user', workbench.tasks.user_id), ('project', project)]:
-        usage=ModelUsageService(workbench.tasks.user_id);budget=usage.get_budget(scope,key)
-        if budget['limit_micro_usd'] is None:usage.set_budget(scope,key,5000000,0)
     # Honest controlled transport: actual local projection supplies both its
     # synthetic manifest and an input-dependent Pillow geometry, never old bytes.
     class LocalPixels(IndependentLineProvider):
@@ -109,13 +105,10 @@ def scenario(client,monkeypatch,*,full_parent=False):
     assert run_task(parent['task_id'],1)['status']=='succeeded'
     if full_parent:
         from tests.api.test_manuscript_writing_execution import WritingProvider
-        from app.domain.model_usage.service import ModelUsageService
-        from tests.helpers.tasks import task_owner
         from app.domain.manuscript_writing.execution import run_manuscript_writing_task
         requested=post(client,root+'/writing-requests',dict(base_revision=1,mode='full_draft',instructions='Synthetic A fixed numeric paragraphs; preserve saved result groups.',keywords=[],acknowledgements=''),'synthetic-parent-writing')
         assert requested.status_code==202,requested.text
-        task=requested.json()['task'];usage=ModelUsageService(task_owner(client))
-        usage.set_budget('task',task['id'],5000000,0)
+        task=requested.json()['task']
         class ParentProvider(WritingProvider):
             def receipt(self):
                 value=super().receipt();sections=deepcopy(self.payload['normalized_sections'])

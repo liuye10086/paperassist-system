@@ -305,12 +305,14 @@ def test_new_true_and_exact_intent_create_independent_task_and_binding(submissio
     assert f.db.tasks[0] == before and f.retries == [] and f.db.calls == []
     assert bindings.resolve(f.db, kind='task', object_id=TASK)['id'] == 'old-false'
     assert bindings.resolve(f.db, kind='task', object_id=task['id'])['id'] == version['id']
-    assert task['input_snapshot']['explanation_policy'] == before['input_snapshot']['explanation_policy']
+    expected_policy = dict(before['input_snapshot']['explanation_policy'])
+    expected_policy.pop('task_limit_micro_usd')
+    assert task['input_snapshot']['explanation_policy'] == expected_policy
     assert f.db.task_events == [(task['id'], 'created')]
-    assert f.db.outbox == [(task['id'], 1)] and len(f.db.budgets) == 1
+    assert f.db.outbox == [(task['id'], 1)] and len(f.db.budgets) == 0
     repeated, repeated_status = f.submit()
     assert repeated_status == 202 and repeated['task']['id'] == task['id']
-    assert len(f.db.tasks) == 2 and len(f.db.budgets) == 1
+    assert len(f.db.tasks) == 2 and len(f.db.budgets) == 0
     with pytest.raises(StorageError) as exc:
         bindings.bind(f.db, kind='task', object_id=TASK, version=version)
     assert exc.value.code == 'configuration_binding_conflict'
@@ -419,8 +421,7 @@ def test_true_gateway_still_checks_digest_and_forwards_exact_lease():
     assert seen == [(request, {'execution_lease': lease})]
 
 
-@pytest.mark.parametrize('failure', ['missing_budget', 'insufficient_budget', 'lost_lease'])
-def test_true_gateway_does_not_bypass_real_budget_or_lease_checks(failure):
+def test_true_gateway_still_checks_the_worker_lease():
     from app.adapters.task_execution_store import LeaseLost, TaskLease
     from app.domain.model_usage.service import ModelUsageService
     db, _, request, instructions, payload = gateway_fixture()
@@ -429,7 +430,7 @@ def test_true_gateway_does_not_bypass_real_budget_or_lease_checks(failure):
     class ReserveDB:
         def execute(self, sql, args):
             if 'SELECT a.id FROM task_attempts' in sql:
-                return Result(None if failure == 'lost_lease' else dict(id='synthetic-attempt'))
+                return Result(None)
             if 'SELECT * FROM model_calls' in sql:
                 return Result()
             raise AssertionError('Unexpected reserve SQL: ' + sql)
@@ -446,21 +447,13 @@ def test_true_gateway_does_not_bypass_real_budget_or_lease_checks(failure):
                 task_type='explanation', workflow_version='explanation_v1',
                 project_id=PROJECT, current_attempt=1)
 
-        def budget(self, connection, scope, key):
-            return None if failure == 'missing_budget' else dict(id=scope)
-
-        def budget_view(self, connection, scope, budget):
-            return dict(available_micro_usd=0)
-
         insert_call = staticmethod(forbidden)
 
     service = object.__new__(ModelUsageService)
     service.store = Store()
-    with pytest.raises(LeaseLost if failure == 'lost_lease' else StorageError) as exc:
+    with pytest.raises(LeaseLost):
         ModelGateway(service, object.__new__(OpenAIResponsesProvider)).submit(request,
             instructions=instructions, payload=payload, execution_lease=TaskLease(TASK, 1, 'synthetic-lease'))
-    if failure != 'lost_lease':
-        assert exc.value.code == ('model_budget_missing' if failure == 'missing_budget' else 'model_budget_exceeded')
 
 
 def test_configuration_disabled_remains_public_and_finishes_without_retry(monkeypatch):

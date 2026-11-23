@@ -20,7 +20,6 @@ from app.core.config import get_data_dir
 from app.db.database import database_connection
 from app.domain.figure_workbench.execution import run_figure_workbench_task, run_figure_explanation_task
 from app.domain.figure_workbench.projection_execution import run_projection_task
-from app.domain.model_usage.service import ModelUsageService
 from app.domain.report_collections.execution import run_collection_word_task
 from tests.api.test_analysis import client
 from tests.api.test_dataset_analysis import version
@@ -138,10 +137,6 @@ def complete_artifacts(client, monkeypatch, project_type):
     assert run_projection_task(task['id'], task['revision'])['status'] == 'succeeded'
     preview = client.post(work_url + f'/versions/{vid}/external-preview').json()
     monkeypatch.setattr('app.domain.figure_workbench.tasks.policy_for', checked_policy)
-    usage = ModelUsageService(task_owner(client))
-    for scope, key in [('user', task_owner(client)), ('project', project)]:
-        if usage.get_budget(scope, key)['revision'] == 0:
-            usage.set_budget(scope, key, 5000000, 0)
     request = {'idempotency_key': 'batch08-figure', 'external_processing': {
         'confirmed': True, 'payload_sha256': preview['payload_sha256']}}
     submitted = client.post(work_url + f'/versions/{vid}/generate', json=request)

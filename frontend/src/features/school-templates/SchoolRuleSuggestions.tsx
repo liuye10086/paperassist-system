@@ -105,7 +105,7 @@ export default function SchoolRuleSuggestions({projectId,item,active,busy,onSele
    {!item.analysis?.notes.length&&<p>{t('没有可选的内嵌说明。')}</p>}
    <button type="button" disabled={!noteIds.some(eligible)||!analysisSha} onClick={()=>void run(loadPreview)}>{t('预览建议发送内容')}</button>
   </fieldset>}
-  {preview&&<div><h5>{t('发送预览')}</h5><p>{t('模型')}：{preview.policy.model} · {t('输入 token 上限')}：{preview.input_token_allowance} · {t('费用预留（micro USD）')}：{preview.reserved_micro_usd}</p><details><summary>{t('查看模型政策与价格')}</summary><pre className="template-text">{JSON.stringify(preview.policy,null,2)}</pre></details><p>{t('发送内容 SHA-256')}：{preview.bundle_sha256}</p>
+  {preview&&<div><h5>{t('发送预览')}</h5><p>{t('模型')}：{preview.policy.model} · {t('输入 token 上限')}：{preview.input_token_allowance} · {t('预计费用（micro USD）')}：{preview.reserved_micro_usd??t('待核对')}</p><details><summary>{t('查看模型政策与价格')}</summary><pre className="template-text">{JSON.stringify(preview.policy,null,2)}</pre></details><p>{t('发送内容 SHA-256')}：{preview.bundle_sha256}</p>
    {preview.notes.map(note=><article key={note.id}><strong>{note.alias}</strong><p className="template-text">{note.text}</p><p>{note.source.path}</p><small>{note.source.part} · {note.sha256}</small></article>)}
    <details><summary>{t('查看可建议的能力与原属性')}</summary><ul>{preview.material.capabilities.map(capability=><li key={capability.id}>{capability.id} · {capability.kind} · {readable(capability.current_value)}</li>)}</ul></details>
    {!preview.real_calls_enabled&&<p role="status">{t('真实模型调用已关闭')}</p>}

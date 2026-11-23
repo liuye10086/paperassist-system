@@ -196,21 +196,10 @@ def test_resume_key_is_required_bounded_ascii(client, policy, key):
     assert error.value.status == 422
 
 
-def test_worker_budget_wait_is_persisted_and_legacy_resume_closes_it(client, policy):
-    from app.domain.tasks.execution import run_boxplot_task
-    _, _, _, url = prepared(client)
-    task = post(client, url).json()['task']
-    # No user/project budget exists. Provider construction is local and its
-    # methods must never be called before all three budget checks succeed.
-    class ForbiddenProvider:
-        def close(self):
-            pass
-        def create_container(self, **kwargs):
-            raise AssertionError('A waiting task cannot submit any paid work.')
-    current = run_boxplot_task(task['id'], task['revision'], provider_factory=ForbiddenProvider)
-    assert current['status'] == 'waiting_confirmation'
+def test_original_task_paused_by_previous_budget_rule_can_resume_without_settings(client, policy):
+    current, _ = waiting(client)
     wait = request_for(current)
-    response = client.post('/api/v1/tasks/' + task['id'] + '/retry', json={'expected_revision': current['revision']})
+    response = client.post('/api/v1/tasks/' + current['id'] + '/retry', json={'expected_revision': current['revision']})
     assert response.status_code == 202
     with database_connection() as db:
         assert db.execute('SELECT status FROM task_waits WHERE id=%s', (wait['wait_id'],)).fetchone()['status'] == 'resolved'

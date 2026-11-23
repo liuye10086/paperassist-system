@@ -261,7 +261,7 @@ def test_mapped_jobs_do_not_claim_word_or_fabricate_costs(client, cloud, writer)
         assert workspace['task']['result_report_id'] is None
         assert client.get(endpoint + '/model-usage').status_code == 404
     usage = client.get(f'/api/v1/projects/{project}/model-usage').json()
-    assert usage['enforcement_scope'] == 'unified_only'
+    assert 'enforcement_scope' not in usage
     assert usage['total'] == 0
     assert client.get(word_url).content == word_bytes
     assert originals() == before and counts() == ledger and cloud.calls == [] and writer.calls == []

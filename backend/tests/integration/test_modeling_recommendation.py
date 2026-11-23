@@ -6,7 +6,6 @@ from tests.integration.test_correlation_plan import prepared_correlations
 from tests.integration.test_comparison_plan import independent_rows
 from tests.integration.test_analysis_recommendation import preview_request,planning_policy,RecommendationProvider
 from tests.domain.test_modeling_recommendation_contracts import draft
-from tests.helpers.tasks import task_owner
 
 
 class ModelingProvider(RecommendationProvider):
@@ -19,7 +18,6 @@ class ModelingProvider(RecommendationProvider):
 
 def test_v3_recommendation_has_minimal_metadata_and_single_call_recovery(client,monkeypatch):
     from app.domain.tasks.recommendation_execution import run_recommendation_task
-    from app.domain.model_usage.service import ModelUsageService
     policy=planning_policy()
     policy['policy'].update(prompt_version='analysis_recommendation_v3',output_format='analysis_recommendation_v3')
     monkeypatch.setattr('app.domain.analysis_recommendation.policy.get_execution_policy',lambda payload:policy)
@@ -35,8 +33,7 @@ def test_v3_recommendation_has_minimal_metadata_and_single_call_recovery(client,
                                     labels={v['key']:v['value'] for v in preview['labels']})
     response=seed_legacy_recommendation(client, base+'/analysis-recommendations',json=body,headers={'Idempotency-Key':'modeling-advice'})
     assert response.status_code==202,response.text
-    task=response.json();owner=task_owner(client);ledger=ModelUsageService(owner)
-    for scope,key in [('user',owner),('project',task['project_id'])]:ledger.set_budget(scope,key,5000000,0)
+    task=response.json()
     provider=ModelingProvider(pending=True)
     waiting=run_recommendation_task(task['id'],task['revision'],provider_factory=lambda:provider)
     assert waiting['status']=='running'

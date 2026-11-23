@@ -60,6 +60,25 @@ function serveReturn(){
 }
 const customer={...props,customerSci:true}
 const second='讨论 · 段落 2'
+it('shows the model-suggested excerpt alongside its paragraph before any review decision', async () => {
+ const metadata={article_type:'journal',authors:[],title:'Selected abstract title',journal_title:'Journal',journal_abbreviation:'J',year:'2024',date:'2024',volume:'1',issue:'',pages:'4',article_number:'',doi:'',pmid:'123'}
+ const evidence={id:'evidence1',claim_id:'claim1',claim_revision:1,project_reference_id:'ref1',quote:'A passage from the saved abstract.',reading_scope:'abstract',source:{kind:'abstract',search_id:'search1',receipt_id:'receipt1',sha256:'a'.repeat(64)},location:{start:0,end:34,abstract_index:0},created_at:'2026-11-19T08:00:00Z'}
+ const binding={project_reference_id:'ref1',metadata_version_id:'metadata1',metadata,evidence:[evidence]}
+ const candidate={...twoDiscussion,sections:twoDiscussion.sections.map(section=>({...section,paragraphs:section.paragraphs.map(p=>p.id==='discussion:2'?{...p,suggested_evidence_aliases:['e1']}:p)}))}
+ const context={...returnContext,candidate,local_manifest:{sources:{},evidence:{e1:{evidence_id:evidence.id,binding}}}}
+ const fetcher=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/review-context')?context:url.endsWith('/b1')?bundleFixture():literaturePage()))
+ vi.stubGlobal('fetch',fetcher)
+ render(<WritingScienceReview {...customer} autoLoad/>)
+ const sources=await screen.findByRole('region',{name:'初稿为本段标出的文献'})
+ expect(sources.closest('fieldset')?.id).toBe('writing-paragraph-discussion:2')
+ expect(sources.textContent).toContain(evidence.quote)
+ const classification=screen.getByLabelText(`段落主张分类 ${second}`)
+ expect(classification).toHaveProperty('value','')
+ fireEvent.change(classification,{target:{value:'literature_claim'}})
+ fireEvent.click(screen.getByRole('button',{name:'用这段原文核对'}))
+ expect(screen.getByLabelText('新主张精确摘录')).toHaveProperty('value',evidence.quote)
+ expect(fetcher.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+})
 it('reads the review again on return, keeps the decisions and focuses the original paragraph',async()=>{
  serveReturn()
  const view=render(<WritingScienceReview {...customer} autoLoad/>)

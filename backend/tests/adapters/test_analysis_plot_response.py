@@ -65,7 +65,7 @@ def test_public_policy_configuration_derives_fixed_modern_contract_without_chang
         'input_token_allowance':100000,'task_limit_micro_usd':1000000,'tool_reserve_micro_usd':1000,'tool_reserve_version':'test'}
     derived=plot_policy.derive_execution_policy(plot,{'schema_version':2})
     assert derived['policy']['prompt_version']=='openai_analysis_plot_v2'
-    assert derived['policy']['price']==plot['policy']['price'] and derived['task_limit_micro_usd']==1000000
+    assert derived['policy']['price']==plot['policy']['price'] and 'task_limit_micro_usd' not in derived
     explanation={key:value for key,value in plot.items() if not key.startswith('tool_')}
     explanation['policy']={**plot['policy'],'tools':[],'prompt_version':'analysis_explanation_v1','output_format':'analysis_explanation_v1'}
     derived=explanation_policy.derive_execution_policy(explanation,{'schema_version':2})

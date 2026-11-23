@@ -44,10 +44,7 @@ def cleanup_audit():
 def test_task_browser_session(client, cloud, writer, postgres_schema, tmp_path, monkeypatch, cleanup_audit):
     from app.adapters.task_execution_store import TaskExecutionStore
     from app.db.database import get_migration_database_config
-    from app.domain.model_usage.contracts import ModelPolicy
-    from app.domain.model_usage.pricing import reserve_micro_usd
-    from app.domain.model_usage.service import ModelUsageService
-    from app.domain.tasks.execution import run_boxplot_task, run_word_task
+    from app.domain.tasks.execution import run_word_task
     from app.domain.tasks.service import TaskService
     from tests.api.test_external_processing import confirmation
     from tests.integration.test_budget_recovery import temporary_policy, assert_task_admission_empty
@@ -94,15 +91,9 @@ def test_task_browser_session(client, cloud, writer, postgres_schema, tmp_path, 
         'external_processing': confirmation(client, plot_url)}, headers={'Idempotency-Key': 'browser-budget-flow'})
     assert accepted.status_code == 202, accepted.text
     budget_task = accepted.json()['task']
-    required = reserve_micro_usd(ModelPolicy.model_validate(frozen['policy']),
-                                frozen['input_token_allowance'], frozen['tool_reserve_micro_usd'])
-    budgets = ModelUsageService(owner, postgres_schema)
-    for scope, key in [('user', owner), ('project', flow_project['id']), ('task', budget_task['id'])]:
-        current = budgets.get_budget(scope, key)
-        budgets.set_budget(scope, key, required - 1 if scope == 'task' else 1_000_000, current['revision'])
+    from tests.helpers.tasks import historical_model_wait
     provider = ConfirmedPlotProvider(budget_result, pending=False)
-    waiting = run_boxplot_task(budget_task['id'], budget_task['revision'], config=postgres_schema,
-                               provider_factory=lambda: provider)
+    waiting = historical_model_wait(budget_task)
     assert waiting['status'] == 'waiting_confirmation' and waiting['reason_code'] == 'budget_exceeded'
     assert waiting['error_code'] == 'model_budget_exceeded' and provider.posts == []
     assert_task_admission_empty(waiting['id'])
@@ -136,7 +127,7 @@ def test_task_browser_session(client, cloud, writer, postgres_schema, tmp_path, 
 
     server = LoopbackServer(ROOT / 'frontend' / 'dist')
     flow = {'owner': owner, 'project_id': flow_project['id'], 'budget_task_id': waiting['id'],
-            'retry_task_id': retry['id'], 'required_budget': required}
+            'retry_task_id': retry['id']}
     controls = BrowserControls(client, postgres_schema, flow, old_snapshot, provider, server, attempts)
     page = client.get(f'/api/v1/projects/{display["id"]}/tasks?page_size=50')
     assert page.status_code == 200

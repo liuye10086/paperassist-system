@@ -164,6 +164,10 @@ class SchoolChangeService:
             new_order=[assigned[c['id']]['id'] for c in snapshot['thesis_context']['chapters'] if c['id'] in assigned]
             if old_order!=new_order: differences.append(dict(kind='template_changed',location='chapter_order',message='学校章节顺序改变。',before=' → '.join(s['title'] for s in base['snapshot_json']['sections']),after=' → '.join(s['title'] for s in sections)))
             snapshot['sections']=sections
+            migrated = {m['input_section_id']: m['chapter_id'] for m in mappings}
+            for group in snapshot['results_groups']:
+                if 'illustration_chapter_id' in group:
+                    group['illustration_chapter_id'] = migrated[group['illustration_chapter_id']]
             differences.append(dict(kind='template_changed',location='school',message='显式采用新学校确认，父稿保持原样。',before=base['snapshot_json']['thesis_context']['confirmation_id'],after=snapshot['thesis_context']['confirmation_id']))
         elif valid:
             snapshot,differences,new_problems=apply_return(snapshot,frozen['sections'],mappings);problems.extend(new_problems)

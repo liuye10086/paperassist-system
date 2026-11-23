@@ -81,15 +81,16 @@ def extract_metadata(raw: bytes, pmid: str) -> dict:
     return result
 
 
-def metadata_gaps(metadata: dict) -> list[str]:
+def metadata_gaps(metadata: dict, *, extracted_from_pubmed=False) -> list[str]:
     """Fields necessary for the first journal format; DOI and issue are optional."""
     if metadata.get('article_type') != 'journal':
         return ['article_type']
     authors = metadata.get('authors')
     gaps = []
     if not isinstance(authors, list) or not authors or any(
-        not isinstance(author, dict) or not (
-            _present(author.get('collective')) or (_present(author.get('family')) and _present(author.get('initials'))))
+        not isinstance(author, dict) or not (_present(author.get('collective')) or
+            _present(author.get('family')) and (_present(author.get('initials')) or
+                extracted_from_pubmed and not _present(author.get('given'))))
         for author in authors
     ):
         gaps.append('authors')

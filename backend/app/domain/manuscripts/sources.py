@@ -58,7 +58,10 @@ def read_source(service,project,selection,*,allow_customer_pdf=False):
         service.assets.original(file)
     download=f'/api/v1/projects/{project}/files/{file_id}/download'
     label=file['filename'];content={};sha=file['sha256']
-    if kind in ('original','document_version','ocr_review_version'):
+    if kind=='document_version' and file['file_type']=='xlsx':
+        from .workbook_source import read_workbook_source
+        content,sha=read_workbook_source(service,project,file,identity)
+    elif kind in ('original','document_version','ocr_review_version'):
         if kind=='original' and identity!=file_id: raise source_conflict()
         source,items,row,document=ExternalEvidenceService(service.assets)._source(project,file_id,kind,None if kind=='original' else identity,allow_customer_pdf=allow_customer_pdf)
         content=dict(source=source,items=items);sha=source['sha256']

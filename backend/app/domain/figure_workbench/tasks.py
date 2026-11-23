@@ -64,7 +64,7 @@ def validate_policy(value,payload,*,explanation=False,instructions=None):
     if policy.tools!=([] if explanation else ['code_interpreter']) or policy.prompt_version!=prompt_version(payload,explanation=explanation):raise source_conflict()
     from app.adapters.models.openai_responses import canonical_payload
     minimum=len((instructions if instructions is not None else explanation_instructions(payload) if explanation else instructions_for(payload)).encode())+len(canonical_payload(payload).encode())+4096
-    if minimum>value['input_token_allowance']:raise StorageError('explanation_input_limit' if explanation else 'plot_input_limit','材料超过已配置输入预算范围。',422)
+    if minimum>value['input_token_allowance']:raise StorageError('explanation_input_limit' if explanation else 'plot_input_limit','材料超过已配置的输入长度上限。',422)
     return value
 
 
@@ -131,7 +131,6 @@ def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=No
         task={'id':str(uuid4()),'project_id':project_id,'user_id':workbench.tasks.user_id,'task_type':kind,'idempotency_key':request.idempotency_key,'input_digest':input_hash,'input_snapshot':snapshot,'workflow_version':kind+'_v1','status':'queued','phase':'interpret' if explanation else 'compute','revision':1,'current_attempt':0,'reason_code':None,'created_at':now,'updated_at':now}
         workbench.tasks.insert_task(db,task)
         bind(db,kind='task',object_id=task['id'],version=configuration)
-        db.execute('''INSERT INTO model_budgets(id,user_id,scope_type,scope_key,project_id,task_id,limit_micro_usd,revision,created_at,updated_at) VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)''',(str(uuid4()),task['user_id'],task['id'],project_id,task['id'],frozen['task_limit_micro_usd'],now,now))
         workbench.tasks.append_event(db,task,'created');workbench.tasks.enqueue(db,task)
         return {'task':workbench.tasks.public_task(task),'explanation':None}
 

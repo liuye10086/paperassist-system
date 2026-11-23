@@ -117,9 +117,8 @@ class ModelGateway:
         try:
             request = CallRequest.model_validate(deepcopy(request).model_dump())
             if (request.policy.tools != ['code_interpreter'] or request.policy.output_format != 'text'
-                    or request.policy.prompt_version not in (PROMPT_VERSION,'openai_analysis_plot_v2','openai_comparison_plot_v3','openai_modeling_plot_v4','openai_figure_workbench_v1','openai_figure_workbench_v2','openai_figure_workbench_v3','openai_figure_workbench_v4') or request.tool_reserve_micro_usd <= 0
-                    or not request.tool_reserve_version):
-                raise ValueError('A fixed plot policy and positive tool reservation are required.')
+                    or request.policy.prompt_version not in (PROMPT_VERSION,'openai_analysis_plot_v2','openai_comparison_plot_v3','openai_modeling_plot_v4','openai_figure_workbench_v1','openai_figure_workbench_v2','openai_figure_workbench_v3','openai_figure_workbench_v4')):
+                raise ValueError('A supported plot policy is required.')
             material = json.loads(canonical_payload(payload))
             if input_digest(instructions=instructions, payload=material) != request.input_digest:
                 raise ModelGatewayError('model_input_digest_mismatch')
@@ -197,7 +196,7 @@ class ModelGateway:
         try:
             receipt = self.provider.retrieve(response_id, policy=policy)
         except Exception as exc:
-            # GET cannot invalidate the saved response or release its reservation.
+            # Preserve the saved response so the next poll can use the same ID.
             status_code = getattr(exc, 'status_code', None)
             code = ('model_observation_expired' if continuation else
                     'model_response_not_found' if status_code == 404 else

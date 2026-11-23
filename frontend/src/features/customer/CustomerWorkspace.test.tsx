@@ -2,7 +2,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { clearApiSession, setApiSession } from '../../shared/api/client'
 import { setLocale } from '../../shared/i18n'
-import { exportFixture, manuscriptFixture } from '../manuscripts/manuscriptFixtures'
 import { emptyProfile, type Profile } from '../school-templates/contracts'
 import CustomerFeedback from './CustomerFeedback'
 import CustomerProjectCreate from './CustomerProjectCreate'
@@ -32,8 +31,8 @@ afterEach(() => {
 })
 
 it.each([
-  ['sci', '写作资料与引用'],
-  ['thesis', '写作资料与引用'],
+  ['sci', '上传资料'],
+  ['thesis', '上传资料'],
   ['research', '上传资料'],
 ])('opens the original file list link in a %s project', async (projectType, heading) => {
   window.history.replaceState(null, '', `#project=${project.id}&section=files`)
@@ -182,9 +181,9 @@ it('validates SCI inputs, creates a review project, and reads its saved SCI sett
   const sci = { ...project, id: 'sci-project', project_type: 'sci' }
   const settings = {
     article_type: 'narrative_review', proposed_title: '单细胞研究的文献综述',
-    target_journal: { choice: 'science', name: null },
+    target_journal: null,
     keywords: ['RNA-seq', '细胞分化', '单细胞', '转录组'],
-    review_sections: [{ id: 'section-1', heading: '文献主题', content: '描述领域现状。' }],
+    review_sections: [],
   }
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.startsWith('/api/v1/projects?')) return Response.json({ items: [], total: 0, page: 1, page_size: 5 })
@@ -205,21 +204,17 @@ it('validates SCI inputs, creates a review project, and reads its saved SCI sett
   expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
   fireEvent.change(dialog.getByLabelText('论文类型'), { target: { value: 'narrative_review' } })
   fireEvent.change(dialog.getByLabelText('拟定论文题目'), { target: { value: settings.proposed_title } })
-  fireEvent.click(dialog.getByRole('radio', { name: 'Science' }))
   for (const keyword of settings.keywords) {
     fireEvent.change(dialog.getByLabelText('关键词'), { target: { value: ` ${keyword} ` } })
     fireEvent.click(dialog.getByRole('button', { name: '添加关键词' }))
   }
   expect(dialog.queryByLabelText('主要结果或结论')).toBeNull()
-  fireEvent.click(dialog.getByRole('button', { name: '添加小标题' }))
-  fireEvent.change(dialog.getByLabelText('小标题'), { target: { value: '文献主题' } })
-  fireEvent.change(dialog.getByLabelText('需要涵盖的内容'), { target: { value: '描述领域现状。' } })
+  expect(dialog.queryByRole('button', { name: '添加小标题' })).toBeNull()
   fireEvent.click(dialog.getByRole('button', { name: '创建项目' }))
-  expect(await screen.findByText('描述领域现状。')).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: '上传资料', level: 1 })).toBeTruthy()
   expect(screen.queryByRole('navigation', { name: '项目操作步骤' })).toBeNull()
   const [, create] = fetch.mock.calls.find(([url]) => url === '/api/v1/projects')!
-  const sections = [{ ...settings.review_sections[0], id: expect.any(String) }]
-  expect(JSON.parse(String(create?.body))).toMatchObject({ project_type: 'sci', sci_settings: { ...settings, review_sections: sections } })
+  expect(JSON.parse(String(create?.body))).toMatchObject({ project_type: 'sci', sci_settings: settings })
   expect(JSON.parse(String(create?.body))).not.toHaveProperty('delivery_kinds')
 })
 
@@ -291,6 +286,8 @@ it('confirms and explicitly binds a Word school template from the thesis custome
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const body = init?.body ? JSON.parse(String(init.body)) : {}
     if (url === base) return Response.json({ ...project, project_type: 'thesis' })
+    if (url === base + '/thesis-requirements') return Response.json({title:'', keywords:[], sections:[], language:'zh-CN', revision:profile.revision,
+      template:profile.bound_confirmation_id ? {name:template.name, confirmation_id:profile.bound_confirmation_id, chapters:template.analysis.chapters} : null})
     if (url === base + '/thesis-profile') {
       if (init?.method === 'PUT') {
         const { expected_revision, ...fields } = body
@@ -324,10 +321,10 @@ it('confirms and explicitly binds a Word school template from the thesis custome
     return new Response(null, { status: 404 })
   })
   vi.stubGlobal('fetch', fetch)
-  window.history.replaceState(null, '', `#customer-project=${project.id}&step=school`)
+  window.history.replaceState(null, '', `#customer-project=${project.id}&step=details&schoolView=list`)
   render(<CustomerWorkspace />)
   const steps = await screen.findByRole('navigation', { name: '毕业论文项目步骤' })
-  expect(within(steps).getByRole('button', { name: '学校模板' }).getAttribute('aria-current')).toBe('step')
+  expect(within(steps).getByRole('button', { name: '模板与资料整理' }).getAttribute('aria-current')).toBe('step')
   fireEvent.click(screen.getByRole('button', { name: '学校资料' }))
   const school = screen.getByRole('textbox', { name: '学校' })
   await waitFor(() => expect(school.matches(':disabled')).toBe(false))
@@ -358,103 +355,13 @@ it('confirms and explicitly binds a Word school template from the thesis custome
   fireEvent.click(screen.getByRole('radio', { name: /12 磅/ }))
   fireEvent.click(confirm)
   await waitFor(() => expect(profile.bound_confirmation_id).toBe('rules-1'))
-  expect(await screen.findByText('当前采用的模板', { selector: 'strong' })).toBeTruthy()
+  expect(await screen.findByText('已采用学校模板 · 合成毕业论文模板')).toBeTruthy()
   expect(fetch.mock.calls.every(([url]) => !url.includes('rule-suggestion') && !url.includes('/tasks/'))).toBe(true)
   const call = fetch.mock.calls.find(([url]) => url.endsWith('/confirm'))!
   expect(JSON.parse(String(call[1]?.body))).toMatchObject({
     decisions: [{ conflict_id: 'size', option_id: 'body-size' }],
     chapters: template.analysis.chapters,
   })
-})
-
-it('carries a selected thesis result source into a confirmed results chapter', async () => {
-  const profile = { ...emptyProfile, school: '合成大学', revision: 2, bound_confirmation_id: 'rules-1' }
-  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === base) return Response.json({ ...project, project_type: 'thesis' })
-    if (url === base + '/manuscripts/candidates') return Response.json({
-      items: [{ kind: 'original', id: 'thesis-result', file_id: 'thesis-result', label: '结果记录.docx',
-        version: null, allowed_roles: ['user_results'], download_url: null }],
-      citation_drafts: [], methods_fields: [], project_type: 'thesis',
-      thesis: {
-        ready: true, blocking_reasons: [], profile, confirmation_id: 'rules-1',
-        chapters: [{ id: 'results-chapter', title: '实验结果', level: 1 }], purposes: ['results'], template_source_file_ids: [],
-      },
-    })
-    if (url === base + '/manuscripts' && !init?.method) return Response.json({ items: [] })
-    return new Response(null, { status: 404 })
-  })
-  vi.stubGlobal('fetch', fetch)
-  window.history.replaceState(null, '', `#customer-project=${project.id}&step=manuscripts`)
-  render(<CustomerWorkspace />)
-  expect(await screen.findByRole('heading', { name: '章节与复核', level: 1 })).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: '整理写作材料' }))
-  const chapter = await screen.findByRole('group', { name: '实验结果' })
-  fireEvent.change(within(chapter).getByLabelText('内容用途'), { target: { value: 'results' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: '结果记录.docx' }))
-  const materials = screen.getByRole('navigation', { name: '资料编排步骤' })
-  fireEvent.click(within(materials).getByRole('button', { name: '结果' }))
-  fireEvent.change(screen.getByLabelText('用户提供的主要结果'), { target: { value: '合成实验记录共 24 份。' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: '关联结果来源 结果记录.docx' }))
-  fireEvent.click(within(materials).getByRole('button', { name: '来源' }))
-  fireEvent.click(within(chapter).getByRole('checkbox', { name: '用户提供的结果与出处' }))
-  fireEvent.click(screen.getByRole('button', { name: '预览写作材料' }))
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url === base + '/manuscripts/preview')).toBe(true))
-  const preview = JSON.parse(String(fetch.mock.calls.find(([url]) => url === base + '/manuscripts/preview')?.[1]?.body))
-  expect(preview).toMatchObject({
-    reported_result: { text: '合成实验记录共 24 份。', source_ids: ['thesis-result'] },
-    thesis: { confirmation_id: 'rules-1', profile_revision: 2, chapter_mappings: [
-      { chapter_id: 'results-chapter', purpose: 'results', result_group_ids: ['reported-result'] },
-    ] },
-  })
-})
-
-it.each(['research', 'narrative_review'] as const)('carries %s project settings into the SCI manuscript entry', async article_type => {
-  const settings = {
-    article_type, main_results: '项目主要发现，仅供写作参考',
-    target_journal: { choice: 'other', name: 'Synthetic Journal' },
-    keywords: ['single-cell', 'lineage'], figure_plan: [{ title: '图 1', description: '细胞分化示意' }],
-  }
-  const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
-    if (url === base) return Response.json({ ...project, project_type: 'sci' })
-    if (url === base + '/sci-settings') return Response.json({ settings, revision: 1 })
-    if (url === base + '/manuscripts/candidates') return Response.json({
-      items: [
-        { kind: 'original', id: 'uploaded-1', file_id: 'uploaded-1', label: '合成结果 Word', version: null,
-          allowed_roles: ['user_results'], download_url: null },
-        { kind: 'original', id: 'legacy-pdf', file_id: 'legacy-pdf', label: '历史来源.pdf', version: null,
-          allowed_roles: ['user_results'], download_url: null },
-        { kind: 'document_version', id: 'legacy-parse', file_id: 'legacy-pdf', label: '历史来源解析', version: 1,
-          allowed_roles: ['user_results'], download_url: null },
-      ],
-      citation_drafts: [], methods_fields: [],
-    })
-    if (url === base + '/manuscripts' && !_init?.method) return Response.json({ items: [] })
-    return new Response(null, { status: 404 })
-  })
-  vi.stubGlobal('fetch', fetch)
-  window.history.replaceState(null, '', `#customer-project=${project.id}&step=manuscripts`)
-  render(<CustomerWorkspace />)
-  await screen.findByRole('heading', { name: '稿件与复核', level: 1 })
-  expect(await screen.findByText(settings.main_results, { selector: 'dd' })).toBeTruthy()
-  expect(screen.getByText('细胞分化示意')).toBeTruthy()
-  expect(screen.getByText('single-cell · lineage', { selector: 'dd' })).toBeTruthy()
-  expect(screen.queryByRole('button', { name: '任务进度' })).toBeNull()
-  expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
-  fireEvent.click(screen.getByRole('button', { name: '整理写作材料' }))
-  fireEvent.click(await screen.findByRole('checkbox', { name: '合成结果 Word' }))
-  expect(screen.queryByRole('checkbox', { name: /^历史来源/ })).toBeNull()
-  if (article_type === 'research') {
-    fireEvent.click(screen.getByRole('button', { name: /结果/ }))
-    expect(screen.getByLabelText('用户提供的主要结果')).toHaveProperty('value', settings.main_results)
-    fireEvent.click(screen.getByRole('checkbox', { name: '关联结果来源 合成结果 Word' }))
-  } else {
-    expect(screen.queryByRole('button', { name: /结果/ })).toBeNull()
-  }
-  fireEvent.click(screen.getByRole('button', { name: '预览写作材料' }))
-  await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url === base + '/manuscripts/preview' && init?.method === 'POST')).toBe(true))
-  const submitted = JSON.parse(String(fetch.mock.calls.find(([url]) => url === base + '/manuscripts/preview')?.[1]?.body))
-  if (article_type === 'research') expect(submitted.reported_result).toEqual({ text: settings.main_results, source_ids: ['uploaded-1'] })
-  else expect(submitted).not.toHaveProperty('reported_result')
 })
 
 it.each(['research', 'thesis'] as const)('does not fetch SCI modules from a %s deep link', async project_type => {
@@ -471,58 +378,7 @@ it.each(['research', 'thesis'] as const)('does not fetch SCI modules from a %s d
   await screen.findByRole('heading', { name: '项目资料', level: 1 })
   expect(screen.queryByRole('heading', { name: '期刊适配与 Word' })).toBeNull()
   const expectedRequests = project_type === 'thesis' ? [base, base + '/thesis-requirements'] : [base]
-  expect(fetch.mock.calls.map(([url]) => url)).toEqual(expectedRequests)
-})
-
-it('shows the saved journal intent with a generic Word route and no submission history fetch', async () => {
-  const settings = {
-    article_type: 'narrative_review', main_results: '综述结论',
-    target_journal: { choice: 'other', name: 'Synthetic Journal' },
-    keywords: ['lineage'], figure_plan: [{ title: '图 1', description: '主题关系' }],
-  }
-  const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
-    if (url === base) return Response.json({ ...project, project_type: 'sci' })
-    if (url === base + '/sci-settings') return Response.json({ settings, revision: 2 })
-    if (url.endsWith('/journals/config')) return Response.json({ default_limit: 3, max_limit: 10 })
-    return Response.json({ items: [] })
-  })
-  vi.stubGlobal('fetch', fetch)
-  window.history.replaceState(null, '', `#customer-project=${project.id}&step=journals`)
-  render(<CustomerWorkspace />)
-  await screen.findByRole('heading', { name: '期刊适配与 Word', level: 1 })
-  expect((await screen.findByText('Synthetic Journal')).closest('section')?.textContent).toContain('目标期刊意向')
-  expect(screen.queryByRole('button', { name: '投稿记录' })).toBeNull()
-  expect(fetch.mock.calls.every(([url, init]) => url.startsWith(base) && !url.endsWith('/submission-events') && !init?.method)).toBe(true)
-  fireEvent.click(screen.getByRole('button', { name: '通用 Word 与固定版本' }))
-  await screen.findByRole('heading', { name: '固定版本与 Word', level: 1 })
-  expect(window.location.hash).toContain('step=word')
-})
-
-it('loads Word for the selected historical SCI version without requesting optional exports', async () => {
-  const download_url = base + '/manuscripts/m1/exports/export1/download'
-  const old = { ...manuscriptFixture.versions[0], snapshot: { ...manuscriptFixture.versions[0].snapshot, project_id: project.id },
-    exports: [{ ...exportFixture, download_url }] }
-  const current = { ...old, id: 'v2', revision: 2, task_id: 'draft-2', parent_version_id: old.id, exports: [] }
-  const fetch = vi.fn(async (url: string) => {
-    if (url === base) return Response.json({ ...project, project_type: 'sci' })
-    if (url === base + '/manuscripts') return Response.json({
-      items: [{ ...manuscriptFixture, project_id: project.id, current_revision: 2, versions: [current, old] }],
-    })
-    if (url === base + '/manuscripts/m1/versions/1/exports') return Response.json({ items: old.exports })
-    return new Response(null, { status: 404 })
-  })
-  vi.stubGlobal('fetch', fetch)
-  window.history.replaceState(null, '', `#customer-project=${project.id}&step=word`)
-  render(<CustomerWorkspace />)
-  // Without a manuscript in the address the Word page opens the current version first (B03).
-  await waitFor(() => expect(window.location.hash).toContain('manuscript=m1&revision=2&view=exports'))
-  fireEvent.click(await screen.findByRole('button', { name: '稿件列表' }))
-  fireEvent.click(await screen.findByRole('button', { name: '查看这一版' }))
-  await waitFor(() => expect(document.querySelector('.manuscript-fixed-context .version-label')?.textContent).toMatch(/^第 1 版 · /))
-  expect((await screen.findByRole('link', { name: '下载这份 Word' })).getAttribute('href')).toBe(download_url)
-  expect(screen.queryByRole('link', { name: /PDF|交付登记/ })).toBeNull()
-  expect(fetch.mock.calls.map(([url]) => url)).toEqual([base, base + '/manuscripts', base + '/manuscripts/m1/versions/2/exports', base + '/manuscripts/m1/versions/1/exports'])
-  expect(fetch.mock.calls.length).toBe(4)
+  await waitFor(() => expect(fetch.mock.calls.map(([url]) => url)).toEqual(expectedRequests))
 })
 
 it('accepts Word, Excel and images including TIFF in the SCI upload picker without creating a PDF batch', async () => {

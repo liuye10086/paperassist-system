@@ -81,11 +81,7 @@ def test_schema1_authorized_fake_post_keeps_original_wire_after_new_configuratio
     response=post(client,root+'/writing-requests',body,'legacy-after-switch')
     assert response.status_code==202,response.text
     task=response.json()['task']
-    from tests.helpers.tasks import task_owner
-    from app.domain.model_usage.service import ModelUsageService
     from app.domain.manuscript_writing.execution import run_manuscript_writing_task
-    usage=ModelUsageService(task_owner(client))
-    for kind,key in [('user',task_owner(client)),('project',task['project_id'])]:usage.set_budget(kind,key,5000000,0)
     fixture=LiveFixture()
     assert run_manuscript_writing_task(task['id'],task['revision'],provider=fixture)['status']=='succeeded'
     assert fixture.posts==[old['wire_json']]

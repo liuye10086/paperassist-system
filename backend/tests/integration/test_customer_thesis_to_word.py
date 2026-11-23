@@ -18,7 +18,6 @@ from PIL import Image, ImageDraw
 from app.adapters.docx_parser import parse_docx
 from app.adapters.school_template_parser import inspect_school_template
 from app.db.database import database_connection
-from app.domain.literature.execution import run_literature_task
 from app.domain.literature.service import digest
 from app.domain.manuscript_writing.execution import run_manuscript_writing_task
 from app.domain.school_templates.execution import run_school_template_task
@@ -27,13 +26,12 @@ from app.domain.tasks.file_parse_execution import run_parse_file_task
 from app.main import app
 from tests.api.test_customer_workspace import sign_in
 from tests.api.test_file_batches import register
-from tests.api.test_literature import create as create_search
-from tests.api.test_literature_citations import CitationNcbi, binding, draft_body, paragraph
 from tests.api.test_manuscript_writing_live import request_v2
 from tests.api.test_school_writing_live import SchoolFixture
 from tests.domain.test_school_writing_live import synthetic_layout_cache
-from tests.integration.test_customer_sci_to_word import DOCX, record_candidate_citation, request
-from tests.integration.test_literature_assistance import budgets
+from tests.integration.test_customer_sci_to_word import (
+    DOCX, assert_customer_writing_queued, record_candidate_citation, request, selected_pubmed_reference,
+)
 
 
 SCHOOL = '合成学校'
@@ -237,23 +235,6 @@ def upload_illustration(client, project):
                                                 role='image_observation')], png
 
 
-def freeze_citation(client, project):
-    literature = project + '/literature'
-    search = create_search(client, project.rsplit('/', 1)[-1])
-    assert search.status_code == 202, search.text
-    search = search.json()
-    assert run_literature_task(search['id'], search['revision'], client=CitationNcbi(3))['status'] == 'succeeded'
-    reference = next(row for row in request(client, 'GET', literature + '/references')['items'] if row['record']['abstract'])
-    quote = reference['record']['abstract'][0]['text']
-    claim = request(client, 'POST', literature + '/evidence/claims', status=201, key='initial-claim', json=dict(
-        content=quote, context='Initial synthetic abstract selection.', output_language='en',
-    ))
-    claim, bound, metadata, _ = binding(client, literature, search, reference, claim)
-    draft = request(client, 'POST', literature + '/citations/drafts', status=201, key='citation-draft',
-                    json=draft_body(paragraph(claim, bound)) | dict(output_language='zh-CN'))
-    return draft, (literature, search, reference, metadata, quote)
-
-
 class ThesisFixture(SchoolFixture):
     def __init__(self, quote):
         super().__init__()
@@ -277,8 +258,7 @@ class ThesisFixture(SchoolFixture):
         return result
 
 
-def write_candidate(client, root, sources, draft, quote):
-    evidence = draft['snapshot']['paragraphs'][0]['fragments'][1]['bindings'][0]['evidence'][0]
+def write_candidate(client, root, sources, evidence, quote):
     bundle = request(client, 'POST', root + '/writing-previews', status=201, key='preview', json=dict(
         schema_version=3, base_revision=1, mode='full_draft', output_language='zh-CN',
         selected_source_ids=[source['id'] for source in sources], selected_evidence_ids=[evidence['id']],
@@ -297,7 +277,7 @@ def write_candidate(client, root, sources, draft, quote):
         schema_version=2, confirmed=True, tasks=[dict(logical_task_id='task-0', bundles=[frozen_bundle])],
     ))
     task = request(client, 'POST', root + '/writing-requests', status=202, key='write', json=request_v2(bundle, auth))['task']
-    budgets(client, task)
+    assert_customer_writing_queued(client, root, task)
     provider = ThesisFixture(quote)
     result = run_manuscript_writing_task(task['id'], task['revision'], provider=provider)
     assert result['status'] == 'succeeded', result
@@ -306,6 +286,8 @@ def write_candidate(client, root, sources, draft, quote):
     context = request(client, 'GET', path + '/review-context')
     provenance = context['candidate']['writing_provenance']
     assert provenance['provider_provenance'] == 'synthetic_fixture' and provenance['verification_status'] == 'pending'
+    paragraph = next(s for s in context['candidate']['sections'] if s.get('purpose') == 'abstract' and s['output_language'] == 'en')['paragraphs'][0]
+    assert paragraph['suggested_evidence_aliases'] == ['e1'] and paragraph['citations'] == []
     return path, context
 
 
@@ -564,11 +546,11 @@ def test_customer_confirms_writes_reviews_and_downloads_frozen_thesis(monkeypatc
         assert config['ready'] and config['confirmation_id'] == checked['id']
         assert template['sources'][0]['file_id'] in config['template_source_file_ids']
         sources, png = upload_illustration(client, project)
-        draft, citation = freeze_citation(client, project)
+        draft, literature, search, reference, quote = selected_pubmed_reference(client, project, 'zh-CN')
         groups = [dict(id='fixture-figure', title='合成图片观察', analysis_run_ids=[], figure_ids=[sources[1]['id']])]
         data = thesis_request(checked, profile, sources=sources, methods=dict(study_design=METHOD),
                               method_source_ids=dict(study_design=[sources[0]['id']]),
-                              citation_draft=dict(id=draft['id'], revision=1), results_groups=groups)
+                              citation_draft=draft, results_groups=groups)
         fact = request(client, 'POST', manuscripts, status=201, key='fact', json=data)
         base = fact['versions'][0]
         assert run_task(base['task_id'], 1)['status'] == 'succeeded'
@@ -579,7 +561,61 @@ def test_customer_confirms_writes_reviews_and_downloads_frozen_thesis(monkeypatc
         request(client, 'POST', root + '/versions/1/exports/preview', status=422,
                 json=dict(school=dict(field_values={'unknown': 'invalid'})))
 
-        path, context = write_candidate(client, root, sources, draft, citation[-1])
+        selected = base['snapshot']['citation_snapshot']['paragraphs'][0]['fragments'][0]['bindings'][0]
+        citation = (literature, search, reference, selected['metadata_source'], quote)
+        path, context = write_candidate(client, root, sources, selected['evidence'][0], quote)
+        reader = path + '/draft-reader'
+        view = request(client, 'GET', reader + '?revision=1')
+        assert view['can_revise']
+        assert [section['heading'] for section in view['draft']['sections']] == [c['title'] for c in checked['chapters']]
+        english = next(s for s in view['draft']['sections'] if s['heading'] == 'Abstract')
+        assert english['output_language'] == 'en'
+        excerpt = english['paragraphs'][0]['parts'][0]['citations'][0]['excerpts'][0]
+        assert excerpt['quote'] == quote
+        assert request(client, 'GET', project + '/draft-history')['items'][0]['request_id'] == view['request_id']
+        for protected in (reader + '?revision=1', reader + '/word?revision=1', project + '/draft-history'):
+            assert foreign.get(protected).status_code == 404
+        assert client.get(reader + '/figures/1?revision=1').content == png
+        school_word = client.get(reader + '/word?revision=1')
+        assert school_word.status_code == 200, school_word.text[:500] if school_word.status_code != 200 else ''
+        candidate_doc = Document(BytesIO(school_word.content))
+        assert len(candidate_doc.inline_shapes) == 1
+        assert candidate_doc.styles['Normal'].font.size.pt == 14
+        assert any(p.text == '摘要' and p.style.name == 'School Chinese Abstract' for p in candidate_doc.paragraphs)
+        assert any(quote + '[1]' in p.text for p in candidate_doc.paragraphs)
+        assert any(p.text == '[1] ' + base['snapshot']['references'][0]['text'] for p in candidate_doc.paragraphs)
+        feedback = request(client, 'POST', path + '/draft-feedback', files={'file': ('意见.txt', '扩展结论。'.encode())})
+        assert feedback == dict(text='扩展结论。')
+        original_input = request(client, 'GET', path)['input']
+        revise = original_input | dict(revision_of_request_id=view['request_id'], instructions=feedback['text'])
+        revision_bundle = request(client, 'POST', root + '/writing-previews', status=201, key='advisor-edits', json=revise)
+        original_draft = json.loads(json.loads(revision_bundle['wire_json'])['input'])['original_draft']
+        assert any(p['text'] == quote for s in original_draft for p in s['paragraphs'])
+        assert checked['id'] not in revision_bundle['wire_json']
+        grant = dict(bundle_id=revision_bundle['id'], bundle_sha256=revision_bundle['bundle_sha256'])
+        auth = request(client, 'POST', project + '/writing-authorizations', status=201, key='advisor-auth',
+                       json=dict(schema_version=2, confirmed=True, tasks=[dict(logical_task_id='advisor', bundles=[grant])]))
+        revised_task = request(client, 'POST', root + '/writing-requests', status=202, key='advisor-write',
+                               json=dict(schema_version=2, authorization_id=auth['id'], logical_task_id='advisor', **grant))['task']
+
+        class AdvisorRevision(ThesisFixture):
+            def receipt(self):
+                result = super().receipt()
+                content = result['response']['output'][0]['content'][0]
+                output = json.loads(content['text'])
+                output['sections'][-1]['paragraphs'][0]['text'] = '根据导师意见补充了合成研究的局限。'
+                content['text'] = json.dumps(output)
+                return result
+
+        revised_result = run_manuscript_writing_task(revised_task['id'], 1, provider=AdvisorRevision(quote))
+        assert revised_result['status'] == 'succeeded', revised_result
+        revised_reader = root + '/writing-requests/' + revised_task['id'] + '/draft-reader?revision=1'
+        revised = request(client, 'GET', revised_reader)
+        assert revised['previous_request_id'] == view['request_id'] and len(revised['changes']) == 1
+        assert revised['changes'][0]['heading'] == '4 结论'
+        assert revised['changes'][0]['after'] == ['根据导师意见补充了合成研究的局限。']
+        assert [entry['request_id'] for entry in request(client, 'GET', project + '/draft-history')['items']] == [
+            revised_task['id'], view['request_id']]
         science = review_science(client, path, context, citation)
         options = school_options(checked['chapters'])
         # Editing the first abstract's keywords last appends them after the second.
@@ -615,3 +651,9 @@ def test_customer_confirms_writes_reviews_and_downloads_frozen_thesis(monkeypatc
             assert foreign.get(url).status_code == 404
         adopt_template_update(client, project, root, fixed, template, profile)
         assert client.get(export['download_url']).content == ordinary
+        historic = request(client, 'GET', reader + '?revision=1')
+        assert historic['draft'] == view['draft'] and not historic['can_revise']
+        assert request(client, 'GET', project + '/draft-history')['items'][1]['published_revision'] == 2
+        old_word = client.get(reader + '/word?revision=1')
+        assert old_word.status_code == 200
+        assert old_word.content == school_word.content

@@ -254,8 +254,12 @@ def test_full_artifact_lineage_and_independent_call_reservation_outbox_states(cl
     with monkeypatch.context() as local:
         result=chain.complete_chain(client,local)
     base=result['base']
+    # Recreate a historical hold so deletion safety still covers the old ledger.
+    from tests.integration.test_model_usage import seed_historical_holds
+    with database_connection() as db:
+        call = db.execute('SELECT * FROM model_calls ORDER BY id LIMIT 1').fetchone()
+    seed_historical_holds(call)
     value=assessment(client,base)
-    # Synthetic plot's tool charge remains unreconciled after publication.
     assert value['deletion_status']=='blocked'
     assert [r['code'] for r in value['reasons']] == [
         'internal_testing_retention', 'budget_reservations_held', 'research_results_history_retained',
@@ -275,7 +279,6 @@ def test_full_artifact_lineage_and_independent_call_reservation_outbox_states(cl
             urls.extend(task_urls(artifact['id']))
         assert_private_reads(client,other,urls)
     with database_connection() as db:
-        call=db.execute('SELECT id,task_id FROM model_calls ORDER BY id LIMIT 1').fetchone()
         task_revision=db.execute('SELECT revision FROM tasks WHERE id=%s',(call['task_id'],)).fetchone()['revision']
     previous=value['assessment_revision']
     for sql,params,reason in [

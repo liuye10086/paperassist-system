@@ -3,7 +3,7 @@ from datetime import datetime,timezone
 
 from app.db.database import database_connection
 from tests.api.test_admin_operations import accounts,admin,seed_call,seed_task  # noqa:F401
-from tests.integration.test_model_usage import context,configure,request  # noqa:F401
+from tests.integration.test_model_usage import context,request  # noqa:F401
 
 
 def test_authorized_task_validation_error_retains_verified_task_link(admin,accounts):
@@ -48,8 +48,10 @@ def test_cost_components_and_usage_dimensions_preserve_unknowns(admin,accounts):
 
 def test_nested_budget_reservations_are_counted_once_using_existing_accounting(admin,context):
     from psycopg.types.json import Jsonb
-    service=configure(context)
+    service=context[0]
     call=service.reserve_call(request(context[3]))
+    from tests.integration.test_model_usage import seed_historical_holds
+    seed_historical_holds(call)
     assert service.begin_submission(call['id'])
     with database_connection(write=True) as db:
         db.execute("UPDATE model_calls SET provider_state=provider_state || %s WHERE id=%s",
@@ -70,7 +72,7 @@ def test_nested_budget_reservations_are_counted_once_using_existing_accounting(a
 
 
 def test_usage_replay_keeps_latest_distinct_observation(admin,context):
-    service=configure(context)
+    service=context[0]
     call=service.reserve_call(request(context[3]))
     service.begin_submission(call['id'])
     common=dict(response_id='synthetic-response',request_id=None,model='test-model')
@@ -120,7 +122,7 @@ def test_tool_execution_counts_preserve_evidence_and_unknowns(admin,accounts):
 
 def test_gateway_persists_tool_evidence_without_body_and_does_not_regress(admin,context):
     from app.domain.model_usage.gateway import ModelGateway
-    service=configure(context)
+    service=context[0]
     call=service.reserve_call(request(context[3]));service.begin_submission(call['id'])
     gateway=ModelGateway(service,None)
     common=dict(response_id='synthetic-response',request_id=None,model='test-model',status='completed',usage={'input_tokens':50,'output_tokens':5})

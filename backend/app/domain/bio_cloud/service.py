@@ -1,7 +1,6 @@
 """Owner-scoped cloud requests; immutable identities precede remote effects."""
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from decimal import Decimal
 from uuid import uuid4
 
 from psycopg.types.json import Jsonb
@@ -138,7 +137,11 @@ class CloudService:
             self.store.require_project(db, project)
             existing = db.execute('SELECT * FROM bio_cloud_runs WHERE project_id=%s AND request_key=%s', (project,key)).fetchone()
             if existing:
-                if existing['request_digest'] != request_hash:
+                # A replay from a previous client may have stored separate budget fields.
+                saved = existing['snapshot_json']['request']
+                if existing['request_digest'] != digest(saved) or request_hash != digest(
+                    {k: v for k, v in saved.items() if k not in ('budget_approved', 'budget_limit_usd')}
+                ):
                     raise error('idempotency_conflict', '此请求标识已用于不同的云计算参数。')
                 return self.public_run(db, existing)
             settings = self.ready_settings()
@@ -148,10 +151,6 @@ class CloudService:
             profile = profiles[0]
             if profile.species != request.species or request.chemistry not in profile.chemistries:
                 raise error('profile_mismatch', '物种或建库方案不在该工作流已核验的范围内。')
-            if profile.estimated_run_cost_usd is None:
-                raise error('price_unverified','此流程的当前分析费用尚未核实，请管理员核对报价。')
-            if request.budget_limit_usd < Decimal(str(profile.estimated_run_cost_usd)):
-                raise error('budget_exceeded','已确认预算低于核实的预计单次分析费；未提交计算。')
             if db.execute("SELECT 1 FROM bio_cloud_runs WHERE project_id=%s AND status NOT IN ('completed','failed','cancelled') LIMIT 1", (project,)).fetchone():
                 raise error('active_run', '当前项目已有未结束或待核实的云任务，请先处理已有任务。')
             uploads = []

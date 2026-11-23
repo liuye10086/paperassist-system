@@ -11,6 +11,16 @@ function schoolSnapshot(status='scientific_and_language_reviewed'):Snapshot{
  return {...snapshotFixture,notice:frozenNotice,thesis_context:{profile:{school:'Synthetic school',applicable_version:'2026'},confirmation_id:'frozen-confirmation'},sections:[],writing_provenance:{schema_version:2,school_content_version:'school-live-v1',provider_provenance:'synthetic_fixture',verification_status:status}} as unknown as Snapshot
 }
 
+it('renders uploaded figures under their original school heading alongside historical result groups',()=>{
+ const chapter={id:'methods',title:'实验方法',purpose:'materials_and_methods' as const,output_language:'zh-CN' as const,level:1,result_group_ids:[],paragraphs:[]}
+ const group={id:'flow-group',title:'流程图',illustration_chapter_id:'methods',paragraphs:[],tables:[],figures:[
+   {id:'flow',number:1,title:'论文配图',caption:'实验流程原图。',sha256:'a'.repeat(64),source_ids:['flow']},
+ ]}
+ const snapshot:Snapshot={...schoolSnapshot(),sections:[chapter],results_groups:[group]}
+ render(<ManuscriptPreview snapshot={snapshot} presentation="body"/>)
+ expect(screen.getByText('实验流程原图。').closest('[data-chapter-id]')?.getAttribute('data-chapter-id')).toBe('methods')
+})
+
 it('keeps the completed candidate-stage notice in evidence, outside the body, without a collapse panel',()=>{
  const snapshot=schoolSnapshot(),original=JSON.stringify(snapshot)
  const {rerender}=render(<ManuscriptPreview snapshot={snapshot} presentation="body"/> )

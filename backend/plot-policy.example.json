@@ -16,8 +16,5 @@
       "cache_write_micro_usd_per_million": null
     }
   },
-  "input_token_allowance": null,
-  "task_limit_micro_usd": null,
-  "tool_reserve_micro_usd": null,
-  "tool_reserve_version": "REPLACE_WITH_VERIFIED_TOOL_ALLOWANCE_VERSION"
+  "input_token_allowance": null
 }

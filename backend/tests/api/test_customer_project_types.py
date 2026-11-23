@@ -83,7 +83,6 @@ def test_customer_sci_creation_requires_valid_settings():
             {'keywords': ['cohort', 'expression', 'pathway']},
             {'keywords': [*SCI_SETTINGS['keywords'], 'extra1', 'extra2', 'extra3']},
             {'keywords': [' cohort ', 'COHORT', 'pathway', 'expression']},
-            {'figure_findings': []},
             {'figure_findings': [{'id': 'synthetic-figure-1', 'finding': '  '}]},
         ):
             fields = {} if change is None else {'sci_settings': SCI_SETTINGS | change}
@@ -93,6 +92,16 @@ def test_customer_sci_creation_requires_valid_settings():
         reply = create(client, 'legacy-format', **project_body('sci', sci_settings=LEGACY_SCI_SETTINGS))
         assert reply.status_code == 422, reply.text
         assert client.get(PROJECTS).json() == []
+
+
+def test_customer_can_start_a_paper_without_a_target_journal_or_findings():
+    with TestClient(app) as client:
+        sign_in(client, 'sci-no-journal@manuscript.test', 'customer')
+        for kind in ('research', 'narrative_review'):
+            settings = {key: SCI_SETTINGS[key] for key in ('keywords', 'proposed_title')}
+            settings['article_type'] = kind
+            project = project_path(create(client, kind, **project_body('sci', sci_settings=settings)))
+            assert client.get(project + '/sci-settings').json()['settings']['target_journal'] is None
 
 
 def test_customer_rejects_settings_on_thesis_and_writing_deliveries_on_new_analysis():

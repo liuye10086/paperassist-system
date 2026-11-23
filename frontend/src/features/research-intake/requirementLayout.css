@@ -7,6 +7,33 @@
 .intake-context { color: var(--text); font-size: 12px; }
 .intake-workspace .intake-version-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; background: transparent; color: var(--text); font-size: 12px; }
 .intake-main-body { flex: 1; min-height: 0; overflow: hidden; }
+.intake-view-nav .design-tools { align-self: center; width: auto; max-width: 100%; margin-inline-start: auto; }
+.assigned-design-guide {
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 clamp(16px, 2vw, 24px) 20px;
+}
+.assigned-design-guide > section { max-width: 65rem; padding: 16px 0; border-top: 1px solid var(--border); }
+.assigned-design-guide h3, .assigned-design-guide p { margin: 0; }
+.assigned-design-guide h3 { font-size: 1.05rem; color: var(--foreground); }
+.assigned-design-guide p, .assigned-design-guide small { margin-block-start: 5px; color: var(--muted-foreground); }
+.design-guide-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.design-guide-groups { width: 100%; margin-block-start: 12px; border-collapse: collapse; text-align: start; }
+.design-guide-groups th, .design-guide-groups td { padding: 7px 12px; overflow-wrap: anywhere; text-align: start; border-bottom: 1px solid var(--border); }
+.design-guide-groups thead { color: var(--secondary-foreground); background: var(--secondary); }
+.design-guide-missing { margin-block-start: 12px; padding: 16px; border-radius: 8px; background: var(--secondary); }
+.design-guide-missing .analyst-material-request { margin: 12px 0 0; padding: 0; background: transparent; }
+.assigned-design-guide label { display: grid; gap: 6px; min-width: 0; }
+.design-guide-inputs, .design-guide-pair { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-block-start: 12px; }
+.design-guide-type, .design-guide-pair label { flex: 1 1 13rem; min-width: 0; max-width: 25rem; }
+.design-guide-type button { margin: 6px 6px 0 0; }
+.assigned-design-guide textarea { width: 100%; }
+.assigned-design-guide h3 + label, .design-guide-pair + button { margin-block-start: 10px; }
+@media (max-width: 600px) {
+  .assigned-design-guide { height: auto; overflow: visible; }
+  .intake-view-nav .design-tools { margin-inline-start: 0; font-size: .82rem; }
+}
 .intake-editor-host, .intake-workspace .intake-form { height: 100%; min-height: 0; }
 .intake-workspace .intake-form { display: flex; flex-direction: column; max-width: none; gap: 0; }
 .intake-module-layout { display: grid; grid-template-columns: 164px minmax(0, 1fr); min-height: 0; flex: 1; }

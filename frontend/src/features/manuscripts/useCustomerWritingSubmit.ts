@@ -23,7 +23,7 @@ export default function useCustomerWritingSubmit({op,projectId,manuscriptId,item
  const authUrl=authorizationsUrl(projectId),requestUrl=`${manuscriptBase(projectId)}/${encodeURIComponent(manuscriptId)}/writing-requests`
  const authorizations=listOf((v):v is Authorization=>validAuthorization(v,projectId))
  // An authorization already used for this preview is never reused: generating again always needs a new one. A queued
- // or budget-waiting request has no model call yet, so the group is read from the request itself.
+ // request can already identify its execution group before the first model call.
  const used=(auth:Authorization,bundle:Bundle,logical:string)=>items.some(item=>requestUsesGroup(item,{bundle_id:bundle.id,authorization_id:auth.id,logical_task_id:logical}))
  function reusable(list:Authorization[],bundle:Bundle){
   for(const auth of list){

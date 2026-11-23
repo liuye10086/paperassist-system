@@ -9,17 +9,14 @@ from app.adapters.models.openai_responses import canonical_payload
 from app.adapters.openai_plot import INSTRUCTIONS, PROMPT_VERSION
 from app.core.config import local_config
 from app.core.exceptions import StorageError
+from app.domain.admin_configuration.contracts import without_budget_fields
 from app.core.paths import BACKEND_ROOT
-from app.domain.model_usage.contracts import MAX_MICRO_USD, ModelPolicy, Money, StrictContract, Version
+from app.domain.model_usage.contracts import MAX_MICRO_USD, ModelPolicy, StrictContract
 
 
 class PlotExecutionPolicy(StrictContract):
     policy: ModelPolicy
     input_token_allowance: Annotated[int, Field(strict=True, ge=1, le=MAX_MICRO_USD)]
-    task_limit_micro_usd: Money
-    tool_reserve_micro_usd: Annotated[int, Field(strict=True, ge=1, le=MAX_MICRO_USD)]
-    tool_reserve_version: Version
-
     @model_validator(mode='after')
     def fixed_plot_contract(self):
         if (self.policy.prompt_version not in (PROMPT_VERSION, 'openai_analysis_plot_v2', 'openai_comparison_plot_v3', 'openai_modeling_plot_v4') or self.policy.tools != ['code_interpreter']
@@ -29,7 +26,7 @@ class PlotExecutionPolicy(StrictContract):
 
 
 def _not_configured():
-    return StorageError('plot_not_configured', '图表的模型策略、工具预留、预算或密钥尚未正确配置，请联系管理员。', 503)
+    return StorageError('plot_not_configured', '图表的模型策略或密钥尚未正确配置，请联系管理员。', 503)
 
 
 def _small_text(path, limit):
@@ -60,7 +57,7 @@ def plot_api_key():
 def validate_execution_policy(value, payload=None, *, result=None):
     """Workers consume only the frozen policy; local configuration is not reread."""
     try:
-        parsed = PlotExecutionPolicy.model_validate(value)
+        parsed = PlotExecutionPolicy.model_validate(without_budget_fields(value))
     except (ValidationError, TypeError, ValueError):
         raise _not_configured() from None
     if result is not None:
@@ -84,9 +81,9 @@ def validate_execution_policy(value, payload=None, *, result=None):
                 instructions=analysis_plot_instructions(payload.get('figure_kind'))
             minimum = len(instructions.encode('utf-8')) + len(canonical_payload(payload).encode('utf-8')) + 4096
         except (TypeError, ValueError, RecursionError):
-            raise StorageError('plot_input_limit', '图表输入材料无效或超出已配置的预算估算范围。', 422) from None
+            raise StorageError('plot_input_limit', '图表输入材料无效或超出已配置的输入长度上限。', 422) from None
         if minimum > parsed.input_token_allowance:
-            raise StorageError('plot_input_limit', '图表输入材料超出已配置的预算估算范围。', 422)
+            raise StorageError('plot_input_limit', '图表输入材料超出已配置的输入长度上限。', 422)
     # The byte allowance supports admission estimates, not a provider hard token cap.
     return parsed.model_dump(mode='json')
 

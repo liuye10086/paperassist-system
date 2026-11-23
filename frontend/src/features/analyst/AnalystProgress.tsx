@@ -72,11 +72,12 @@ function ProgressForm({ projectId, requirementId, workspace, materialsOnly = fal
   </form>
 }
 
-export function AnalystMaterialsRequest({ projectId, workspace }: { projectId: string; workspace: AnalystWorkspace }) {
+export function AnalystMaterialsRequest({ projectId, workspace, sampleSheet = false }: { projectId: string; workspace: AnalystWorkspace; sampleSheet?: boolean }) {
   const { t } = useI18n()
   const requirement = workspace.value?.requirement
   return <section className="analyst-material-request" aria-label={t('待补材料')} aria-busy={workspace.busy}>
-    {requirement && <ProgressForm key={requirement.id} projectId={projectId} requirementId={requirement.id} workspace={workspace} materialsOnly/>}
+    {requirement && <ProgressForm key={requirement.id} projectId={projectId} requirementId={requirement.id} workspace={workspace} materialsOnly
+      noteLabel={sampleSheet ? '给客户的补料说明' : undefined} submitLabel={sampleSheet ? '请求补充样本表' : undefined}/>}
     <AnalystWorkspaceStatus workspace={workspace} showRefresh={!workspace.value}/>
   </section>
 }

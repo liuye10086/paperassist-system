@@ -8,7 +8,6 @@ from tests.api.test_manuscript_writing_live import LiveFixture, authorize, reque
 from tests.api.test_manuscript_writing_live_review import decision
 from tests.api.test_manuscript_writing_language import approve
 from tests.api.test_literature_evidence import post
-from tests.integration.test_literature_assistance import budgets
 from app.domain.tasks.execution import run_task
 from app.domain.manuscript_writing.execution import run_manuscript_writing_task
 
@@ -29,7 +28,7 @@ def test_context_science_requires_explicit_decision_then_language_and_exact_publ
     _,authorization=authorize(client,root,bundle)
     response=post(client,root+'/writing-requests',request_v2(bundle,authorization),'context-request')
     assert response.status_code==202,response.text
-    task=response.json()['task'];budgets(client,task)
+    task=response.json()['task']
     class ContextFixture(LiveFixture):
         def receipt(self):
             result=super().receipt();output=json.loads(result['response']['output'][0]['content'][0]['text'])

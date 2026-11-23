@@ -2,8 +2,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import SchoolTemplates from './SchoolTemplates'
-import CustomerThesisWorkflow from '../customer/CustomerThesisWorkflow'
-import { buildReturn } from '../customer/returnToken'
 import { clearApiSession } from '../../shared/api/client'
 import {useState} from 'react'
 import type {SchoolTemplateNavigation} from '../projects/manuscriptViews'
@@ -93,7 +91,7 @@ it('requires conflict decisions, preserves chapter edits, explicitly binds and r
  await user.click(screen.getByRole('button',{name:'绑定此确认版本'}));await screen.findByText('当前绑定版本')
  await user.click(screen.getByRole('button',{name:'刷新学校模板'}));await screen.findByText('当前绑定版本')
 })
-it('saves the GS501 formatting choice only when offered for the verified original',async()=>{
+it('automatically saves GS501 formatting when offered for the verified original',async()=>{
  const {fetch}=server()
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
   const response=await fetch(url,init)
@@ -103,10 +101,8 @@ it('saves the GS501 formatting choice only when offered for the verified origina
   return response
  }))
  const user=userEvent.setup();render(<SchoolTemplates projectId="p1" active customerView/>)
- const choice=await screen.findByRole('checkbox',{name:'采用北体 GS501 学术型硕士排版'}) as HTMLInputElement
- expect(choice.checked).toBe(false)
- // Customers choose conflicts on cards and adopt in one step (B04 task 5).
- await user.click(choice);await user.click(screen.getByRole('radio',{name:/小四/}))
+ await user.click(await screen.findByRole('radio',{name:/小四/}))
+ expect(screen.queryByRole('checkbox',{name:'采用北体 GS501 学术型硕士排版'})).toBeNull()
  await user.click(screen.getByRole('button',{name:'采用这份模板'}))
  await waitFor(()=>{
   const call=fetch.mock.calls.find(([url])=>url.endsWith('/confirm'))
@@ -286,44 +282,24 @@ async function chooseAll(user:ReturnType<typeof userEvent.setup>){
 }
 const conflictQuestion='学校模板和补充说明的正文字号不同。请选择这篇论文采用的字号。'
 // Selected output of inspect_school_template(T2) and merge_template_notes with one authored margin note.
-function serveParsedSources(rules=parsedSources.rules) {
+function serveParsedSources() {
  const {fetch}=server()
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
   const response=await fetch(url,init)
   if(!url.endsWith('/school-templates')||init?.method)return response
   const {items}=await response.json()
-  return Response.json({items:[{...items[0],id:ids.template,analysis:{...analysis,...parsedSources,rules}}]})
+  return Response.json({items:[{...items[0],id:ids.template,analysis:{...analysis,...parsedSources}}]})
  }))
 }
-it.each(['zh-CN','en'] as const)('localizes the stored GS501 level-four heading rule titles in %s',async(locale)=>{
- setLocale(locale)
- const fields=[
-  ['font_east_asia','中文字体','四级标题 · 中文字体','Level 4 heading · Chinese font'],
-  ['font_latin','西文字体','四级标题 · 英文字体','Level 4 heading · Latin font'],
-  ['font_size_pt','字号（pt）','四级标题 · 字号','Level 4 heading · Font size'],
-  ['alignment','对齐','四级标题 · 对齐方式','Level 4 heading · Alignment'],
-  ['line_spacing','行距原始值','四级标题 · 行距','Level 4 heading · Line spacing'],
-  ['line_rule','行距方式','四级标题 · 行距方式','Level 4 heading · Line spacing rule'],
- ]
- serveParsedSources(fields.map(([property,raw])=>({...parsedSources.rules[0],id:'heading4.'+property,label:'heading4 '+raw})))
- renderCustomer()
- const section=(await screen.findByRole('heading',{name:locale==='en'?'Template rules':'模板规则'})).closest('section')!
- expect(Array.from(section.querySelectorAll('li > strong'),node=>node.textContent)).toEqual(fields.map(row=>row[locale==='en'?3:2]))
-})
-it.each(['zh-CN','en'] as const)('shows T2 parsed format sources and authored quotations separately in %s',async(locale)=>{
+it.each(['zh-CN','en'] as const)('keeps required conflict choices and omits template diagnostics in %s',async(locale)=>{
  setLocale(locale);serveParsedSources()
  const {view}=renderCustomer()
- const heading=await screen.findByRole('heading',{name:locale==='en'?'Template rules':'模板规则'})
- const rules=heading.closest('section')!.textContent!
- const card=screen.getByRole('group',{name:locale==='en'?/Top margin/:/上边距/})
- for(const area of [rules,card.textContent,view.container.textContent]){
-  expect(area).not.toMatch(/rPr\.|pPr\.|(?:top|w)=\d+ twips|(?:header|footer)Reference:/)
+ const card=await screen.findByRole('group',{name:locale==='en'?/Top margin/:/上边距/})
+ expect(view.container.textContent).not.toMatch(/rPr\.|pPr\.|(?:top|w)=\d+ twips|(?:header|footer)Reference:/)
+ for(const name of ['模板规则','分节与页眉页脚实际属性','内嵌说明与引用','缺失信息','解析限制','身份与签名字段',
+  'Template rules','Page width']){
+  expect(screen.queryByText(name,{exact:true})).toBeNull()
  }
- const expected=locale==='en'
-  ? ['Level 1 heading Chinese font','宋体','Level 1 heading font size','Size three (16 pt)','Section 1','Page width','21 cm','Top margin','2.5 cm','1.15 lines','School template']
-  : ['一级标题中文字体','宋体','一级标题字号','三号','第 1 节','页面宽度','21 厘米','上边距','2.5 厘米','1.15 倍','学校模板']
- for(const value of expected)expect(rules).toContain(value)
- expect(rules).toContain(parsedSources.rules.find(rule=>rule.id==='body.font_size_pt')!.example_source!.text)
  const options=within(card).getAllByRole('radio')
  expect(options[0].closest('label')?.textContent).toContain(locale==='en'?'2.5 cm':'2.5 厘米')
  expect(options[1].closest('label')?.textContent).toContain(parsedSources.notes[0].text)
@@ -348,13 +324,13 @@ it('opens the old binding address as one customer view with a single adopt butto
  expect(screen.getByRole('group',{name:'补充说明中的摘要字数要求不同。请选择这篇论文采用的字数。'}).textContent).toContain('补充说明文字')
  await user.click(screen.getByRole('radio',{name:/小四/}));expect(screen.getByText('还有 1 处需要选择')).toBeTruthy()
  await user.click(screen.getByRole('radio',{name:/300-500字/}));expect(screen.queryByText(/还有 \d+ 处需要选择/)).toBeNull();expect(adopt.disabled).toBe(false)
- // Order: conflict cards, chapters, front matter, then the main button.
- const order=[prompt,screen.getByLabelText('章节标题 1'),screen.getByLabelText('使用学校模板中的前置规则'),adopt]
+ expect(screen.queryByLabelText('使用学校模板中的前置规则')).toBeNull()
+ const order=[prompt,screen.getByLabelText('章节标题 1'),adopt]
  for(let i=1;i<order.length;i++)expect(order[i-1].compareDocumentPosition(order[i])&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
  expect(view.container.querySelectorAll('details,summary,[aria-expanded]')).toHaveLength(0)
  const text=view.container.textContent??''
  for(const raw of ['word/','/w:','document-version:','supplement_text','body.font_size_pt','heading1','upperRoman','MERGEFORMAT','查看来源'])expect(text).not.toContain(raw)
- expect(text).toContain('正文小四号宋体');expect(text).toContain('一级标题中文字体');expect(text).toContain('大写罗马数字')
+ expect(text).toContain('正文小四号宋体');expect(text).not.toContain('一级标题中文字体');expect(text).not.toContain('大写罗马数字')
  expect(findTechnicalText(view.container,{systemIds})).toEqual([])
 })
 it('confirms then binds with one click, reports the adoption and offers the next step',async()=>{
@@ -387,14 +363,14 @@ it('rereads the profile after a bind revision conflict and binds again without c
  expect(server.posts().filter(path=>path.endsWith('/confirm'))).toHaveLength(1)
 })
 function chapterReturnWorkflow(){
- const origin='customer-project=p1&step=manuscripts&view=materials&focus=chapters'
- const params=new URLSearchParams({view:'detail',template:ids.template,...buildReturn(new URLSearchParams(origin),'chapter',{returnChapter:'章节与复核'})})
+ const origin='#customer-project=p1&step=details'
  const follow=vi.fn()
- render(<CustomerThesisWorkflow project={{id:'p1',name:'毕业论文',project_type:'thesis',research_topic:'研究设计',file_count:1,created_at:'2026-11-20',updated_at:'2026-11-20'}}
-   step="school" params={params} headingRef={null} registerLeaveGuard={()=>()=>{}} onUnavailable={vi.fn()} onNavigate={vi.fn()} onUpdateRoute={vi.fn()} onStartReview={vi.fn()} onFollowReturn={follow}/>)
- return {follow,origin:'#'+origin}
+ render(<SchoolTemplates projectId="p1" active customerView navigation={{view:'detail',templateId:ids.template}}
+   onAdopted={()=>follow(origin)} />)
+ return {follow,origin}
 }
-it('returns to chapters after a slow successful binding retry',async()=>{
+
+it('returns to project details after a slow successful binding retry',async()=>{
  let signal:AbortSignal|null|undefined
  const server=customerServer({confirmed:true,bind:[Response.json({detail:{code:'internal_error'}},{status:500}),init=>new Promise((resolve,reject)=>{
   signal=init?.signal
@@ -402,39 +378,39 @@ it('returns to chapters after a slow successful binding retry',async()=>{
   setTimeout(()=>{server.setBound(ids.confirmation);resolve(Response.json({...profile,revision:4,bound_confirmation_id:ids.confirmation}))},20000)
  })]})
  const {follow,origin}=chapterReturnWorkflow()
- fireEvent.click(await screen.findByRole('button',{name:'完成并返回 章节与复核'}))
+ fireEvent.click(await screen.findByRole('button',{name:'采用这份模板'}))
  const retry=await screen.findByRole('button',{name:'重试采用'})
  vi.useFakeTimers()
  try{
   await act(async()=>{fireEvent.click(retry);await vi.advanceTimersByTimeAsync(15001)})
   expect(signal?.aborted).toBe(false)
   await act(async()=>{await vi.advanceTimersByTimeAsync(5000)})
-  expect(follow).toHaveBeenCalledExactlyOnceWith(origin,true)
+  expect(follow).toHaveBeenCalledExactlyOnceWith(origin)
   expect(server.posts()).toEqual(['thesis-template-binding','thesis-template-binding'])
  }finally{vi.useRealTimers()}
 })
 it.each(['disconnected','invalid receipt'] as const)('recovers the chapter trip with one binding after a committed %s response',async failure=>{
  const server=customerServer({bind:[()=>{server.setBound(ids.confirmation);if(failure==='disconnected')throw new TypeError('Disconnected');return Response.json({})}]})
  const {follow,origin}=chapterReturnWorkflow()
- await chooseAll(userEvent.setup());fireEvent.click(screen.getByRole('button',{name:'完成并返回 章节与复核'}))
- await waitFor(()=>expect(follow).toHaveBeenCalledExactlyOnceWith(origin,true))
+ await chooseAll(userEvent.setup());fireEvent.click(screen.getByRole('button',{name:'采用这份模板'}))
+ await waitFor(()=>expect(follow).toHaveBeenCalledExactlyOnceWith(origin))
  expect(server.posts()).toEqual([`school-templates/${ids.template}/confirm`,'thesis-template-binding'])
 })
 it('checks again before an explicit retry when the first lost response completes later',async()=>{
  const server=customerServer({confirmed:true,bind:[()=>{throw new TypeError('Disconnected')}]})
  const {follow,origin}=chapterReturnWorkflow()
- fireEvent.click(await screen.findByRole('button',{name:'完成并返回 章节与复核'}))
+ fireEvent.click(await screen.findByRole('button',{name:'采用这份模板'}))
  const retry=await screen.findByRole('button',{name:'重试采用'})
  expect(follow).not.toHaveBeenCalled()
  server.setBound(ids.confirmation)
  fireEvent.click(retry)
- await waitFor(()=>expect(follow).toHaveBeenCalledExactlyOnceWith(origin,true))
+ await waitFor(()=>expect(follow).toHaveBeenCalledExactlyOnceWith(origin))
  expect(server.posts()).toEqual(['thesis-template-binding'])
 })
 it.each(['disconnected','conflict'] as const)('preserves another binding discovered after a %s response',async failure=>{
  const server=customerServer({confirmed:true,bind:[()=>{server.setBound(ids.other);if(failure==='disconnected')throw new TypeError('Disconnected');return Response.json({detail:{code:'task_revision_conflict'}},{status:409})}]})
  const {follow}=chapterReturnWorkflow()
- fireEvent.click(await screen.findByRole('button',{name:'完成并返回 章节与复核'}))
+ fireEvent.click(await screen.findByRole('button',{name:'采用这份模板'}))
  await screen.findByText('学校模板资料已更新，请重新打开这份模板。')
  expect(follow).not.toHaveBeenCalled()
  expect(server.posts()).toEqual(['thesis-template-binding'])
@@ -449,13 +425,13 @@ it.each(['disconnect','request timeout'] as const)('offers a read-only binding c
   return original(url,init)
  }))
  const {follow,origin}=chapterReturnWorkflow()
- fireEvent.click(await screen.findByRole('button',{name:'完成并返回 章节与复核'}))
+ fireEvent.click(await screen.findByRole('button',{name:'采用这份模板'}))
  const check=await screen.findByRole('button',{name:'查看采用结果'})
  expect(follow).not.toHaveBeenCalled()
  expect(failedReads).toHaveBeenCalledTimes(1)
  offline=false;server.setBound(ids.confirmation)
  fireEvent.click(check)
- await waitFor(()=>expect(follow).toHaveBeenCalledExactlyOnceWith(origin,true))
+ await waitFor(()=>expect(follow).toHaveBeenCalledExactlyOnceWith(origin))
  expect(server.posts()).toEqual(['thesis-template-binding'])
 })
 it('resends an unknown confirmation with the same key and ignores repeated clicks',async()=>{

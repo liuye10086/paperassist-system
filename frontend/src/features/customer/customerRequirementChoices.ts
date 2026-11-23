@@ -1,5 +1,6 @@
 import type { Content, DeliveryKind, Intake, SampleRegistration, Version } from '../research-intake/contracts'
 import { emptyRequirement } from '../research-intake/state'
+import { commonSpecies } from '../../shared/commonSpecies'
 
 export type Choice = {
   id: string
@@ -7,7 +8,10 @@ export type Choice = {
   disabledReason?: string
   parent?: { id: string; label: string }
 }
-export type RequirementInput = { selected: string[]; notes: string; sampleInformation?: SampleRegistration }
+export type RequirementInput = {
+  selected: string[]; notes: string; sampleInformation?: SampleRegistration
+  species?: string[]; otherSpecies?: string
+}
 type ScopeItem = {
   id: string
   title: string
@@ -70,6 +74,21 @@ export const deliveryChoices: Choice[] = [
   { id: 'customer.delivery.package', label: '交付包' },
 ]
 
+export const speciesChoices = commonSpecies.map(([,name]) => ({id:name, label:name}))
+const commonNames = new Set<string>(speciesChoices.map(choice => choice.id))
+
+function speciesFields(names: string[]) {
+  return {
+    species: names.filter(name => commonNames.has(name)),
+    otherSpecies: names.filter(name => !commonNames.has(name)).join('、'),
+  }
+}
+
+export function selectedSpecies(input: RequirementInput) {
+  const other = (input.otherSpecies ?? '').split(/[、,，;；\n]/).map(name => name.trim()).filter(Boolean)
+  return [...new Set([...(input.species ?? []), ...other])]
+}
+
 const allChoices: Choice[] = [...analysisTypes.flatMap(group => [group.type, ...group.analyses, ...group.figures]), ...deliveryChoices]
 const managedIds = new Set(allChoices.map(choice => choice.id))
 const items = (content?: Content) => (content?.scope_items ?? []) as ScopeItem[]
@@ -82,6 +101,7 @@ export function readRequirementInput(version: Version | null): RequirementInput 
   const content = version?.content
   const selected = new Set(items(content).filter(item => item.status !== 'not_included').map(item => item.id))
   return { selected: validSelection(selected).map(choice => choice.id), notes: typeof content?.notes === 'string' ? content.notes : '',
+    ...speciesFields(content?.study_species ?? []),
     sampleInformation: content?.sample_information as SampleRegistration | undefined }
 }
 
@@ -94,6 +114,7 @@ export function toggleRequirementChoice(input: RequirementInput, id: string, che
 
 export function sameRequirementInput(left: RequirementInput, right: RequirementInput) {
   return left.notes === right.notes && left.selected.length === right.selected.length && left.selected.every((id, index) => id === right.selected[index])
+    && sameValue(left.species ?? [], right.species ?? []) && (left.otherSpecies ?? '') === (right.otherSpecies ?? '')
     && sameValue(left.sampleInformation, right.sampleInformation)
 }
 
@@ -144,7 +165,13 @@ export function mergeRequirementInput(baseline: RequirementInput, local: Require
     groups: mergeSampleRows(baseline.sampleInformation?.groups ?? [], samples.groups, latest.sampleInformation?.groups ?? []),
     samples: mergeSampleRows(baseline.sampleInformation?.samples ?? [], samples.samples, latest.sampleInformation?.samples ?? []),
   }
-  return { selected: validSelection(merged).map(choice => choice.id), notes: local.notes === baseline.notes ? latest.notes : local.notes, sampleInformation }
+  const priorSpecies = selectedSpecies(baseline)
+  const localSpecies = selectedSpecies(local)
+  const mergedSpecies = new Set(selectedSpecies(latest))
+  for (const name of priorSpecies) if (!localSpecies.includes(name)) mergedSpecies.delete(name)
+  for (const name of localSpecies) if (!priorSpecies.includes(name)) mergedSpecies.add(name)
+  return { selected: validSelection(merged).map(choice => choice.id), notes: local.notes === baseline.notes ? latest.notes : local.notes,
+    ...speciesFields([...mergedSpecies]), sampleInformation }
 }
 
 export function buildRequirementContent(intake: Intake, input: RequirementInput, operation: Version['operation'], t: (label: string) => string): Content {
@@ -159,8 +186,10 @@ export function buildRequirementContent(intake: Intake, input: RequirementInput,
     const title = choice.parent ? `${t(choice.parent.label)} · ${t(choice.label)}` : t(choice.label)
     return { id: choice.id, title, delivery_kind: 'analysis', status: 'planned', source: '客户需求选择' }
   })
+  const species = selectedSpecies(input)
   return {
     ...base,
+    ...(species.length || base.study_species ? {study_species: species} : {}),
     services: (operation === 'confirm' || requestedItems.length > 0) && !services.includes('analysis')
       ? [...services, 'analysis'] : services,
     scope_items: [...previousItems.filter(item => !managedIds.has(item.id)), ...requestedItems],

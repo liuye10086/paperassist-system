@@ -51,8 +51,6 @@ def run_assistance_task(task_id, task_revision, *, config=None, directory=None, 
     except LeaseLost:
         return None
     except StorageError as exc:
-        if exc.code in ('model_budget_missing','model_budget_exceeded'):
-            return wait(repository,lease,'budget_exceeded',exc.code)
         if exc.status>=500: return None  # Existing lease expiry recovery owns transient storage failures.
         return repository.fail(lease,exc.code)
     except Exception as exc:

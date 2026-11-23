@@ -39,7 +39,7 @@ for (const scope of ['project', 'task']) {
     expect(within(row).getByText('本地账本演示，不代表实际付费。')).toBeTruthy()
     expect(within(row).queryByText('USD 0.000600')).toBeNull()
     expect(within(row).queryByText('部分已核对')).toBeNull()
-    expect(screen.getByText('账本可能包含离线模拟回执；演示用量与预算占用不代表实际付费。')).toBeTruthy()
+    expect(screen.getByText('用量记录包含已标注来源的离线模拟回执。')).toBeTruthy()
   })
 
   test(`${scope} distinguishes live unknown charges and preserves reservation messaging`, async () => {
@@ -52,7 +52,7 @@ for (const scope of ['project', 'task']) {
     const row = (await screen.findByText('live-model')).closest('tr')!
     expect(within(row).getByText('真实供应商调用')).toBeTruthy()
     expect(within(row).getByText('实际费用未知')).toBeTruthy()
-    expect(within(row).getByText('仍占预留额度，等待核对。')).toBeTruthy()
+    expect(within(row).getByText('请核对已有调用的提交结果。')).toBeTruthy()
     expect(within(row).queryByText('USD 0.000000')).toBeNull()
     expect(within(row).queryByText('离线模拟回执')).toBeNull()
   })

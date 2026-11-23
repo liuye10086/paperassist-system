@@ -118,9 +118,6 @@ class RecommendationService:
                 phase='plan',revision=1,current_attempt=0,reason_code=None,created_at=now,updated_at=now)
             self.store.insert_task(db,task)
             bind(db,kind='task',object_id=task['id'],version=configuration)
-            db.execute("""INSERT INTO model_budgets (id,user_id,scope_type,scope_key,project_id,task_id,
-                limit_micro_usd,revision,created_at,updated_at) VALUES (%s,%s,'task',%s,%s,%s,%s,1,%s,%s)""",
-                (str(uuid4()),task['user_id'],task['id'],project,task['id'],policy['task_limit_micro_usd'] if policy else 500000,now,now))
             append_checkpoint(db,task,'check','check',dict(input_version=input_version(task),recommendation=None))
             self.store.append_event(db,task,'created');self.store.enqueue(db,task)
             return self.store.public_task(task),202

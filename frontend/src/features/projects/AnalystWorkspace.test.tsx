@@ -16,9 +16,15 @@ const delivery = `${base}/deliveries/d1`
 const requirement = {
   id: 'r1', version: 1, operation: 'confirm', created_at: date, sha256: 'b'.repeat(64), project_id: project.id,
   content: { ...emptyRequirement(), services: ['analysis'], notes: '先核对两组样本。',
-    sample_information:{groups:[{id:'g1',experiment_id:'e',name:'病例'}],samples:[{id:'s1',group_id:'g1',experiment_id:'e'}]}, scope_items: [
+    study_species:['人类','小鼠'], sample_information:{groups:[{id:'g1',experiment_id:'e',name:'病例'}],samples:[{id:'s1',group_id:'g1',experiment_id:'e'}]}, scope_items: [
     { id: 'customer.type.bulk', title: 'RNA 转录组学分析（Bulk RNA-seq）', delivery_kind: 'analysis', status: 'planned' },
-    { id: 'customer.figure.bulk.volcano', title: 'Bulk RNA-seq · 火山图', delivery_kind: 'analysis', status: 'planned' },
+    { id: 'customer.figure.bulk.volcano', title: 'RNA 转录组学分析（Bulk RNA-seq） · 火山图', delivery_kind: 'analysis', status: 'planned' },
+    { id: 'customer.analysis.bulk.differential', title: 'RNA 转录组学分析（Bulk RNA-seq） · 差异表达', delivery_kind: 'analysis', status: 'planned' },
+    { id: 'customer.type.single_cell', title: '单细胞 RNA 测序数据分析', delivery_kind: 'analysis', status: 'planned' },
+    { id: 'customer.figure.single_cell.umap', title: '单细胞 RNA 测序数据分析 · UMAP 图', delivery_kind: 'analysis', status: 'planned' },
+    { id: 'customer.delivery.word', title: 'Word 报告', delivery_kind: 'analysis', status: 'planned' },
+    { id: 'custom-qc', title: '补核 · 质控记录', delivery_kind: 'analysis', status: 'planned' },
+    { id: 'customer.figure.bulk.heatmap', title: '不展示的热图', delivery_kind: 'analysis', status: 'not_included' },
   ] },
 }
 const draft = { ...requirement, id: 'r2', version: 2, operation: 'save', content: { ...requirement.content, notes: '客户未提交的草稿' } }
@@ -179,12 +185,39 @@ it('redirects legacy writing addresses before activating their views', async () 
 it('reads the selected customer scope and notes from the submitted requirement version', async () => {
   server({ intakeDraft: true })
   open('#project=assigned&section=overview&view=requirements')
-  await screen.findByRole('heading', { name: '已提交需求' })
-  expect(await screen.findByText('Bulk RNA-seq · 火山图')).toBeTruthy()
+  const page = within(await screen.findByRole('region', { name: '已提交需求' }))
+  const bulk = within(await page.findByRole('group', { name: 'RNA 转录组学分析（Bulk RNA-seq）' }))
+  expect(bulk.getByRole('list', {name:'所需图件'}).textContent).toBe('火山图')
+  expect(bulk.getByRole('list', {name:'个性化分析'}).textContent).toBe('差异表达')
+  const singleCell = within(page.getByRole('group', {name:'单细胞 RNA 测序数据分析'}))
+  expect(singleCell.getByRole('list', {name:'所需图件'}).textContent).toBe('UMAP 图')
+  expect(page.getByRole('list', {name:'项目交付'}).textContent).toBe('Word 报告')
+  expect(page.getByText('补核 · 质控记录')).toBeTruthy()
+  expect(page.queryByText('不展示的热图')).toBeNull()
+  expect(page.queryByRole('heading', {name:'已提交需求'})).toBeNull()
+  expect(page.queryByRole('button', {name:'返回项目列表'})).toBeNull()
   expect(screen.getByText('先核对两组样本。')).toBeTruthy()
   expect(screen.getByText('1 个分组，1 个样本')).toBeTruthy()
+  expect(screen.getByText('人类、小鼠')).toBeTruthy()
   expect(screen.queryByText('客户未提交的草稿')).toBeNull()
   expect(screen.queryByRole('button', { name: '保存' })).toBeNull()
+})
+
+it('opens experimental design from the submitted requirements body and returns to the same project', async () => {
+  server()
+  open('#project=assigned&section=overview&view=requirements')
+  const scope = await screen.findByText('火山图')
+  const design = screen.getByRole('region', {name:'实验设计'})
+  expect(scope.compareDocumentPosition(design) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  const action = within(design).getByRole('button', {name:'打开实验设计'})
+  expect(action.closest('header')).toBeNull()
+  fireEvent.click(action)
+  await screen.findByRole('heading', {name:'核对样本与分组'})
+  expect(screen.queryByRole('button', {name:'返回项目列表'})).toBeNull()
+  expect(screen.queryByRole('button', {name:'添加实验'})).toBeNull()
+  expect(window.location.hash).toBe('#project=assigned&section=overview&view=design')
+  fireEvent.click(screen.getByRole('button', {name:'已提交需求', pressed:false}))
+  expect(await screen.findByText('火山图')).toBeTruthy()
 })
 
 it('writes progress against the assignment and latest submitted requirement', async () => {
@@ -196,7 +229,7 @@ it('writes progress against the assignment and latest submitted requirement', as
   fireEvent.change(panel.getByLabelText('给客户的进度说明'), { target: { value: '请补充分组表。' } })
   const steps = within(screen.getByRole('navigation', { name: '项目操作步骤' }))
   fireEvent.click(steps.getByRole('button', { name: '第 2 步：已提交需求' }))
-  await screen.findByRole('heading', { name: '已提交需求' })
+  await screen.findByRole('region', { name: '已提交需求' })
   fireEvent.click(steps.getByRole('button', { name: /第 1 步/ }))
   panel = within(await screen.findByRole('region', { name: '处理进度' }))
   expect((panel.getByLabelText('更新进度') as HTMLSelectElement).value).toBe('needs_materials')

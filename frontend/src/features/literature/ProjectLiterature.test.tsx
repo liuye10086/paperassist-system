@@ -23,6 +23,31 @@ function setup(override?: (url:string,init?:RequestInit)=>Promise<Response>|Resp
  });vi.stubGlobal('fetch',mock);return mock
 }
 function openView(label:string){fireEvent.click(screen.getByRole('button',{name:translate(label)}))}
+it.each([true,false])('updates candidates after PubMed finishes fetching records (single search: %s)', async scoped => {
+ vi.useFakeTimers()
+ try {
+  let complete=false
+  const search=()=>({id:'search1',project_id:'p1',task:{...literatureTask,status:complete?'succeeded':'running',display_status:complete?'succeeded':'analyzing',reason_code:null},
+   input:{research_topic:'Synthetic topic',source_context:{kind:'project_topic',label:'',text:''},query:'synthetic',year_from:null,year_to:null,publication_types:[],sort:'relevance',limit:20,output_language:'zh-CN'},
+   effective_query:'(synthetic)',query_translation:null,matched_count:733,retrieved_count:complete?1:0,missing_pmids:[],warnings:[],created_at:stamp,updated_at:stamp,source_url:'https://pubmed.ncbi.nlm.nih.gov/?term=synthetic'})
+  const mock=setup(url=>{
+   if(url.endsWith('/searches/search1')) return Response.json(search())
+   if(url.includes('/searches?')) return Response.json(page([search()]))
+   if(url.includes('/references?')) return Response.json(page(complete?[reference]:[]))
+  })
+  render(<ProjectLiterature projectId="p1" researchTopic="Synthetic topic" active initialSearchId={scoped?'search1':undefined}/>)
+  await act(async()=>{})
+  expect(screen.queryByText('当前条件下暂无候选文献。')).toBeNull()
+  expect(screen.getByText(scoped?/已匹配 733 篇，正在获取/:/检索正在进行/)).toBeTruthy()
+  complete=true
+  await act(async()=>{await vi.advanceTimersByTimeAsync(5000)})
+  expect(screen.getByRole('heading',{name:'Synthetic original title'})).toBeTruthy()
+  const count=mock.mock.calls.length
+  await act(async()=>{await vi.advanceTimersByTimeAsync(15000)})
+  expect(mock.mock.calls).toHaveLength(count)
+  expect(mock.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+ }finally{vi.useRealTimers()}
+})
 afterEach(()=>{cleanup();vi.unstubAllGlobals();setLocale('zh-CN')})
 it.each(['zh-CN','en'] as const)('shows saved replay context unchanged with neutral receipt wording in %s',async locale=>{
  setLocale(locale)

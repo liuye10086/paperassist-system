@@ -15,16 +15,16 @@ const modules = [
 ]
 type Props = {
   sources?: MaterialSource[]; projectId?: string; value: Content; onChange: (v: Content) => void
-  disabled?: boolean; mode?: Mode
+  disabled?: boolean; mode?: Mode; initialModule?: 'experiments'|'samples'
 }
-export default function DesignForm({projectId='',sources=[],value,onChange,disabled=false,mode='full'}: Props) {
+export default function DesignForm({projectId='',sources=[],value,onChange,disabled=false,mode='full',initialModule}: Props) {
  const {t} = useI18n()
  const customer = mode === 'customerSamples'
  const assigned = mode === 'assignedDesign'
  const available = modules.filter(([key]) => customer ? ['groups','samples','mapping'].includes(key) : !(assigned && key === 'mapping'))
  const contentRef = useRef<HTMLDivElement>(null)
  const scrollPositions = useRef<Record<string,number>>({})
- const [module,setModule] = useState(available[0][0])
+ const [module,setModule] = useState(initialModule ?? available[0][0])
  const [rowPages,setRowPages] = useState<Record<string,number>>({})
  const update=(group:string,key:string,v:unknown)=>onChange({...value,[group]:{...(value[group] as object??{}),[key]:v}})
  const rows = (key: 'experiments'|'groups'|'samples'|'comparisons') => <DesignRows kind={key} {...{value,sources,disabled,onChange}}

@@ -1,7 +1,7 @@
 """Immutable capture and source verification; synthetic persisted observations."""
 from app.db.database import database_connection
 from tests.api.test_admin_operations import accounts,admin,seed_task,seed_call,login
-from tests.api.test_admin_reporting_edges import context,configure,request
+from tests.api.test_admin_reporting_edges import context,request
 from app.main import app
 from fastapi.testclient import TestClient
 import pytest
@@ -19,7 +19,7 @@ def test_tool_configuration_is_distinct_from_actual_evidence(admin,accounts):
 
 
 def test_saved_summary_rebuilds_event_tokens_but_preserves_captured_mutable_state(admin,context):
-    service=configure(context);call=service.reserve_call(request(context[3]));service.begin_submission(call['id'])
+    service=context[0];call=service.reserve_call(request(context[3]));service.begin_submission(call['id'])
     common=dict(response_id='resp_capture',request_id=None,model='test-model')
     service.record_response(call['id'],event_key='partial',status='in_progress',usage={'input_tokens':200},**common)
     response=admin.post(ROOT,json={'user_id':context[1],'group_by':'model'})
@@ -50,7 +50,7 @@ def test_saved_summaries_reject_unknown_query_and_normal_user(admin,accounts):
 
 def test_conflicting_raw_response_cannot_prove_zero_tool_uses(admin,context):
     from app.domain.model_usage.gateway import ModelGateway
-    service=configure(context);call=service.reserve_call(request(context[3]));service.begin_submission(call['id'])
+    service=context[0];call=service.reserve_call(request(context[3]));service.begin_submission(call['id'])
     ModelGateway(service,None)._record(call['id'],dict(response_id='resp_conflict',request_id=None,model='test-model',
         status='in_progress',usage=None,response=dict(id='resp_conflict',status='completed',output=[])),submitted=False)
     result=admin.get('/api/v1/admin/usage',params={'user_id':context[1]}).json()['items'][0]
@@ -65,7 +65,7 @@ def test_bound_disabled_models_block_real_transport_before_reservation(admin,con
     from app.domain.model_usage.gateway import ModelGateway,ModelGatewayError,input_digest
     one=baseline(admin);validated(admin,one);switch(admin,one,0,'first')
     with database_connection(write=True) as db:bind(db,kind='task',object_id=context[3],version=current(db))
-    service=configure(context);req=request(context[3]).model_copy(update={'input_digest':input_digest(instructions='safe',payload={})})
+    service=context[0];req=request(context[3]).model_copy(update={'input_digest':input_digest(instructions='safe',payload={})})
     seen=[]
     def transport(req):seen.append(req);raise AssertionError('Forbidden real transport')
     provider=OpenAIResponsesProvider(api_key='synthetic-not-real',http_client=httpx2.Client(transport=httpx2.MockTransport(transport)))
@@ -80,7 +80,7 @@ def test_verify_does_not_blindly_trust_a_resealed_token_projection(admin,context
     from app.db.database import migration_connection
     from app.domain.admin_usage_summaries import seal,fingerprint
     from psycopg.types.json import Jsonb
-    service=configure(context);call=service.reserve_call(request(context[3]));service.begin_submission(call['id'])
+    service=context[0];call=service.reserve_call(request(context[3]));service.begin_submission(call['id'])
     service.record_response(call['id'],event_key='known',response_id='resp_capture',request_id=None,model='test-model',status='completed',usage={'input_tokens':20})
     saved=admin.post(ROOT,json={'user_id':context[1]}).json()
     with migration_connection(write=True) as db:

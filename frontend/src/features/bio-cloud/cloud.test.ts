@@ -43,10 +43,11 @@ describe('cloud safety and multipart',()=>{
   expect(put).not.toHaveBeenCalled();expect(request).toHaveBeenCalledTimes(1)
  })
  it('builds one-library submission payload with authorization from the submit action',()=>{
-  const draft={profile_id:'profile',sample_id:'S',library_id:'L',donor_id:'D',group:'G',chemistry:'v3',r1:'u1',r2:'u2',budget_limit_usd:'10.00'}
+  const draft={profile_id:'profile',sample_id:'S',library_id:'L',donor_id:'D',group:'G',chemistry:'v3',r1:'u1',r2:'u2'}
   const profile={id:'profile',species:'human',chemistries:['v3'],account_verified:true}
-  expect(runBody(draft,profile)).toMatchObject({species:'human',fastqs:[{upload_id:'u1',read:'R1',lane:'L001',chunk:1},{upload_id:'u2',read:'R2',lane:'L001',chunk:1}],budget_limit_usd:'10.00',external_processing_confirmed:true,budget_approved:true})
-  expect(()=>runBody({...draft,budget_limit_usd:''},profile)).toThrow()
+  expect(runBody(draft,profile)).toMatchObject({species:'human',fastqs:[{upload_id:'u1',read:'R1',lane:'L001',chunk:1},{upload_id:'u2',read:'R2',lane:'L001',chunk:1}],external_processing_confirmed:true})
+  expect(runBody(draft,profile)).not.toHaveProperty('budget_limit_usd')
+  expect(runBody(draft,profile)).not.toHaveProperty('budget_approved')
   expect(()=>runBody({...draft,r2:'u1'},profile)).toThrow()
  })
  it('selects only complete matrix/features/barcodes outputs',()=>{

@@ -12,6 +12,13 @@ Revision=Annotated[int,Path(ge=1,le=2147483647)]
 
 from app.domain.manuscripts.analysis_selection import AnalysisSelectionRequest,select,options
 from app.domain.manuscripts.collection_selection import CollectionSelectionRequest,select as select_collection
+from app.domain.manuscripts.selected_references import SelectedReferencesRequest, select_references
+from app.domain.manuscripts.contracts import CitationDraft
+
+@router.post('/selected-references', response_model=CitationDraft, status_code=201)
+def selected_references(project_id:str, request:SelectedReferencesRequest, response:Response, store:Store, idempotency_key:Key):
+    result, response.status_code = select_references(ManuscriptService(store), project_id, request, idempotency_key)
+    return result
 
 @router.post('/collection-report-selection')
 def collection_report_selection(project_id:str,request:CollectionSelectionRequest,store:Store):

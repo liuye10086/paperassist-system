@@ -14,17 +14,14 @@ def _valid_count(count):
 
 
 def reserve_micro_usd(policy, input_token_allowance, tool_reserve_micro_usd=0):
-    # An allowance is an upper bound, so use the largest supported input rate.
+    """Quote the maximum token cost at the frozen rates for the usage preview."""
     rates = [policy.price.input_micro_usd_per_million,
              policy.price.cached_input_micro_usd_per_million]
     if policy.price.cache_write_micro_usd_per_million is not None:
         rates.append(policy.price.cache_write_micro_usd_per_million)
     amount = _ceil_micro(input_token_allowance * max(rates)
                          + policy.max_output_tokens * policy.price.output_micro_usd_per_million)
-    amount += tool_reserve_micro_usd
-    if amount > MAX_MICRO_USD:
-        raise ValueError('Reservation exceeds the supported monetary range.')
-    return amount
+    return amount + tool_reserve_micro_usd
 
 
 def estimate_usage(price, usage, *, tools=None, tool_cost_micro_usd=None):

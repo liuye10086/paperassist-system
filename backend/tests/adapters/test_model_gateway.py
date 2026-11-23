@@ -134,11 +134,11 @@ def test_gateway_records_usage_before_returning_unvalidated_business_output():
     assert len(provider.posts) == 1
 
 
-def test_budget_rejection_never_posts():
+def test_invalid_call_never_posts():
     gateway, _ = modules()
-    service = Service(reserve_error=ValueError('budget missing'))
+    service = Service(reserve_error=ValueError('invalid task revision'))
     provider = Provider(service)
-    with pytest.raises(ValueError, match='budget missing'):
+    with pytest.raises(ValueError, match='invalid task revision'):
         gateway.ModelGateway(service, provider).submit(request(), instructions=INSTRUCTIONS, payload=PAYLOAD)
     assert provider.posts == [] and service.events == ['reserve']
 
@@ -340,8 +340,6 @@ def real_gateway_setup():
             VALUES ('gateway-task','gateway-project',%s,'explanation','synthetic',%s,'{}'::jsonb,
             'test-v1','running','interpret',2,1,clock_timestamp(),clock_timestamp())""", (user['id'], '0' * 64))
     service = ModelUsageService(user['id'])
-    for scope, key in [('user', user['id']), ('project', 'gateway-project'), ('task', 'gateway-task')]:
-        service.set_budget(scope, key, 100_000, 0)
     server_policy = vars(policy())
     server_policy['price']['cache_write_micro_usd_per_million'] = 100
     req = CallRequest(task_id='gateway-task', expected_task_revision=2, call_key='prose-v1',
@@ -377,7 +375,7 @@ def test_real_transactions_are_committed_before_network_and_usage_before_output(
     result = instance.submit(req, instructions=INSTRUCTIONS, payload=PAYLOAD)
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM usage_events').fetchone()['n'] == 1
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations').fetchall()} == {'settled'}
+        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations').fetchall()} == set()
     assert result['response']['output'] == 'intentionally not valid business JSON'
     instance.submit(req, instructions=INSTRUCTIONS, payload=PAYLOAD)
     instance.refresh(result['call']['id'])
@@ -386,7 +384,7 @@ def test_real_transactions_are_committed_before_network_and_usage_before_output(
         assert db.execute('SELECT count(*) AS n FROM usage_events').fetchone()['n'] == 1
 
 
-def test_real_database_receipt_failure_preserves_reservations_and_fences_post(monkeypatch):
+def test_real_database_receipt_failure_fences_post(monkeypatch):
     gateway, _ = modules()
     from app.db.database import DatabaseConnection, database_connection
     service, req = real_gateway_setup()
@@ -410,7 +408,7 @@ def test_real_database_receipt_failure_preserves_reservations_and_fences_post(mo
     assert result['response'] is None and calls == ['POST']
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM usage_events').fetchone()['n'] == 0
-        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations').fetchall()} == {'held'}
+        assert {row['status'] for row in db.execute('SELECT status FROM budget_reservations').fetchall()} == set()
 
 
 def test_sdk_usage_preserves_cache_write_and_reasoning_tokens():
@@ -456,7 +454,7 @@ def test_sdk_receipt_accounting_only_settles_complete_pricing_evidence(details, 
         if 'cache_write_tokens_details' in details:
             row = db.execute('SELECT provider_usage FROM usage_events').fetchone()
             assert row['provider_usage'] == usage
-    assert statuses == {'settled' if expected == 'estimated' else 'held'}
+    assert not statuses
 
 
 def test_invalid_provider_receipt_is_sanitized_and_submission_fenced():

@@ -22,8 +22,7 @@ SOURCE_ERRORS = frozenset({'task_source_conflict', 'task_owner_unavailable', 'fi
     'source_conflict', 'dataset_missing', 'dataset_changed'})
 OUTPUT_ERRORS = frozenset({'explanation_invalid', 'explanation_invalid_json', 'explanation_refused',
     'explanation_output_limit', 'explanation_incomplete', 'model_response_not_found'})
-BUDGET_ERRORS = frozenset({'model_budget_missing', 'model_budget_exceeded',
-    'explanation_not_configured', 'openai_not_configured'})
+CONFIGURATION_ERRORS = frozenset({'explanation_not_configured', 'openai_not_configured'})
 
 
 def create_provider():
@@ -59,8 +58,8 @@ def run_explanation_task(task_id, task_revision, *, config=None, directory=None,
         return fail_numeric_task(repository, lease, exc)
     except (StorageError, PlotError) as exc:
         try:
-            if exc.code in BUDGET_ERRORS:
-                return repository.wait_explanation(lease, 'budget_exceeded', exc.code)
+            if exc.code in CONFIGURATION_ERRORS:
+                return repository.fail(lease, exc.code)
             if exc.code in SOURCE_ERRORS | OUTPUT_ERRORS:
                 return repository.fail(lease, exc.code)
         except LeaseLost:

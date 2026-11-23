@@ -11,12 +11,13 @@ def status_check(db):
         WHERE conname='customer_progress_status' AND conrelid='customer_requirement_progress'::regclass''').fetchone()['definition']
 
 
+@pytest.mark.initial_revision('0090_material_submissions')
 def test_downgrade_refuses_submission_history_and_restores_previous_status_check(postgres_migration_config):
     settings = alembic_config()
     settings.attributes['database_config'] = postgres_migration_config
     with migration_connection(write=True) as db:
         settings.attributes['connection'] = db.raw_connection
-        assert SCHEMA_HEAD == '0090_material_submissions' and 'materials_submitted' in status_check(db)
+        assert 'materials_submitted' in status_check(db)
         db.execute('''INSERT INTO users (id,email,password_hash,role,active,created_at,updated_at)
             VALUES ('submission-customer','submission@schema.test','unused','customer',true,1,1)''')
         db.execute('''INSERT INTO projects (id,owner_id,name,research_topic,project_type,created_at,updated_at)

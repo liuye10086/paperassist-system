@@ -37,7 +37,7 @@ it('renders journal empty states and submission controls in English without chan
  expect(screen.getByLabelText('投稿记录备注')).toHaveProperty('value','研究者原始备注')
 })
 it('translates authorization protocol states while preserving active authorization selection',async()=>{
- const auth={id:'a1',project_id:'p1',status:'active',revision:1,manifest_sha256:'a'.repeat(64),manifest:{tasks:Array.from({length:4},(_,i)=>({logical_task_id:`task-${i}`,bundles:[{bundle_id:`b-${i}`,bundle_sha256:"a".repeat(64)}]})),max_posts:6,max_corrections:2,cap_micro_usd:12000000,logical_task_cap_micro_usd:3000000,materials:[]},occupied_posts:0,occupied_micro_usd:0,logical_task_usage:[]}
+ const auth={id:'a1',project_id:'p1',status:'active',revision:1,manifest_sha256:'a'.repeat(64),manifest:{tasks:Array.from({length:4},(_,i)=>({logical_task_id:`task-${i}`,bundles:[{bundle_id:`b-${i}`,bundle_sha256:"a".repeat(64)}]})),max_posts:6,max_corrections:2,materials:[]},occupied_posts:0,logical_task_usage:[]}
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json({items:url.endsWith('writing-authorizations')?[auth]:[]})))
  const selected=vi.fn();render(<WritingAuthorization projectId="p1" onSelect={selected}/>)
  fireEvent.click(screen.getByRole('button',{name:'读取同项目稿件与授权'}))

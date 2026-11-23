@@ -6,6 +6,20 @@ import { errorMessages } from './errorMessages'
 
 const fallback = '请求失败，请重试。'
 
+it.each([
+  ['selected_reference_excluded', '已排除', 'excluded'],
+  ['selected_reference_metadata_incomplete', '书目', 'bibliographic'],
+  ['selected_reference_quote_invalid', '摘要原文', 'abstract'],
+])('identifies the selected PubMed reference and explains %s in both languages', (code, zh, en) => {
+  const id = apiError({ detail: { code, params: { position: 2 } } }, fallback)
+  setLocale('zh-CN')
+  expect(translate(id)).toContain(zh)
+  expect(translate(id)).toContain('2')
+  setLocale('en')
+  expect(translate(id)).toContain(en)
+  expect(translate(id)).toContain('2')
+})
+
 afterEach(() => { cleanup(); setLocale('zh-CN') })
 
 it.each(Object.keys(errorMessages))('retains the safe %s identifier and translates it at render time', code => {
@@ -17,6 +31,11 @@ it.each(Object.keys(errorMessages))('retains the safe %s identifier and translat
     thesis_chapter_protected: { position: 3 },
     manuscript_review_heading_language: { position: 2 },
     manuscript_finding_figure_reference: { position: 1 },
+    selected_reference_excluded: { position: 2 },
+    selected_reference_metadata_incomplete: { position: 2 },
+    selected_reference_quote_invalid: { position: 2 },
+    selected_reference_abstract_unusable: { position: 2, pmid: 990000002 },
+    selected_reference_abstract_limit: { position: 2, pmid: 990000002 },
   }
   const id = apiError({ detail: { code, message: 'PRIVATE TRACE', params: { ...requiredParams[code], reason: 'PRIVATE TRACE', secret: 'PRIVATE TRACE' } } }, fallback)
   expect(id).toContain('PA_ERROR:')
