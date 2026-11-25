@@ -42,6 +42,103 @@ def test_workbook_splits_by_sheet_limit_without_truncation_and_rejects_over_budg
     monkeypatch.setattr(module,'MAX_CELLS',10)
     with pytest.raises(ValueError,match='cell'):module.build_workbook(sample(),[table])
 
+def test_bulk_table_budget_keeps_word_exportable_at_the_workbook_limit(monkeypatch, tmp_path):
+    from hashlib import sha256
+    from types import SimpleNamespace
+    from app.adapters import research_results_xlsx as workbook
+    from app.adapters.research_report_render import render_report, stage_report_payload
+    from app.domain.bio_reader_reports.materials import MaterialBuilder
+    from app.domain.reader_reports import content as reader_report
+    from tests.helpers.research_report import sample_reader_record
+
+    assets = SimpleNamespace(owner_id='test-owner', db_config=object(), directory=tmp_path)
+    builder = MaterialBuilder(assets, None, 'test-project', 'en', None)
+    builder.selection = {'kind': 'bulk'}
+    raw_by_sha = {}
+    for key, width, rows in (
+        ('model_counts', 100, 8), ('comparison_results', 2, 15), ('selected_B_A', 2, 11),
+        ('sample_qc', 2, 6), ('normalization_details', 2, 4),
+    ):
+        columns = [f'column{i}' for i in range(width)]
+        raw = ('\t'.join(columns) + '\n' + ('\t'.join(['1'] * width) + '\n') * rows).encode()
+        sha = sha256(raw).hexdigest()
+        builder.tables.append(dict(key=key, format='tsv', columns=columns, expected_rows=rows,
+            source={'selection': {'contrast_id': 'B_A'}} if key == 'selected_B_A' else {}, sha256=sha))
+        builder.blobs.append(dict(sha256=sha))
+        raw_by_sha[sha] = raw
+
+    # The frozen table descriptors alone fit. Facts, narrative, and the export
+    # index are also written when the report is rendered.
+    monkeypatch.setattr(workbook, 'MAX_CELLS', 1024)
+    monkeypatch.setattr(reader_report, 'MAX_READER_OUTPUT_BYTES', 512)
+    assert sum((table['expected_rows'] + 1) * len(table['columns']) for table in builder.tables) < workbook.MAX_CELLS
+    context = builder.finish(SimpleNamespace(title='Bulk report', language='en'), {})
+    snapshot = sample() | {'title': context['title'], 'language': context['language'], 'tables': context['tables']}
+    snapshot['reader_report'] = sample_reader_record(snapshot)
+    payload = stage_report_payload(dict(snapshot=snapshot, tables=context['tables'],
+        table_raws=[raw_by_sha[blob['sha256']] for blob in context['table_blobs']], figures=[], package_files=[]), tmp_path)
+    output = tmp_path / 'output'
+    output.mkdir()
+    rendered = render_report(payload, output)
+
+    assert (output / 'analysis.docx').read_bytes().startswith(b'PK')
+    counts = rendered['manifest']['row_counts']
+    assert [table['key'] for table in counts['tables']] == ['comparison_results', 'selected_B_A', 'sample_qc', 'normalization_details']
+    assert counts['total_cells'] <= workbook.MAX_CELLS
+    assert context['workbook_limited'] is True
+
+
+def test_bulk_table_budget_counts_repeated_headers_and_export_index(monkeypatch):
+    from app.adapters import research_results_xlsx as workbook
+    from app.domain.bio_reader_reports.bulk import _limit_workbook_tables, _workbook_metadata_cells
+
+    def table(key, width, rows, *, selection=False):
+        return dict(key=key, columns=[f'column{i}' for i in range(width)], expected_rows=rows,
+                    source={'selection': {'contrast_id': 'B_A'}} if selection else {})
+
+    # Each sheet holds three data rows. The comparison has two headers, and
+    # both of the tables that fit contribute a four-cell export index row.
+    monkeypatch.setattr(workbook, 'MAX_SHEET_ROWS', 4)
+    selected = table('selected_B_A', 2, 1, selection=True)
+    comparison = table('comparison_results', 2, 5)
+    matrix = table('model_counts', 2, 0)
+    content = dict(facts=[], methods=[], figures=[], warnings=[], limitations=[], gaps=[],
+        tables=[matrix, comparison, selected], table_blobs=['matrix', 'comparison', 'selected'])
+    capacity = (1 + 1) * 2 + (5 + 2) * 2 + 2 * 4
+    # Two cells for the omission notice and three unused cells. Forgetting
+    # the repeated two-cell header would wrongly admit the six-cell matrix.
+    monkeypatch.setattr(workbook, 'MAX_CELLS', _workbook_metadata_cells(content) + capacity + 2 + 3)
+    _limit_workbook_tables(content)
+    assert content['tables'] == [comparison, selected]
+    assert content['table_blobs'] == ['comparison', 'selected']
+
+    _, summary = workbook.build_workbook(sample(), [dict(table, rows=[['x'] * len(table['columns'])] * table['expected_rows'])
+                                                   for table in content['tables']])
+    assert summary['tables'][0]['sheets'] == ['comparison_results', 'comparison_results_2']
+    _, base = workbook.build_workbook(sample(), [])
+    assert summary['total_cells'] - base['total_cells'] == capacity
+
+
+@pytest.mark.parametrize('language', ['en', 'zh-CN'])
+def test_bulk_reader_cell_reserve_covers_dense_narrative_and_captions(monkeypatch, language):
+    from app.adapters.research_results_xlsx import narrative_lines
+    from app.domain.bio_reader_reports.bulk import _reader_text_cells
+    from app.domain.reader_reports import content as reader_report
+
+    many_lines = 'x\n' * 5900 + 'x'
+    wrapped = 'y' * 11999
+    narrative = {field: many_lines for field in reader_report.NARRATIVE_FIELDS}
+    figure = dict(number=1, title='Fixture figure', reading=many_lines, observations=wrapped,
+                  interpretation=many_lines, limitations=many_lines)
+    raw = dict(narrative=narrative, figures=[figure])
+    byte_count = len(json.dumps(raw, ensure_ascii=False).encode('utf-8'))
+    monkeypatch.setattr(reader_report, 'MAX_READER_OUTPUT_BYTES', byte_count)
+    checked = reader_report.validate_output(raw, dict(language=language, figures=[dict(number=1)]))
+    narrative_cells = 2 * sum(len(list(narrative_lines(text))) for text in checked['narrative'].values())
+    caption_cells = 5 * len(list(narrative_lines(checked['figures'][0]['caption'])))
+    assert _reader_text_cells(1) >= narrative_cells + caption_cells
+
+
 def test_workbook_preserves_literal_and_native_cell_types_and_styles():
     from app.adapters.research_results_xlsx import build_workbook
     from openpyxl import load_workbook

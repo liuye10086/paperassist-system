@@ -91,9 +91,8 @@ def test_configured_bundle_reads_rebuild_its_frozen_revision(monkeypatch, revisi
         frozen['instruction_revision'] = revision
     bundle = build_bundle(snapshot['base_snapshot'], snapshot['input'], execution_contract=frozen)
     config = dict(bundle=dict(models=dict(writing=dict(execution=dict(
-        policy=frozen['policy'], input_token_allowance=frozen['max_input_allowance'],
-        task_limit_micro_usd=frozen['task_limit_micro_usd'])), batch_max_posts=frozen['batch_max_posts'],
-        max_corrections=frozen['max_corrections'], batch_cap_micro_usd=frozen['batch_cap_micro_usd']),
+        policy=frozen['policy'], input_token_allowance=frozen['max_input_allowance'])),
+        batch_max_posts=frozen['batch_max_posts'], max_corrections=frozen['max_corrections']),
         prompts=dict(writing_instruction=frozen['instruction'])))
     saved = dict(bundle, base_snapshot=snapshot['base_snapshot'], request_json=snapshot['input'])
     row = dict(id='fixture', project_id='project', bundle_json=saved)
@@ -108,6 +107,6 @@ def test_configured_bundle_reads_rebuild_its_frozen_revision(monkeypatch, revisi
     assert restored['wire_json'] == bundle['wire_json']
     # Selecting an old revision must not bypass the original configuration binding.
     from app.core.exceptions import StorageError
-    config['bundle']['models']['writing']['execution']['task_limit_micro_usd'] -= 1
+    config['bundle']['models']['writing']['execution']['input_token_allowance'] -= 1
     with pytest.raises(StorageError):
         service.bundle(db, 'project', 'fixture')

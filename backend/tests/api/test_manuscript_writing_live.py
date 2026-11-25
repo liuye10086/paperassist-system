@@ -35,6 +35,29 @@ def request_v2(bundle, authorization):
                 authorization_id=authorization['id'], logical_task_id='task-0')
 
 
+def seed_legacy_authorization(authorization):
+    from uuid import uuid4
+    from psycopg.types.json import Jsonb
+    from app.domain.literature.service import digest
+
+    identifier = str(uuid4())
+    manifest = dict(authorization['manifest'], cap_micro_usd=0, logical_task_cap_micro_usd=0)
+    manifest_sha256 = digest(manifest)
+    with database_connection(write=True) as db:
+        db.execute('''INSERT INTO manuscript_writing_authorizations
+            (id,project_id,user_id,request_key,request_digest,manifest_json,manifest_sha256,
+             status,revision,max_posts,cap_micro_usd,created_at)
+            SELECT %s,project_id,user_id,%s,request_digest,%s,%s,'active',1,max_posts,0,created_at
+            FROM manuscript_writing_authorizations WHERE id=%s''',
+            (identifier, identifier, Jsonb(manifest), manifest_sha256, authorization['id']))
+        db.execute('''INSERT INTO manuscript_writing_authorized_tasks
+            (authorization_id,logical_task_id,project_id,user_id,bundles_json,cap_micro_usd)
+            SELECT %s,logical_task_id,project_id,user_id,bundles_json,0
+            FROM manuscript_writing_authorized_tasks WHERE authorization_id=%s''',
+            (identifier, authorization['id']))
+    return dict(authorization, id=identifier, manifest=manifest, manifest_sha256=manifest_sha256)
+
+
 def test_preview_is_exact_minimal_and_does_not_create_model_call(client):
     root, bundle = preview(client)
     wire = bundle['wire_json']
@@ -69,7 +92,7 @@ def test_preview_rejects_private_posix_path_without_model_calls(client,monkeypat
         assert db.execute('SELECT count(*) AS n FROM manuscript_writing_bundles').fetchone()['n']==1
 
 
-@pytest.mark.parametrize('denial', ['missing', 'hash', 'closed', 'unapproved'])
+@pytest.mark.parametrize('denial', ['missing', 'hash', 'closed', 'retired', 'unapproved'])
 def test_unauthorized_requests_never_create_calls(client, denial):
     root, bundle = preview(client)
     path, authorization = authorize(client, root, bundle)
@@ -77,10 +100,11 @@ def test_unauthorized_requests_never_create_calls(client, denial):
     if denial == 'missing': request['authorization_id'] = 'missing'
     if denial == 'hash': request['bundle_sha256'] = '0' * 64
     if denial == 'closed': assert post(client, path + '/' + authorization['id'] + '/close', {}, 'close').status_code == 200
+    if denial == 'retired': request = request_v2(bundle, seed_legacy_authorization(authorization))
     if denial == 'unapproved': request['logical_task_id'] = 'unknown'
     response = post(client, root + '/writing-requests', request, 'write')
     assert response.status_code in (403, 404, 409), response.text
-    if denial == 'closed':
+    if denial in ('closed', 'retired'):
         assert response.json()['detail']['code']=='manuscript_writing_authorization_closed'
     with database_connection() as db:
         assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 0
@@ -107,12 +131,31 @@ class LiveFixture:
     def close(self): pass
 
 
-def create_live(client):
+def create_live(client, *, legacy=False):
     root, bundle=preview(client);path, auth=authorize(client,root,bundle)
+    if legacy:
+        auth = seed_legacy_authorization(auth)
     response=post(client,root+'/writing-requests',request_v2(bundle,auth),'live')
     assert response.status_code==202,response.text
     task=response.json()['task']
     return root,bundle,path,auth,task
+
+
+def test_retired_authorization_cannot_submit_an_older_queued_task(client, monkeypatch):
+    from app.domain.manuscript_writing import authorization as grants
+
+    with monkeypatch.context() as previous_version:
+        previous_version.setattr(grants, '_authorization_status', lambda row: row['status'], raising=False)
+        _, _, path, authorization, task = create_live(client, legacy=True)
+    provider = LiveFixture()
+
+    run_manuscript_writing_task(task['id'], task['revision'], provider=provider)
+    assert provider.posts == []
+    with database_connection() as db:
+        assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 0
+    view = client.get(path + '/' + authorization['id']).json()
+    assert view['status'] == 'closed'
+    assert view['manifest'] == authorization['manifest']
 
 
 def test_live_candidate_is_synthetic_pending_and_publication_is_blocked(client):
@@ -130,11 +173,20 @@ def test_live_candidate_is_synthetic_pending_and_publication_is_blocked(client):
         assert row['status']=='submission_started'
 
 
-def test_closed_authorization_allows_saved_get_without_another_post(client):
-    root,bundle,path,auth,task=create_live(client);provider=LiveFixture(pending=True)
-    running=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
+@pytest.mark.parametrize('closure', ['explicit', 'retired'])
+def test_closed_authorization_allows_saved_get_without_another_post(client, closure, monkeypatch):
+    from app.domain.manuscript_writing import authorization as grants
+
+    provider=LiveFixture(pending=True)
+    with monkeypatch.context() as previous_version:
+        if closure == 'retired':
+            previous_version.setattr(grants, '_authorization_status', lambda row: row['status'], raising=False)
+        root,bundle,path,auth,task=create_live(client, legacy=closure == 'retired')
+        running=run_manuscript_writing_task(task['id'],task['revision'],provider=provider)
     assert running['status']=='running',running
-    post(client,path+'/'+auth['id']+'/close',{},'close');provider.pending=False
+    if closure == 'explicit':
+        post(client, path + '/' + auth['id'] + '/close', {}, 'close')
+    provider.pending=False
     result=run_manuscript_writing_task(task['id'],running['revision'],provider=provider)
     assert result['status']=='succeeded',result
     assert len(provider.posts)==len(provider.gets)==1

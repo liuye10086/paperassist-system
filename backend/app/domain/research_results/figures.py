@@ -2,6 +2,7 @@
 from app.adapters.research_results_store import ResearchResultsStore,base,insert,identity,now,invalid
 from app.adapters.research_objects import ResearchObjects
 from app.adapters.bio_analysis_store import scoped_object,object_by_key
+from app.core.exceptions import StorageError
 from app.domain.bioinformatics.contracts import digest
 from app.domain.bioinformatics.service import require_key,append_checkpoint
 from .contracts import PaperFigureRequest, ResearchFigureRequest
@@ -74,7 +75,7 @@ class ResearchFigureService(ResearchResultsStore):
         if not set(request.caption_fact_ids)<=facts.keys():raise invalid('research_fact_unresolved',422)
         return sources,panels,raws,caption_sources,[facts[k] for k in request.caption_fact_ids]
 
-    def create(self,project,request,key,root_id=None):
+    def create(self,project,request,key,root_id=None,*,base_revision=None):
         require_key(key)
         request_model = ResearchFigureRequest
         if self.entrypoint is not None:
@@ -84,20 +85,25 @@ class ResearchFigureService(ResearchResultsStore):
         request = request_model.model_validate(
             request.model_dump(mode='json') if isinstance(request, ResearchFigureRequest) else request)
         material=request.model_dump(mode='json');sha=digest(material);identifier=identity(project,'figure',key)
+        request_sha = sha if base_revision is None else digest(dict(config=material, base_revision=base_revision))
         if root_id is not None and request.root_id!=root_id:raise invalid('research_revision_conflict')
         with self.store.connection(write=True) as db:
             self.lock(db,project,'figure:'+str(root_id or request.root_id or key))
             replay=db.execute('SELECT * FROM research_figure_versions WHERE project_id=%s AND user_id=%s AND request_key=%s',(project,self.store.user_id,key)).fetchone()
             if replay:
-                if replay['request_digest']!=sha:raise invalid('research_idempotency_conflict')
+                if replay['request_digest']!=request_sha:raise invalid('research_idempotency_conflict')
                 selected=replay['id'];status=200
             else:
                 parent=None;revision=1
                 if request.root_id:
                     parent=db.execute('SELECT * FROM research_figure_versions WHERE root_id=%s AND project_id=%s AND user_id=%s ORDER BY revision DESC LIMIT 1',(request.root_id,project,self.store.user_id)).fetchone()
-                    if not parent or self.entrypoint != customer_figure_entrypoint(self.store.require_task(db,parent['task_id'])):
+                    parent_task = self.store.require_task(db, parent['task_id']) if parent else None
+                    if not parent_task or self.entrypoint != customer_figure_entrypoint(parent_task):
                         raise invalid('research_source_not_found',404)
                     if parent['revision']!=request.expected_revision:raise invalid('research_revision_conflict')
+                    # A retry can publish the latest attempt under the same figure revision.
+                    if base_revision is not None and base_revision < parent['revision'] and parent_task['status'] == 'succeeded':
+                        raise invalid('research_revision_conflict')
                     revision=parent['revision']+1
                 if self.entrypoint is not None:
                     require_available_originals(db, project, self.store.user_id, self.entrypoint,
@@ -120,7 +126,7 @@ class ResearchFigureService(ResearchResultsStore):
                 self.store.insert_task(db,task,validated_file_ids=sorted({file for s in [*sources,*caption_sources] for file in s.source_file_ids}))
                 insert(db,self.table,{**base(identifier,project,self.store.user_id),'root_id':request.root_id or identifier,
                     'revision':revision,'parent_id':parent['id'] if parent else None,'task_id':task_id,'config_json':material,'config_sha256':sha,
-                    'manifest_object_id':None,'manifest_sha256':None,'request_key':key,'request_digest':sha})
+                    'manifest_object_id':None,'manifest_sha256':None,'request_key':key,'request_digest':request_sha})
                 for source in sources:self.bind(db,project,'figure',identifier,source,'panel')
                 for source in caption_sources:self.bind(db,project,'figure',identifier,source,'caption')
                 append_checkpoint(db,task,'check','check',dict(input_version=input_version(task),stage='figure'))
@@ -135,9 +141,12 @@ class ResearchFigureService(ResearchResultsStore):
     def _require_sources_in_phase(self,db,task,*,phase,runtime=True,progress=None,allow_stale_labels=False):
         require_phase(phase,db,self.assets,task['project_id'])
         input_version(task);snapshot=task['input_snapshot'];row=self.require(db,self.table,task['project_id'],snapshot['figure_version_id'])
-        from app.adapters.research_figure_render import renderer_identity
-        if runtime and snapshot.get('renderer_identity')!=renderer_identity():raise invalid()
         if row['task_id']!=task['id'] or row['config_json']!=snapshot['config'] or digest(row['config_json'])!=row['config_sha256']:raise invalid()
+        if runtime:
+            from app.adapters.research_figure_render import renderer_identity
+            if snapshot.get('renderer_identity') != renderer_identity():
+                raise StorageError('research_figure_renderer_retired',
+                                   '此图件任务使用的旧版绘图流程已停用。请使用当前流程新建图件。', 409)
         from .contracts import FrozenResearchFigureRequest
         request=FrozenResearchFigureRequest.model_validate(snapshot['config'])
         _,panels,raws,caption_sources,facts=self._frozen_in_phase(db,task['project_id'],request,phase=phase,progress=progress,

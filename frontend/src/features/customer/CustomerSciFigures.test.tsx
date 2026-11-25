@@ -231,15 +231,93 @@ it.each(['当前行', '已保存正图', '已拼图下一页'])('can cancel an e
   if (location !== '已拼图下一页') expect(screen.getByRole('button', {name:'编辑 实验组图'}).textContent).toBe('编辑')
 })
 
+it('preserves the current assembly when editing from an older saved list', async () => {
+  const endpoint = base + '/sci-figures'
+  const stale = {...figure('succeeded'), latest_revision:1}
+  const current = {revision:2, title:'更新后的实验组图', columns:2, originals:[jpeg, tiff]}
+  const title = '只修改正图名称'
+  const queued = {...figure('queued'), id:'version3', revision:3, parent_id:'version2',
+    config:{...stale.config, title, columns:current.columns, panels:[
+      {label:'A', source:{source_id:jpeg.id, source_kind:'original_file'}},
+      {label:'B', source:{source_id:tiff.id, source_kind:'original_file'}},
+    ]}}
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.startsWith(endpoint + '/assembly?')) return Response.json({available:page([png]),
+      groups:page([{root_id:stale.root_id, latest_revision:2, current, pending_title:null, pending_originals:[]}]),
+      has_pending:false})
+    if (url.startsWith(endpoint + '?')) return Response.json(page([stale]))
+    if ((url === endpoint && init?.method === 'POST') || url === endpoint + '/version3') return Response.json(queued)
+    if (url.startsWith(base + '/files/') || url === stale.members[0].download_url) {
+      return new Response('fixture image', {headers:{'Content-Type':'image/png'}})
+    }
+    throw new Error(`Unexpected request ${url}`)
+  })
+  vi.stubGlobal('fetch', fetcher)
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL = vi.fn(() => 'blob:figure')
+    static revokeObjectURL = vi.fn()
+  })
+  render(<CustomerSciFigures projectId="p1" registerLeaveGuard={() => () => {}} onContinue={vi.fn()} />)
+  await screen.findByRole('button', {name:`编辑 ${current.title}`})
+  fireEvent.click(screen.getByRole('button', {name:'已保存正图'}))
+  fireEvent.click(await screen.findByRole('button', {name:`${stale.config.title} 已完成`}))
+  fireEvent.click(screen.getByRole('button', {name:`编辑 ${stale.config.title}`}))
+  fireEvent.change(screen.getByRole('textbox', {name:'正图名称'}), {target:{value:title}})
+  fireEvent.click(screen.getByRole('button', {name:'保存修改'}))
+  await screen.findByRole('button', {name:`${title} 待执行`})
+
+  const post = fetcher.mock.calls.find(([url, init]) => url === endpoint && init?.method === 'POST')
+  expect(JSON.parse(String(post?.[1]?.body))).toEqual({title, root_id:stale.root_id, expected_revision:2, base_revision:2,
+    file_ids:[jpeg.id, tiff.id], columns:2})
+})
+
+it('stops a stale edit when the latest failed revision finishes a retry', async () => {
+  const endpoint = base + '/sci-figures'
+  const saved = {...figure('succeeded'), latest_revision:2}
+  let current = {revision:1, title:saved.config.title, columns:1, originals:[tiff, png]}
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.startsWith(endpoint + '/assembly?')) return Response.json({available:page(current.revision === 1 ? [jpeg] : [png]),
+      groups:page([{root_id:saved.root_id, latest_revision:2, current, pending_title:null, pending_originals:[]}]),
+      has_pending:false})
+    if (url.startsWith(endpoint + '?')) return Response.json(page([saved]))
+    if (url === endpoint && init?.method === 'POST') return Response.json({}, {status:409})
+    if (url.startsWith(base + '/files/') || url === saved.members[0].download_url) {
+      return new Response('fixture image', {headers:{'Content-Type':'image/png'}})
+    }
+    throw new Error(`Unexpected request ${url}`)
+  })
+  vi.stubGlobal('fetch', fetcher)
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL = vi.fn(() => 'blob:figure')
+    static revokeObjectURL = vi.fn()
+  })
+  render(<CustomerSciFigures projectId="p1" registerLeaveGuard={() => () => {}} onContinue={vi.fn()} />)
+  await screen.findByRole('button', {name:`编辑 ${current.title}`})
+  fireEvent.click(screen.getByRole('button', {name:'已保存正图'}))
+  fireEvent.click(await screen.findByRole('button', {name:`${saved.config.title} 已完成`}))
+  fireEvent.click(screen.getByRole('button', {name:`编辑 ${saved.config.title}`}))
+  fireEvent.change(screen.getByRole('textbox', {name:'正图名称'}), {target:{value:'只修改正图名称'}})
+
+  current = {revision:2, title:'重试成功的正图', columns:2, originals:[jpeg, tiff]}
+  fireEvent.click(screen.getByRole('button', {name:'编辑拼版'}))
+  await screen.findByRole('heading', {name:current.title})
+  fireEvent.click(screen.getByRole('button', {name:'保存修改'}))
+
+  expect(fetcher.mock.calls.filter(([url, init]) => url === endpoint && init?.method === 'POST')).toHaveLength(0)
+  expect(screen.getByRole('alert').textContent).toBe('此正图已有更新。请在已保存正图中重新打开。')
+})
+
 it.each([
-  {projectType:'sci', status:'succeeded'},
-  {projectType:'thesis', status:'failed'},
-] as const)('keeps the selected $projectType figure in one row when the update is $status', async ({projectType, status}) => {
+  {projectType:'sci', status:'succeeded', errorCode:null, message:null},
+  {projectType:'thesis', status:'failed', errorCode:null, message:'正图更新失败。仍可使用上一次生成的正图。'},
+  {projectType:'sci', status:'failed', errorCode:'research_figure_renderer_retired',
+    message:'此图件任务使用的旧版绘图流程已停用。请使用当前流程新建图件。'},
+] as const)('keeps the selected $projectType figure in one row when the update is $status ($errorCode)', async ({projectType, status, errorCode, message}) => {
   const endpoint = base + `/${projectType}-figures`
   const prior = {...figure('succeeded', projectType), latest_revision:2}
   const queued = {...figure('queued', projectType), id:'version3', revision:3, parent_id:'version2',
     config:{...prior.config, title:'更新后的实验组图'}}
-  const result = {...queued, task:{...queued.task, status}, members:status === 'succeeded'
+  const result = {...queued, task:{...queued.task, status, error_code:errorCode}, members:status === 'succeeded'
     ? prior.members.map(member => ({...member, download_url:member.download_url.replace('/version1/', '/version3/')})) : []}
   let finish!: (response: Response) => void
   const detail = new Promise<Response>(resolve => { finish = resolve })
@@ -271,7 +349,7 @@ it.each([
   expect(screen.getAllByRole('button', {name:/实验组图.*(待执行|已完成)/})).toHaveLength(1)
   expect(screen.getByRole('button', {name:/更新后的实验组图.*待执行/}).getAttribute('aria-pressed')).toBe('true')
   const post = fetcher.mock.calls.find(([url, init]) => url === endpoint && init?.method === 'POST')
-  expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({root_id:prior.root_id, expected_revision:2})
+  expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({root_id:prior.root_id, expected_revision:2, base_revision:1})
   finished = true
   finish(Response.json(result))
 
@@ -281,7 +359,21 @@ it.each([
   expect(screen.getByRole('button', {name:`${completed.config.title} 已完成`}).getAttribute('aria-pressed')).toBe('true')
   expect(screen.getByRole('link', {name:`下载 ${completed.config.title}（PNG）`}).getAttribute('href')).toBe(completed.members[0].download_url)
   expect(screen.queryByText(/第 \d+ 版|基于第/)).toBeNull()
-  if (status === 'failed') expect((await screen.findByRole('alert')).textContent).toBe('正图更新失败。仍可使用上一次生成的正图。')
+  if (message) expect((await screen.findByRole('alert')).textContent).toBe(message)
+})
+
+it('guides the customer to create a fresh figure after a retired first attempt', async () => {
+  const endpoint = base + '/thesis-figures'
+  const retired = {...figure('queued', 'thesis'), task:{id:'task1', status:'failed', error_code:'research_figure_renderer_retired'}}
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.startsWith(endpoint + '/assembly?')) return Response.json({available:page([png, tiff]), groups:page([]), has_pending:false})
+    if (url.startsWith(endpoint + '?')) return Response.json(page([retired]))
+    throw new Error(`Unexpected request ${url}`)
+  }))
+  render(<CustomerSciFigures projectType="thesis" projectId="p1" registerLeaveGuard={() => () => {}} onContinue={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', {name:'已保存正图'}))
+  fireEvent.click(await screen.findByRole('button', {name:'实验组图 执行失败'}))
+  expect((await screen.findByRole('alert')).textContent).toBe('此图件任务使用的旧版绘图流程已停用。请使用当前流程新建图件。')
 })
 
 it('keeps the group in place and disables cancellation after a concurrent revision starts', async () => {

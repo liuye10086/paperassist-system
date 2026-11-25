@@ -1,6 +1,8 @@
 import hashlib
 import io
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -103,3 +105,56 @@ def test_long_panel_label_cannot_overflow_a_narrow_column(tmp_path):
     payload=dict(config={'mode':'composite','columns':3,'width_mm':85.0,'dpi':150,'formats':['png'],
         'margin_mm':20.0,'font_size_pt':24},panels=[panel,{**panel,'label':'IJKLMNOP'},{**panel,'label':'QRSTUVWX'}])
     with pytest.raises(ValueError,match='label'):render_figure(payload,tmp_path)
+
+
+def test_completed_latest_figure_rejects_an_older_edit_base(monkeypatch):
+    from app.core.exceptions import StorageError
+    from app.domain.research_results.figures import ResearchFigureService
+
+    entrypoint = 'sci_figures'
+    parent = dict(id='version2', revision=2, task_id='task2')
+    task = dict(task_type='research_figure', input_snapshot={'entrypoint': entrypoint}, status='succeeded')
+    rows = iter((None, parent))
+    db = SimpleNamespace(execute=lambda *_: SimpleNamespace(fetchone=lambda: next(rows)))
+    service = ResearchFigureService(SimpleNamespace(owner_id='owner', db_config=object()), entrypoint=entrypoint)
+    monkeypatch.setattr(service, 'lock', lambda *_: None)
+    monkeypatch.setattr(service.store, 'connection', lambda **_: nullcontext(db))
+    monkeypatch.setattr(service.store, 'require_task', lambda *_: task)
+    request = dict(title='Stale edit', mode='reuse', root_id='root', expected_revision=parent['revision'],
+                   panels=[dict(source=dict(source_kind='original_file', source_id='file'))])
+
+    with pytest.raises(StorageError) as conflict:
+        service.create('project', request, 'stale-edit', base_revision=1)
+
+    assert (conflict.value.status, conflict.value.code) == (409, 'research_revision_conflict')
+
+
+def test_retired_figure_renderer_exposes_a_permanent_public_error(tmp_path, monkeypatch):
+    from app.adapters.research_figure_render import renderer_identity
+    from app.core.errors import error_detail
+    from app.core.exceptions import StorageError
+    from app.domain.bioinformatics.contracts import digest
+    from app.domain.research_results import figures
+    from app.domain.research_results.execution import recovery_actions
+
+    config = dict(mode='reuse', panels=[dict(source=dict(source_kind='original_file', source_id='file'))])
+    snapshot = dict(kind='research_figure', project_id='project', figure_version_id='figure', config=config,
+                    renderer_identity={**renderer_identity(), 'code_digest': '0' * 64},
+                    real_model_calls=False, real_network_calls=False)
+    task = dict(id='task', task_type='research_figure', project_id='project', status='running',
+                workflow_version='research_figure_v1', input_snapshot=snapshot, input_digest=digest(snapshot))
+    row = dict(task_id='task', config_json=config, config_sha256=digest(config))
+    service = figures.ResearchFigureService(SimpleNamespace(owner_id='owner', db_config=object(), directory=tmp_path))
+    monkeypatch.setattr(service, 'require', lambda *_: row)
+    monkeypatch.setattr(figures, 'VerificationPhase', lambda *_: nullcontext())
+    monkeypatch.setattr(figures, 'require_phase', lambda *_: None)
+
+    with pytest.raises(StorageError) as error:
+        service.require_sources(None, task)
+
+    assert error.value.status == 409
+    detail = error_detail(error.value.code, error.value.message, error.value.params)
+    assert detail == dict(code='research_figure_renderer_retired',
+                          message='此图件任务使用的旧版绘图流程已停用。请使用当前流程新建图件。', params={})
+    assert recovery_actions(None, {**task, 'status': 'failed', 'error_code': detail['code']}) == []
+    assert digest(snapshot) == task['input_digest']

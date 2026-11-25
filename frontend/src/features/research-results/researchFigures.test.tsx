@@ -22,3 +22,13 @@ it('uses only the selected successful fixed figure for writing',async()=>{
  const fetch=vi.fn(async(url:string,_init?:RequestInit)=>Response.json(url.endsWith('/research-figures/fig-old')?figure:{items:[],total:0,page:1,page_size:20}));vi.stubGlobal('fetch',fetch)
  const onWriting=vi.fn();render(<ResearchFigureComposer projectId="p1" active selectedId="fig-old" onSelect={vi.fn()} onWriting={onWriting}/>);await screen.findByRole('heading',{name:'Fixed figure · v2'});fireEvent.click(screen.getByRole('button',{name:'用于写作'}));expect(onWriting).toHaveBeenCalledWith({kind:'research_figure_version',id:'fig-old'});expect(fetch.mock.calls.every(([,init])=>!init?.method||init.method==='GET')).toBe(true)
 })
+
+it('guides the analyst to create a new figure when the saved renderer is retired', async () => {
+  const figure = {id:'retired', root_id:'retired', revision:1,
+    config:{title:'Old figure', caption:'', language:'zh-CN', figure_language:'original', panels:[], caption_sources:[]},
+    task:{id:'task', status:'failed', error_code:'research_figure_renderer_retired'}, members:[], manifest:null}
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/research-figures/retired')
+    ? figure : {items:[], total:0, page:1, page_size:20})))
+  render(<ResearchFigureComposer projectId="p1" active selectedId="retired" onSelect={vi.fn()} />)
+  expect(await screen.findByText('此图件任务使用的旧版绘图流程已停用。请使用当前流程新建图件。')).toBeTruthy()
+})

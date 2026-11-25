@@ -17,33 +17,87 @@ _REPORT_SUPPORT_TABLES = frozenset({
 })
 
 
-def _limit_workbook_tables(builder):
+def _reader_text_cells(figure_count):
+    from app.domain.reader_reports import content as reader_report
+
+    labels = [[label + ': ' for label in language] for language in reader_report.CAPTION_LABELS.values()]
+    max_field = reader_report.MAX_NARRATIVE_FIELD_CHARS
+    # At most one row per two characters, rounded up per field. Adjacent
+    # rows either use a line break or cover a wrap at 700 columns.
+    narrative_rows = len(reader_report.NARRATIVE_FIELDS) * ((max_field + 1) // 2)
+    caption_rows = max(sum((max_field + len(label) + 1) // 2 for label in language) for language in labels)
+    by_field = 2 * narrative_rows + 5 * figure_count * caption_rows
+
+    # A non-empty row also needs at least three bytes of the JSON response:
+    # one character plus a separator (two bytes or more in JSON). Soft wraps
+    # consume more characters, and each field's quotes cover its first row.
+    caption_prefix_bytes = max(sum(len(label.encode('utf-8')) for label in language) for language in labels)
+    text_bytes = reader_report.MAX_READER_OUTPUT_BYTES + figure_count * caption_prefix_bytes
+    by_response = (5 if figure_count else 2) * (text_bytes // 3)
+    return min(by_field, by_response)
+
+
+def _workbook_metadata_cells(content):
+    from app.adapters.research_method_text import reader_method
+    from app.adapters.research_report_docx import reader_facts
+
+    # A native report has exactly one finding source. A manually reviewed
+    # finding can add up to 100 conflicts. Allow either report language so
+    # both localized preparations retain the same analysis tables.
+    facts = sum(1 for _ in reader_facts(content))
+    methods = max(sum(len(reader_method(method, language)['paragraphs']) for method in content['methods'])
+                  for language in ('en', 'zh-CN'))
+    cautions = sum(len(content[kind]) for kind in ('gaps', 'warnings', 'limitations'))
+    return (4                              # Report narrative header and scope
+            + 7 * (1 + facts)              # Facts
+            + 2 * (1 + 1)                  # Sources
+            + 3 * (1 + methods)            # Methods
+            + 5                            # Figures header
+            + 2 * (1 + cautions + 100)     # Limitations and possible review conflicts
+            + 4                            # Export counts header
+            + _reader_text_cells(len(content['figures'])))
+
+
+def _table_priority(table):
+    if 'selection' in table['source']:
+        return 0
+    if table['key'] == 'comparison_results':
+        return 1
+    return 2 if table['key'] in _REPORT_SUPPORT_TABLES else 3
+
+
+def _limit_workbook_tables(content):
+    from app.adapters import research_results_xlsx as workbook
     from .materials import MAX_REPORT_TABLE_CELLS, table_cell_count
 
-    sizes = [table_cell_count(table) for table in builder.tables]
-    if sum(sizes) <= MAX_REPORT_TABLE_CELLS:
+    tables = content['tables']
+    rows_per_sheet = workbook.MAX_SHEET_ROWS - 1
+    # Each worksheet adds a header and each table adds an export index row.
+    table_cells = [table_cell_count(table) for table in tables]
+    workbook_cells = [cells + len(table['columns']) * (max(table['expected_rows'] - 1, 0) // rows_per_sheet) + 4
+                      for table, cells in zip(tables, table_cells)]
+    budget = workbook.MAX_CELLS - _workbook_metadata_cells(content)
+    raw_budget = MAX_REPORT_TABLE_CELLS
+    if sum(workbook_cells) <= budget and sum(table_cells) <= raw_budget:
         return
 
-    # Leave space for the workbook's narrative, facts, captions, and index.
-    budget = MAX_REPORT_TABLE_CELLS * 95 // 100
-    # Keep complete tables in priority order. Larger matrices and QC details
-    # stay available through their immutable source and Bulk reproduction downloads.
-    selected, comparison, supporting = [], [], []
-    for index, table in enumerate(builder.tables):
-        if 'selection' in table['source']:
-            selected.append(index)
-        elif table['key'] == 'comparison_results':
-            comparison.append(index)
-        elif table['key'] in _REPORT_SUPPORT_TABLES:
-            supporting.append(index)
+    budget -= 2  # The omission notice occupies one row in Limitations.
     retained = set()
-    for index in selected + comparison + supporting:
-        if sizes[index] <= budget:
+    for index in sorted(range(len(tables)), key=lambda index: _table_priority(tables[index])):
+        if workbook_cells[index] <= budget and table_cells[index] <= raw_budget:
             retained.add(index)
-            budget -= sizes[index]
-    builder.tables = [table for index, table in enumerate(builder.tables) if index in retained]
-    builder.blobs = [blob for index, blob in enumerate(builder.blobs) if index in retained]
-    builder.workbook_limited = True
+            budget -= workbook_cells[index]
+            raw_budget -= table_cells[index]
+    omitted = len(tables) - len(retained)
+    if not omitted:
+        return
+    content['tables'] = [table for index, table in enumerate(tables) if index in retained]
+    content['table_blobs'] = [blob for index, blob in enumerate(content['table_blobs']) if index in retained]
+    content['workbook_limited'] = True
+    content['workbook_limit_notice'] = {
+        'en': f'{omitted} result table(s) exceeded the workbook cell budget. Complete source tables and reproduction files can be downloaded from the original Bulk analysis.',
+        'zh-CN': f'有 {omitted} 张结果表因工作簿单元格额度不足而未收录。完整来源表和复现文件可在原 Bulk 分析结果中下载。',
+    }
 
 
 def selected_rows(raw, selection):
@@ -106,7 +160,6 @@ def resolve_bulk(builder, raw):
         for member in members:
             if member['format'] in ('csv', 'tsv'):
                 builder.add_table(member, builder.bio.objects, dict(source_kind='bio_analysis_artifact', source_id=member['id'], processed_version_id=identifier))
-    _limit_workbook_tables(builder)
     # The native service controls QC/attachment image ordering and repeated keys.
     for figure in facts['figures']:
         png = figure.get('png')

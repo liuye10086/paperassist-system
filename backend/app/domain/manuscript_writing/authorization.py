@@ -18,6 +18,14 @@ def denied():
     return StorageError('manuscript_writing_not_authorized','外发包、逻辑任务或有效授权不匹配。',409)
 
 
+def _authorization_status(row):
+    # Amount-limited grants did not authorize the current call-count policy.
+    manifest = row['manifest_json']
+    if 'cap_micro_usd' in manifest or 'logical_task_cap_micro_usd' in manifest:
+        return 'closed'
+    return row['status']
+
+
 def revisable_draft(row, task):
     candidate, original = row['candidate_json'], row['request_json']
     if (task['status'] != 'succeeded' or not candidate or row['published_revision'] is not None
@@ -291,7 +299,7 @@ class LiveWritingService:
 
     def auth_view(self,db,row):
         counts,occupied=usage(db,row['id'])
-        return dict(id=row['id'],project_id=row['project_id'],status=row['status'],revision=row['revision'],
+        return dict(id=row['id'],project_id=row['project_id'],status=_authorization_status(row),revision=row['revision'],
             manifest=row['manifest_json'],manifest_sha256=row['manifest_sha256'],created_at=row['created_at'],closed_at=row['closed_at'],
             occupied_posts=sum(counts.values()),occupied_micro_usd=sum(occupied.values()),logical_task_usage=[dict(logical_task_id=t['logical_task_id'],occupied_posts=counts.get(t['logical_task_id'],0),occupied_micro_usd=occupied.get(t['logical_task_id'],0)) for t in row['manifest_json']['tasks']])
 
@@ -310,7 +318,7 @@ class LiveWritingService:
 
     def require_authorized(self,db,project,request,bundle,*,current=True):
         auth=self.authorization(db,project,request['authorization_id'])
-        if auth['status']!='active':
+        if _authorization_status(auth)!='active':
             raise StorageError('manuscript_writing_authorization_closed','写作授权已关闭，请重新读取并选择有效授权。',409)
         grant=db.execute('SELECT * FROM manuscript_writing_authorized_tasks WHERE authorization_id=%s AND logical_task_id=%s',(auth['id'],request['logical_task_id'])).fetchone()
         ref=dict(bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'])

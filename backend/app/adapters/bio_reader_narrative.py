@@ -22,6 +22,7 @@ NARRATIVE_FIELDS = (
     "limitations",
     "reader_cautions",
 )
+MAX_NARRATIVE_FIELD_CHARS = 12000
 PROMPT_VERSION = "single-cell-reader-report-v1"
 BULK_PROMPT_VERSION = "bulk-rna-seq-reader-report-v1"
 _LANGUAGES = {"zh-CN", "en"}
@@ -104,7 +105,7 @@ def validate_reader_narrative(value, language):
     checked = {}
     for field in NARRATIVE_FIELDS:
         text = value[field]
-        if not isinstance(text, str) or not text.strip() or len(text) > 12000:
+        if not isinstance(text, str) or not text.strip() or len(text) > MAX_NARRATIVE_FIELD_CHARS:
             raise ValueError("Reader narrative text is invalid")
         if _SHA.search(text) or _UUID.search(text) or _FORBIDDEN.search(text):
             raise ValueError("Reader narrative contains traceability or code content")

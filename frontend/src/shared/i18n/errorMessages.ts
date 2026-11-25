@@ -73,6 +73,7 @@ export const errorMessages: Record<string, {
  research_export_limit_exceeded:{zh:'研究导出超过限制，请核对所选成果规模。',en:'The research export exceeds its limits. Check the size of selected results.'},
  research_fact_unresolved:{zh:'研究事实缺少可核对依据，请补充固定来源。',en:'A research fact lacks verifiable evidence. Add a fixed source.'},
  research_figure_limit_exceeded:{zh:'研究图件超过限制，请核对数量及文件大小。',en:'Research figures exceed their limits. Check counts and file sizes.'},
+ research_figure_renderer_retired:{zh:'此图件任务使用的旧版绘图流程已停用。请使用当前流程新建图件。',en:'The previous figure workflow has been retired. Start a new figure using the current workflow.'},
  paper_figure_original_in_use:{zh:'所选原图已用于其他正图或正在拼版，请重新选择。',en:'A selected image belongs to another figure or is being assembled. Choose an available image.'},
  paper_figure_assembly_cancelled:{zh:'这张正图已取消拼版，请选择原图重新拼版。',en:'This assembly was cancelled. Select originals to create a new figure.'},
  research_idempotency_conflict:{zh:'请求标识对应不同研究输入，请回查原请求。',en:'The request key refers to different research input. Look up the original request.'},

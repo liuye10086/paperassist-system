@@ -59,9 +59,15 @@ def test_bulk_preparation_uses_native_delivery_digest_and_shortcut(client, monke
 
 
 def test_bulk_preparation_keeps_report_tables_when_full_workbook_exceeds_budget(client, monkeypatch, tmp_path):
+    from docx import Document
+    from openpyxl import load_workbook
+    from app.adapters import research_results_xlsx as workbook
+    from app.adapters.research_report_render import render_report, stage_report_payload
     from app.domain.bio_insights.bulk_delivery import BulkDeliveryService
-    from app.domain.bio_reader_reports import materials
+    from app.domain.bio_reader_reports.bulk import _workbook_metadata_cells
+    from app.domain.bio_reader_reports.materials import table_cell_count
     from tests.helpers.bio_report_contexts import published_bulk
+    from tests.helpers.research_report import sample_reader_record
 
     base, _, result = published_bulk(client, monkeypatch, tmp_path)
     project = base.rsplit('/', 1)[-1]
@@ -75,20 +81,35 @@ def test_bulk_preparation_keeps_report_tables_when_full_workbook_exceeds_budget(
     full_tables = {table['key']: table for table in full_snapshot['tables']}
     assert {'comparison_results', 'selected_B_A', 'model_counts', 'model_normalized_counts'} <= full_tables.keys()
 
-    cells = sum((table['expected_rows'] + 1) * len(table['columns']) for table in full_tables.values())
-    monkeypatch.setattr(materials, 'MAX_REPORT_TABLE_CELLS', cells - 1, raising=False)
+    comparison_keys = ('comparison_results', 'selected_B_A')
+    cells = sum(table_cell_count(full_tables[key]) + 4 for key in comparison_keys)
+    with service.store.connection() as db:
+        full_content = service.require(db, 'bio_report_context_versions', project, full['id'])['content_json']
+    monkeypatch.setattr(workbook, 'MAX_CELLS', _workbook_metadata_cells(full_content) + cells + 2)
     response = client.post(base + '/bio-reader-reports/prepare', json=body,
                            headers={'Idempotency-Key': 'limited-workbook'})
     assert response.status_code == 201, response.text
     view = response.json()
     assert view['workbook_limited'] is True
-    snapshot, _, _ = freeze(service, project, view)
+    snapshot, _, payload = freeze(service, project, view)
     tables = {table['key']: table for table in snapshot['tables']}
-    for key in ('comparison_results', 'selected_B_A'):
-        assert tables[key] == full_tables[key]
-    assert not {'model_counts', 'model_normalized_counts'} & tables.keys()
+    assert tables == {key: full_tables[key] for key in comparison_keys}
     assert snapshot['figures'] == full_snapshot['figures']
     assert view['selection'] == full['selection']
+    notice = next(text for text in snapshot['finding']['content']['warnings'] if 'workbook cell budget' in text)
+    assert notice.startswith(f"{len(full_snapshot['tables']) - len(snapshot['tables'])} result table")
+    snapshot['reader_report'] = sample_reader_record(snapshot)
+    staging = tmp_path / 'report-input'
+    staging.mkdir()
+    output = tmp_path / 'report-output'
+    output.mkdir()
+    rendered = render_report(stage_report_payload(payload, staging), output)
+    assert rendered['manifest']['row_counts']['total_cells'] <= workbook.MAX_CELLS
+    assert notice in [paragraph.text for paragraph in Document(output / 'analysis.docx').paragraphs]
+    with (output / 'results.xlsx').open('rb') as file:
+        book = load_workbook(file, read_only=True)
+        assert notice in [row[1] for row in book['Limitations'].values]
+        book.close()
     member = full_tables['model_counts']['source']['source_id']
     original = client.get(f"{base}/bio-insight-results/{result['id']}/members/{member}/download")
     assert original.status_code == 200

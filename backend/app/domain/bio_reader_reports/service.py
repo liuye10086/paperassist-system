@@ -152,6 +152,14 @@ class BioReaderReportService(ResearchResultsStore):
         scientific = deepcopy(content['scientific'])
         scientific.update(facts=content['facts'], methods=content['methods'], limitations=content['limitations'],
                           warnings=content['warnings'], gaps=content['gaps'], context_id=identifier)
+        if content.get('workbook_limit_notice'):
+            notice = content['workbook_limit_notice'][content['language']]
+            scientific['workbook_limit_notice'] = notice
+            # Use a reader-visible scope list without exceeding the fact catalog bound.
+            for field in ('warnings', 'limitations', 'gaps'):
+                if len(scientific[field]) < 100:
+                    scientific[field] = [*scientific[field], notice]
+                    break
         return dict(title=content['title'], sha256=row['content_sha256'], provenance='research_derived',
                     source_file_ids=content['source_file_ids'], content=scientific)
 

@@ -33,7 +33,7 @@ SOURCE_REJECTIONS=frozenset(('research_source_conflict','research_source_not_fou
     'research_source_incomplete','research_source_unsupported','research_locator_invalid',
     'delivery_source_mismatch','delivery_member_source_conflict','delivery_member_file_changed',
     'delivery_member_source_missing','delivery_member_source_incomplete','delivery_member_duplicate',
-    'research_source_limit_exceeded','research_fact_unresolved','research_figure_limit_exceeded',
+    'research_source_limit_exceeded','research_fact_unresolved','research_figure_limit_exceeded','research_figure_renderer_retired',
     'research_export_limit_exceeded','research_output_invalid','research_revision_conflict',
     'research_writing_unavailable','manuscript_source_not_visible','bio_input_integrity_changed','bio_source_conflict',
     'bio_version_not_found','bio_processed_not_found','bio_figure_not_found','bio_member_not_found',

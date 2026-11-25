@@ -1,13 +1,19 @@
 import ReadableDetails from '../../shared/components/ReadableDetails'
 import {RESEARCH_LOADING_MESSAGE,RESEARCH_TIMEOUT_MS} from './api'
-import {useI18n} from '../../shared/i18n'
+import {apiError,useI18n} from '../../shared/i18n'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import {visibleMembers} from './visibleMembers'
 import type {Member,ResearchTask} from './contracts'
 export function OperationStatus({operation}:{operation:{busy:boolean;unknown:boolean;retryable:boolean;error:string;lookup:()=>Promise<void>;retry:()=>Promise<void>}}){const{t}=useI18n();return <>{operation.busy&&<p role="status">{t('正在处理研究成果……')} {t(RESEARCH_LOADING_MESSAGE)}</p>}{operation.error&&<p className="error-panel" role="alert">{t(operation.error)}</p>}{operation.unknown&&<div className="warning-panel"><p>{t('提交结果待核对。固定输入和原请求身份已保留。')}</p><button type="button" disabled={operation.busy} onClick={()=>void operation.lookup()}>{t('查询原请求结果')}</button>{operation.retryable&&<button type="button" disabled={operation.busy} onClick={()=>void operation.retry()}>{t('用原键重试固定请求')}</button>}</div>}</>}
 export function Paging({page,total,size,onPage}:{page:number;total:number;size:number;onPage:(p:number)=>void}){const{t}=useI18n();if(total<=size)return null;return <nav className="research-pagination" aria-label={t('研究成果分页')}><button type="button" disabled={page===1} onClick={()=>onPage(page-1)}>{t('上一页')}</button><span>{page} / {Math.max(1,Math.ceil(total/size))} · {total}</span><button type="button" disabled={page*size>=total} onClick={()=>onPage(page+1)}>{t('下一页')}</button></nav>}
 export function Notices({items,title}:{items?:unknown[];title:string}){const{t}=useI18n();return items?.length?<section><h4>{t(title)}</h4><ul>{items.map((v,i)=><li key={i}>{<ReadableDetails value={v}/>}</li>)}</ul></section>:null}
-export function TaskStatus({projectId,task,href}:{projectId:string;task:ResearchTask;href?:string}){const{t}=useI18n();return <p role="status">{t(({queued:'待执行',running:'运行中',succeeded:'已完成',failed:'执行失败',waiting_confirmation:'待用户确认',cancelled:'已取消'} as Record<string,string>)[task.status]??task.status)} {task.error_code&&<span>{t('请查看任务详情处理。')}</span>} · <a href={href??`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(task.id)}`}>{t('查看任务')}</a></p>}
+export function TaskStatus({projectId,task,href}:{projectId:string;task:ResearchTask;href?:string}){
+ const{t}=useI18n()
+ const status = ({queued:'待执行',running:'运行中',succeeded:'已完成',failed:'执行失败',waiting_confirmation:'待用户确认',cancelled:'已取消'} as Record<string,string>)[task.status] ?? task.status
+ const fallback = '请查看任务详情处理。'
+ const message = task.error_code === 'research_figure_renderer_retired' ? apiError({code:task.error_code}, fallback) : fallback
+ return <p role="status">{t(status)} {task.error_code&&<span>{t(message)}</span>} · <a href={href??`#project=${encodeURIComponent(projectId)}&section=tasks&task=${encodeURIComponent(task.id)}`}>{t('查看任务')}</a></p>
+}
 export function Members({items,containsPdf=false,showDetails=true,title,zipLabel='复现资料'}:{items:Member[];containsPdf?:boolean;showDetails?:boolean;title?:string;zipLabel?:string}){
  const{t}=useI18n()
  return <ul className="research-member-list">{visibleMembers(items,containsPdf).filter(m=>!title||!['json','py'].includes(m.format)).map(m=>{

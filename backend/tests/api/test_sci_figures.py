@@ -11,7 +11,7 @@ from app.core.config import get_data_dir
 from app.core.exceptions import StorageError
 from app.db.database import database_connection
 from app.domain.research_results.figures import ResearchFigureService
-from app.domain.research_results.execution import retry_in_transaction, run_research_figure_task
+from app.domain.research_results.execution import recovery_actions, retry_in_transaction, run_research_figure_task
 from app.domain.tasks.file_parse_execution import run_parse_file_task
 from app.main import app
 from tests.api.test_customer_project_types import create, project_body, project_path
@@ -242,8 +242,127 @@ def test_failed_revision_releases_only_its_new_originals(tmp_path):
             failed = store.require_task(db, task_id)
             retry_in_transaction(store, db, failed, failed['revision'])
         assert conflict.value.code == 'paper_figure_original_in_use'
-        edit = compose(owner, path, dict(body, title='继续编辑', root_id=ready['root_id'], expected_revision=entry['latest_revision']), 'edit-ready')
+        edit = compose(owner, path, dict(body, title='继续编辑', root_id=ready['root_id'],
+                                        expected_revision=entry['latest_revision'], base_revision=entry['current']['revision']), 'edit-ready')
         assert edit.status_code == 201 and edit.json()['revision'] == 3, edit.text
+
+
+@pytest.mark.parametrize('kind', ('sci', 'thesis'))
+def test_stale_revision_after_retry(tmp_path, kind):
+    def timeout(*_):
+        raise StorageError('research_render_timeout', '合成渲染超时', 409)
+
+    staging = tmp_path / 'staging'
+    with TestClient(app) as owner, TestClient(app) as analyst, TestClient(app) as admin:
+        owner_id = sign_in(owner, 'figure-retry-owner@example.test', 'customer')
+        analyst_id = sign_in(analyst, 'figure-retry-analyst@example.test', 'analyst')
+        admin_id = sign_in(admin, 'figure-retry-admin@example.test', 'admin')
+        project = figure_project(owner, kind, 'figure-retry-project')
+        path = project + f'/{kind}-figures'
+        with database_connection(write=True) as db:
+            # Historical paper assignments still grant access to task recovery.
+            db.execute('''INSERT INTO project_assignments(project_id, owner_id, analyst_id, revision, updated_by)
+                VALUES (%s,%s,%s,1,%s)''', (project.rsplit('/', 1)[-1], owner_id, analyst_id, admin_id))
+        first, _ = upload_image(owner, project, 'first.png', 'PNG')
+        replacement, _ = upload_image(owner, project, 'replacement.png', 'PNG', 'blue')
+        body = dict(title='Saved figure', file_ids=[first], columns=1)
+        response = compose(owner, path, body, 'original')
+        assert response.status_code == 201, response.text
+        ready = response.json()
+        result = run_research_figure_task(ready['task_id'], 1, engine=render_figure, staging_directory=staging)
+        assert result is not None and result['status'] == 'succeeded', result
+
+        response = compose(owner, path, dict(body, file_ids=[replacement], root_id=ready['root_id'], expected_revision=1), 'replacement')
+        assert response.status_code == 201, response.text
+        update = response.json()
+        failed = run_research_figure_task(update['task_id'], 1, engine=timeout, staging_directory=staging)
+        assert failed is not None and failed['status'] == 'failed', failed
+        group, = assembly(owner, path)['groups']['items']
+        assert (group['current']['revision'], group['latest_revision']) == (1, 2)
+        old_edit = dict(body, title='Title edit', root_id=ready['root_id'], expected_revision=group['latest_revision'],
+                        base_revision=group['current']['revision'])
+
+        retry = analyst.post('/api/v1/tasks/' + update['task_id'] + '/retry', json={'expected_revision': failed['revision']})
+        assert retry.status_code == 202, retry.text
+        result = run_research_figure_task(update['task_id'], retry.json()['revision'], engine=render_figure, staging_directory=staging)
+        assert result is not None and result['status'] == 'succeeded', result
+        rejected = compose(owner, path, old_edit, 'stale-title-edit')
+        assert rejected.status_code == 409 and rejected.json()['detail']['code'] == 'research_revision_conflict', rejected.text
+        group, = assembly(owner, path)['groups']['items']
+        assert (group['current']['revision'], group['latest_revision']) == (2, 2)
+        assert [row['id'] for row in group['current']['originals']] == [replacement]
+
+        fresh_edit = dict(old_edit, file_ids=[replacement], base_revision=2)
+        accepted = compose(owner, path, fresh_edit, 'fresh-title-edit')
+        assert accepted.status_code == 201, accepted.text
+        assert accepted.json()['revision'] == 3 and 'base_revision' not in accepted.json()['config']
+        replayed = compose(owner, path, fresh_edit, 'fresh-title-edit')
+        assert replayed.status_code == 200 and replayed.json() == accepted.json()
+        reused = compose(owner, path, dict(fresh_edit, base_revision=1), 'fresh-title-edit')
+        assert reused.status_code == 409 and reused.json()['detail']['code'] == 'research_idempotency_conflict', reused.text
+
+
+def test_retired_figure_renderer_releases_pending_originals_and_keeps_completed_downloads(tmp_path, monkeypatch):
+    from app.adapters import research_figure_render
+
+    previous_identity = {**research_figure_render.renderer_identity(), 'code_digest': '0' * 64}
+    staging = tmp_path / 'staging'
+    with TestClient(app) as owner:
+        owner_id = sign_in(owner, 'retired-figure-owner@example.test', 'customer')
+        project = figure_project(owner, 'sci', 'retired-figure-project')
+        path = project + '/sci-figures'
+        first, _ = upload_image(owner, project, 'first.png', 'PNG')
+        replacement, _ = upload_image(owner, project, 'replacement.png', 'PNG', 'blue')
+        body = dict(title='Saved figure', file_ids=[first], columns=1)
+        with monkeypatch.context() as previous:
+            previous.setattr(research_figure_render, 'renderer_identity', lambda: previous_identity)
+            response = compose(owner, path, body, 'old-figure')
+            assert response.status_code == 201, response.text
+            ready = response.json()
+            rendered = run_research_figure_task(ready['task_id'], 1, engine=render_figure, staging_directory=staging)
+            assert rendered is not None and rendered['status'] == 'succeeded', rendered
+            response = owner.get(path + '/' + ready['id'])
+            assert response.status_code == 200, response.text
+            published = response.json()
+            preview_url = next(member['download_url'] for member in published['members'] if member['key'] == 'figure_png')
+            before = owner.get(preview_url)
+            assert before.status_code == 200
+
+            update = dict(body, file_ids=[replacement], root_id=ready['root_id'], expected_revision=1)
+            response = compose(owner, path, update, 'old-update')
+            assert response.status_code == 201, response.text
+            pending = response.json()
+            assert assembly(owner, path)['has_pending']
+
+        def unexpected_render(*_):
+            pytest.fail('A retired figure task must stop before rendering')
+
+        failed = run_research_figure_task(pending['task_id'], 1, engine=unexpected_render, staging_directory=staging)
+        assert failed is not None and failed['status'] == 'failed', failed
+        assert failed['error_code'] == 'research_figure_renderer_retired'
+        response = owner.get(path + '/' + pending['id'])
+        assert response.status_code == 200, response.text
+        saved = response.json()
+        assert saved['task']['error_code'] == failed['error_code'] and saved['members'] == []
+        assert saved['task']['input_version'] == pending['task']['input_version']
+        store = ResearchFigureService(ProjectStore(get_data_dir(), owner_id=owner_id)).store
+        with store.connection() as db:
+            task = store.require_task(db, pending['task_id'])
+            assert recovery_actions(db, task) == []
+
+        state = assembly(owner, path)
+        assert not state['has_pending']
+        assert [row['id'] for row in state['available']['items']] == [replacement]
+        current, = owner.get(path).json()['items']
+        assert current['id'] == ready['id'] and current['manifest_sha256'] == published['manifest_sha256']
+        after = owner.get(preview_url)
+        assert after.status_code == 200 and after.content == before.content
+
+        response = compose(owner, path, dict(body, file_ids=[replacement]), 'current-figure')
+        assert response.status_code == 201, response.text
+        fresh = response.json()
+        rendered = run_research_figure_task(fresh['task_id'], 1, engine=render_figure, staging_directory=staging)
+        assert rendered is not None and rendered['status'] == 'succeeded', rendered
 
 
 @pytest.mark.parametrize('kind, other_kind', (('sci', 'thesis'), ('thesis', 'sci')))

@@ -1,7 +1,7 @@
 import {useEffect, useId, useRef, useState, type ReactNode, type Ref} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
 import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
-import {safeError, useI18n} from '../../shared/i18n'
+import {apiError, safeError, useI18n} from '../../shared/i18n'
 import ManuscriptImage from '../manuscripts/ManuscriptImage'
 import {WorkspaceIcon} from '../projects/WorkspaceShell'
 import useDraftLeaveGuard, {type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
@@ -27,6 +27,7 @@ type EditVersion = AssemblyVersion & {rootId: string; expectedRevision: number}
 type SavedFigure = Figure & {latest_revision?: number}
 const pending = (figure: Figure) => ['queued', 'running'].includes(figure.task.status)
 const failed = (figure: Figure) => ['failed', 'cancelled'].includes(figure.task.status)
+const revisionConflict = '此正图已有更新。请在已保存正图中重新打开。'
 const letter = (index: number) => String.fromCharCode(65 + index)
 const layouts = [
   {id:'horizontal', label:'横排', min:2, max:3},
@@ -34,6 +35,11 @@ const layouts = [
   {id:'grid2', label:'两列网格', min:3, max:maxPanels},
   {id:'grid3', label:'三列网格', min:4, max:maxPanels},
 ] as const
+
+function figureFailureMessage(figure: Figure, fallback: string) {
+  const code = figure.task.error_code
+  return code === 'research_figure_renderer_retired' ? apiError({code}, fallback) : fallback
+}
 
 function columnsFor(layout: Layout, count: number) {
   if (count <= 1 || layout === 'vertical') return 1
@@ -191,9 +197,10 @@ export default function CustomerSciFigures({projectId, projectType = 'sci', head
 
   function reviseSaved(previous: SavedFigure) {
     const group = groups?.items.find(row => row.root_id === previous.root_id)
-    const latestRevision = Math.max(previous.latest_revision ?? previous.revision, group?.latest_revision ?? 0)
-    if (group?.current?.revision === previous.revision) {
-      revise(group.current, group.root_id, latestRevision)
+    const latestRevision = previous.latest_revision ?? previous.revision
+    if (group?.current && (failed(previous) || group.current.revision > previous.revision ||
+      group.current.revision === previous.revision && group.latest_revision >= latestRevision)) {
+      revise(group.current, group.root_id, group.latest_revision)
       return
     }
     const knownFiles = [...(unusedOriginals?.items ?? []), ...(group?.current?.originals ?? [])]
@@ -215,8 +222,17 @@ export default function CustomerSciFigures({projectId, projectType = 'sci', head
 
   async function save() {
     if (!canChoose || !selected.length || !title.trim() || !dirty || request.current) return
+    // Retrying the latest failed attempt can change the current figure without advancing the revision.
+    if (editing && editing.revision < editing.expectedRevision) {
+      const current = groups?.items.find(group => group.root_id === editing.rootId)?.current
+      const savedCurrent = available.find(row => row.root_id === editing.rootId && row.task.status === 'succeeded')
+      if (current?.revision === editing.expectedRevision || savedCurrent?.revision === editing.expectedRevision) {
+        setError(revisionConflict)
+        return
+      }
+    }
     const body = JSON.stringify({title:title.trim(), file_ids:selected.map(file => file.id), columns,
-      ...(editing && {root_id:editing.rootId, expected_revision:editing.expectedRevision})})
+      ...(editing && {root_id:editing.rootId, expected_revision:editing.expectedRevision, base_revision:editing.revision})})
     if (attempt.current?.body !== body) attempt.current = {body, key:crypto.randomUUID()}
     const controller = new AbortController()
     request.current = controller
@@ -245,7 +261,7 @@ export default function CustomerSciFigures({projectId, projectType = 'sci', head
         library.refresh()
       }
       setError(cause instanceof IntakeError && cause.code === 'research_revision_conflict' && editing
-        ? '此正图已有更新。请在已保存正图中重新打开。' : safeError(cause, '保存正图失败，请重试。'))
+        ? revisionConflict : safeError(cause, '保存正图失败，请重试。'))
     } finally {
       request.current = null
       if (!controller.signal.aborted) setSaving(false)
@@ -423,8 +439,8 @@ export default function CustomerSciFigures({projectId, projectType = 'sci', head
         {openReceipt && lookup.error && <p role="alert" className="error-panel">{t(lookup.error)} <button type="button" onClick={lookup.refresh}>{t('重试')}</button></p>}
         {!figure && openRoot && figures.loading && <p role="status">{t('正在读取正图……')}</p>}
         {figure && pending(figure) && <p role="status">{t('正图正在生成，完成后可在资源配置中选用。')}</p>}
-        {failedReplacement && <p role="alert" className="error-panel">{t('正图更新失败。仍可使用上一次生成的正图。')}</p>}
-        {figure && failed(figure) && <p role="alert" className="error-panel">{t('正图生成未完成。可检查原图后重新保存。')}</p>}
+        {failedReplacement && <p role="alert" className="error-panel">{t(figureFailureMessage(openReceipt, '正图更新失败。仍可使用上一次生成的正图。'))}</p>}
+        {figure && failed(figure) && <p role="alert" className="error-panel">{t(figureFailureMessage(figure, '正图生成未完成。可检查原图后重新保存。'))}</p>}
         {preview && figure && <div className="sci-figure-preview">
           <ManuscriptImage url={preview.download_url} title={t('预览 {name}', {name:figure.config.title})} timeoutMs={RESEARCH_TIMEOUT_MS} />
         </div>}

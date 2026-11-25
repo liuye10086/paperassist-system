@@ -14,15 +14,20 @@ import re
 
 from PIL import Image
 
-from app.adapters.bio_reader_narrative import NARRATIVE_FIELDS, validate_reader_narrative
+from app.adapters.bio_reader_narrative import MAX_NARRATIVE_FIELD_CHARS, NARRATIVE_FIELDS, validate_reader_narrative
 from app.adapters.research_method_text import reader_prose
 
 STANDARD_VERSION = 'reader-report-v1'
 FIGURE_FIELDS = ('number', 'title', 'reading', 'observations', 'interpretation', 'limitations')
+CAPTION_LABELS = {
+    'en': ('How to read', 'Observed results', 'Interpretation', 'Limitations'),
+    'zh-CN': ('读图方式', '实际观察', '结果解释', '解释边界'),
+}
 MAX_IMAGES = 50
 MAX_IMAGE_BYTES = 12 * 1024**2
 MAX_TOTAL_IMAGE_BYTES = 40 * 1024**2
 MAX_FACT_BYTES = 512 * 1024
+MAX_READER_OUTPUT_BYTES = 512 * 1024
 _INTERNAL_KEY = re.compile(r'(^|_)(?:uuid|sha256|sha|digest|hash|object_key|path|filename|engine_version|code_version|environment_version|task_id|project_id|user_id|source_id|result_id|version_id|fact_ids|parent_id|root_id|created_at|updated_at)(_|$)', re.I)
 _IDENTITY = re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9a-f]{40,64}\b', re.I)
 _TECHNICAL = re.compile(r'```|\b(?:sha256|manifest_sha256|result_id|source_id|task_id|object_key)\b|\b(?:version\s+|v)\d+\.\d+(?:\.\d+)?|\b(?:import|from)\s+[A-Za-z_][\w.]*\s+(?:import\s|as\s)|\b(?:pip|npm)\s+install\b', re.I)
@@ -209,7 +214,7 @@ def response_schema():
             'required': ['narrative', 'figures'], 'additionalProperties': False}
 
 
-def _prose(value, limit=12000):
+def _prose(value, limit=MAX_NARRATIVE_FIELD_CHARS):
     if not isinstance(value, str) or not value.strip() or len(value) > limit:
         raise ValueError('Empty or oversized reader prose')
     if _IDENTITY.search(value) or _TECHNICAL.search(value) or _PATH.search(value) or _FILE.search(value) or value.lstrip().startswith(('{', '[')):
@@ -226,12 +231,12 @@ def validate_output(raw, material):
     figures = raw['figures']
     if not isinstance(figures, list) or len(figures) != len(material['figures']):
         raise ValueError('Reader report must cover every selected image')
-    labels = ('How to read', 'Observed results', 'Interpretation', 'Limitations') if language == 'en' else ('读图方式', '实际观察', '结果解释', '解释边界')
+    labels = CAPTION_LABELS[language]
     checked = []
     for index, figure in enumerate(figures, 1):
         if not isinstance(figure, dict) or set(figure) != set(FIGURE_FIELDS) or type(figure['number']) is not int or figure['number'] != index:
             raise ValueError('Reader figure order does not match the selected images')
-        item = {key: _prose(figure[key], 500 if key == 'title' else 12000) for key in FIGURE_FIELDS if key != 'number'}
+        item = {key: _prose(figure[key], 500 if key == 'title' else MAX_NARRATIVE_FIELD_CHARS) for key in FIGURE_FIELDS if key != 'number'}
         item['number'] = index
         item['caption'] = '\n\n'.join(label + ': ' + item[key] for label, key in zip(labels, FIGURE_FIELDS[2:]))
         checked.append(item)

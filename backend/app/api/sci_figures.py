@@ -18,6 +18,7 @@ class SciFigureWrite(StrictModel):
     columns: int = Field(ge=1, le=3)
     root_id: Identifier | None = None
     expected_revision: int = Field(default=0, ge=0, lt=2147483647)
+    base_revision: int | None = Field(default=None, ge=1, lt=2147483647)
 
     @model_validator(mode='after')
     def validate_selection(self):
@@ -25,6 +26,8 @@ class SciFigureWrite(StrictModel):
             raise ValueError('同一张原图只能选择一次。')
         if (self.root_id is None) != (self.expected_revision == 0):
             raise ValueError('修订图件时需提交当前版本号。')
+        if self.base_revision is not None and self.base_revision > self.expected_revision:
+            raise ValueError('编辑所依据的正图版本不能晚于当前版本号。')
         return self
 
     def figure_request(self):
@@ -55,7 +58,7 @@ def _paper_figure_router(entrypoint: str, tag: str) -> APIRouter:
     @figure_router.post('', status_code=201, name=f'create_{workspace}_figure')
     def create_figure(project_id: str, request: SciFigureWrite, store: Store, idempotency_key: Key, response: Response):
         result, response.status_code = ResearchFigureService(store, entrypoint=entrypoint).create(
-            project_id, request.figure_request(), idempotency_key)
+            project_id, request.figure_request(), idempotency_key, base_revision=request.base_revision)
         return result
 
     @figure_router.get('/assembly', name=f'list_{workspace}_figure_assembly')

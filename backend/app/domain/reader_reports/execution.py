@@ -51,7 +51,8 @@ def _parse_response(response):
     if len(messages) != 1 or len(messages[0]['content']) != 1:
         raise ValueError('Expected one report JSON message')
     item = messages[0]['content'][0]
-    if item['type'] != 'output_text' or not isinstance(item['text'], str) or len(item['text'].encode()) > 512 * 1024:
+    from .content import MAX_READER_OUTPUT_BYTES
+    if item['type'] != 'output_text' or not isinstance(item['text'], str) or len(item['text'].encode()) > MAX_READER_OUTPUT_BYTES:
         raise ValueError('Invalid reader report output')
 
     def unique_keys(pairs):
