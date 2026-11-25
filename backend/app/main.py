@@ -59,6 +59,8 @@ async def run_recovery_worker(poll, name):
 @asynccontextmanager
 async def lifespan(app):
     check_database_ready()
+    from app.domain.runtime_skills.runtime import log_configured_installation
+    log_configured_installation()
     tasks = []
     if local_config().get('PAPERASSIST_PLOT_WORKER_ENABLED', '1') != '0':
         tasks = [asyncio.create_task(run_recovery_worker(poll, name)) for poll, name in

@@ -347,7 +347,8 @@ def build_bundle(base,request,frozen,*,include_reported_results=True,revision_se
             raise ValueError('Draft advice requires a scoped SCI draft')
         return _advice_bundle(base, request, frozen, sections, editing, revision_figures)
     seed_contract={k:deepcopy(v) for k,v in frozen.items()
-                   if k not in ('document_kind','article_scope_version','numeric_contract_version','article_instruction_revision','response_stream','scope_figure_input')}
+                   if k not in ('document_kind','article_scope_version','numeric_contract_version','article_instruction_revision',
+                                'response_stream','scope_figure_input','skills_snapshot')}
     seed_contract['schema_version']=3 if school else 2
     seed_request=dict(request,mode='full_draft',target_section=None,keywords=writing_keywords(base,request))
     if school:seed_contract.update(numeric_contract_version=2,school_content_version='school-live-v1')
@@ -594,6 +595,8 @@ def compose(output,snapshot,bundle,call_id,provenance,composition_version):
         required_reviews=['scientific_claims','study_numeric_facts','complete_language']+(['school_export'] if school else []),base_version_id=snapshot['base_version_id'],composition_version=composition_version,
         numeric_contract_version=2,writing_scope_version=1,mode=request['mode'],target_section_ids=editing['target_section_ids'],target_paragraph_ids=[p['id'] for s in final for p in s['paragraphs'] if p['id'] in seen],
         preserved_paragraph_ids=editing['preserved_paragraph_ids'],paragraph_lineage=deepcopy(editing['paragraph_plan']))
+    if skills := bundle['execution_contract'].get('skills_snapshot'):
+        result['writing_provenance']['skills_trace'] = deepcopy(skills['trace'])
     if school:
         result['writing_provenance']['school_content_version']='school-live-v1'
         from .school_live import update_notice

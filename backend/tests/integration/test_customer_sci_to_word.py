@@ -2,18 +2,20 @@
 from hashlib import sha256
 from io import BytesIO
 import json
+from pathlib import Path
 from zipfile import ZipFile
 
 from docx import Document
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
+import pytest
 
 from app.adapters.docx_parser import parse_docx
 from app.db.database import database_connection
 from app.domain.literature.execution import run_literature_task
 from app.domain.manuscript_writing.bundle import build_bundle, validate_bundle
 from app.domain.manuscript_writing.execution import run_manuscript_writing_task
-from app.domain.manuscript_writing.frozen import wire_payload
+from app.domain.manuscript_writing.frozen import validate_wire, wire_payload
 from app.domain.tasks.execution import run_task
 from app.domain.tasks.file_parse_execution import run_parse_file_task
 from app.main import app
@@ -29,6 +31,14 @@ from tests.api.test_manuscripts import body
 DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 REPORTED_RESULT = 'The supplied engineering fixture reported an upward pattern across 4 observations.'
 PROTOCOL = 'The supplied protocol called for 5 observations.'
+
+
+def assert_compatible_default_fonts(raw):
+    with ZipFile(BytesIO(raw)) as archive:
+        for name in ('word/styles.xml', 'word/stylesWithEffects.xml', 'word/fontTable.xml', 'word/theme/theme1.xml'):
+            data = archive.read(name)
+            assert b'="Courier"' not in data, name
+            assert '="ＭＳ 明朝"'.encode() not in data, name
 
 
 class SciFixtureProvider(LiveFixture):
@@ -148,7 +158,9 @@ def upload_research_material(client, project):
     return source, figure, raw
 
 
-def test_customer_research_freezes_uploaded_result_numeric_context_and_figure_in_word():
+@pytest.mark.parametrize('use_skills', [False, True], ids=['original', 'skills'])
+def test_customer_research_freezes_uploaded_result_numeric_context_and_figure_in_word(monkeypatch, tmp_path, use_skills):
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'sci_research_article' if use_skills else 'sci_narrative_review')
     with TestClient(app) as client, TestClient(app) as other:
         sign_in(client, 'research-to-word@manuscript.test', 'customer')
         sign_in(other, 'foreign-word@manuscript.test', 'customer')
@@ -164,6 +176,23 @@ def test_customer_research_freezes_uploaded_result_numeric_context_and_figure_in
         bundle = request(client, 'POST', root + '/writing-previews', status=201, key='preview', json=article_request(
             'research', selected_source_ids=[result_source['id'], figure_source['id']], keywords=['synthetic fixture'],
         ))
+        frozen = bundle['execution_contract']
+        skills = frozen.get('skills_snapshot')
+        if use_skills:
+            assert skills is not None
+            assert (skills['trace']['workflow'], skills['trace']['step']) == ('sci_research_article', 'initial_draft')
+            assert [ref['name'] for ref in skills['trace']['skills']] == [
+                'scientific-writing', 'research-article', 'citation-verification',
+            ]
+            baseline = {name: value for name, value in frozen.items() if name != 'skills_snapshot'}
+            original = build_bundle(base_snapshot, bundle['request_json'], execution_contract=baseline)
+            original_wire = json.loads(original['wire_json'])
+            skill_wire = json.loads(bundle['wire_json'])
+            assert original_wire.pop('instructions') != skill_wire.pop('instructions')
+            assert original_wire == skill_wire
+            assert original['bundle_sha256'] != bundle['bundle_sha256']
+        else:
+            assert skills is None
         wire = json.loads(json.loads(bundle['wire_json'])['input'])
         assert wire['sources'][0]['facts'] == []
         assert wire['illustrations'][0]['panels'][0]['label'] == 'A'
@@ -186,6 +215,11 @@ def test_customer_research_freezes_uploaded_result_numeric_context_and_figure_in
             'research', selected_source_ids=[figure_source['id']],
         ))
         assert unselected['detail']['code'] == 'manuscript_writing_evidence_required'
+        if use_skills:
+            monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', '')
+            monkeypatch.setenv('PAPERASSIST_SKILLS_DIR', str(tmp_path / 'missing'))
+            replay = request(client, 'POST', root + '/writing-previews', key='preview', json=bundle['request_json'])
+            assert (replay['id'], replay['wire_sha256']) == (bundle['id'], bundle['wire_sha256'])
         result_text = REPORTED_RESULT.removesuffix('.') + ' (Figure 1A).'
         provider = SciFixtureProvider(dict(
             title=dict(text='Synthetic directional observation'),
@@ -196,6 +230,7 @@ def test_customer_research_freezes_uploaded_result_numeric_context_and_figure_in
             materials_and_methods=dict(text=PROTOCOL, source_aliases=['s1'], study_numeric_bindings=[method_number]),
         ), pending=True)
         reader, candidate = submit_candidate(client, project, root, bundle, provider, resume=True)
+        assert candidate['writing_provenance'].get('skills_trace') == (skills['trace'] if skills else None)
         assert candidate['keywords'] == ['synthetic fixture']
         assert candidate['article_type'] == 'research'
         result = next(s for s in candidate['sections'] if s['id'] == 'results')['paragraphs'][0]
@@ -212,6 +247,7 @@ def test_customer_research_freezes_uploaded_result_numeric_context_and_figure_in
         word_url = reader + '/word?revision=1'
         response = client.get(word_url)
         assert response.status_code == 200 and response.headers['Content-Type'] == DOCX
+        assert_compatible_default_fonts(response.content)
         lines = [p.text for p in Document(BytesIO(response.content)).paragraphs]
         assert result_text in lines and PROTOCOL in lines
         assert figure['caption'] in lines and 'A  Text-free synthetic line plot.' in lines
@@ -241,7 +277,10 @@ def record_candidate_citation(client, literature, search, reference, context, me
                 bindings=[dict(review_id=support['id'], metadata_version_id=metadata['id'])])
 
 
-def test_customer_narrative_review_exports_suggested_excerpts_and_review_structure():
+@pytest.mark.parametrize('use_skills', [False, True], ids=['original', 'skills'])
+def test_customer_narrative_review_exports_suggested_excerpts_and_review_structure(monkeypatch, tmp_path, use_skills):
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', '')
+    monkeypatch.setenv('PAPERASSIST_SKILLS_DIR', str(Path(__file__).resolve().parents[3] / 'SKILLS'))
     with TestClient(app) as client:
         sign_in(client, 'review-to-word@manuscript.test', 'customer')
         project = sci_project(client, 'narrative_review')
@@ -249,9 +288,48 @@ def test_customer_narrative_review_exports_suggested_excerpts_and_review_structu
         root, fixed_base = create_fact(client, project, body(methods={}, citation_draft=draft))
         selected = fixed_base['citation_snapshot']['paragraphs'][0]['fragments'][0]['bindings'][0]
         evidence, metadata = selected['evidence'][0], selected['metadata_source']
-        bundle = request(client, 'POST', root + '/writing-previews', status=201, key='preview', json=article_request(
-            'narrative_review', selected_evidence_ids=[evidence['id']],
-        ))
+        previews = root + '/writing-previews'
+        body_json = article_request('narrative_review', selected_evidence_ids=[evidence['id']])
+        original = request(client, 'POST', previews, status=201, key='preview', json=body_json)
+        assert 'skills_snapshot' not in original['execution_contract']
+        bundle = original
+        if use_skills:
+            monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'sci_narrative_review')
+            with monkeypatch.context() as broken:
+                broken.setenv('PAPERASSIST_SKILLS_DIR', str(tmp_path / 'missing-skills'))
+                unavailable = request(client, 'POST', previews, status=503, key='skills-preview', json=body_json)
+                assert unavailable['detail']['code'] == 'runtime_skills_unavailable'
+                assert str(tmp_path) not in json.dumps(unavailable)
+                assert request(client, 'POST', previews, key='preview', json=body_json) == original
+            bundle = request(client, 'POST', previews, status=201, key='skills-preview', json=body_json)
+            skills = bundle['execution_contract']['skills_snapshot']
+            assert skills['schema_version'] == 1
+            assert skills['trace']['workflow'] == 'sci_narrative_review'
+            assert skills['trace']['step'] == 'initial_draft'
+            assert [skill['name'] for skill in skills['trace']['skills']] == [
+                'scientific-writing', 'narrative-review', 'citation-verification',
+            ]
+            assert skills['instructions_sha256'] == sha256(skills['instructions'].encode()).hexdigest()
+            original_wire = json.loads(original['wire_json'])
+            skills_wire = json.loads(bundle['wire_json'])
+            assert skills_wire.pop('instructions') == original_wire.pop('instructions') + '\n\n' + skills['instructions']
+            assert skills_wire == original_wire
+            assert bundle['bundle_sha256'] != original['bundle_sha256']
+            assert bundle['bundle_sha256'] == sha256(bundle['wire_json'].encode()).hexdigest()
+            with monkeypatch.context() as disabled:
+                disabled.setenv('PAPERASSIST_SKILL_WORKFLOWS', '')
+                reset = request(client, 'POST', previews, status=201, key='disabled-preview', json=body_json)
+                assert reset['wire_json'] == original['wire_json']
+                assert request(client, 'POST', previews, key='skills-preview', json=body_json) == bundle
+            # The preview and every worker attempt must read the stored instructions and trace.
+            monkeypatch.setenv('PAPERASSIST_SKILLS_DIR', str(tmp_path / 'missing-skills'))
+            assert request(client, 'GET', previews + '/' + bundle['id']) == bundle
+            validate_wire(bundle['wire_json'], bundle['execution_contract'])
+            wrong_ref = dict(bundle_id=bundle['id'], bundle_sha256=original['bundle_sha256'])
+            denied = request(client, 'POST', project + '/writing-authorizations', status=409, key='wrong-wire',
+                             json=dict(schema_version=2, confirmed=True,
+                                       tasks=[dict(logical_task_id='article', bundles=[wrong_ref])]))
+            assert denied['detail']['code'] == 'manuscript_writing_not_authorized'
         wire = json.loads(json.loads(bundle['wire_json'])['input'])
         assert not wire['sources'] and not wire['illustrations']
         assert wire['evidence'][0]['quote'] == quote and wire['evidence'][0]['reading_scope'] == 'abstract'
@@ -263,8 +341,10 @@ def test_customer_narrative_review_exports_suggested_excerpts_and_review_structu
             themes=dict(text=quote, evidence_aliases=['e1']),
             discussion=dict(text='Full text was unavailable for this engineering exercise.'),
             conclusion=dict(text='The available evidence supports only the quoted account.'),
-        ))
-        reader, candidate = submit_candidate(client, project, root, bundle, provider)
+        ), pending=use_skills)
+        reader, candidate = submit_candidate(client, project, root, bundle, provider, resume=use_skills)
+        if use_skills:
+            assert candidate['writing_provenance']['skills_trace'] == skills['trace']
         theme = next(section for section in candidate['sections'] if section['id'] == 'themes')['paragraphs'][0]
         assert theme['suggested_evidence_aliases'] == ['e1'] and theme['citations'] == []
         assert candidate['article_type'] == 'narrative_review' and not candidate['results_groups']
@@ -286,3 +366,9 @@ def test_customer_narrative_review_exports_suggested_excerpts_and_review_structu
         assert all('No computed Results selected.' not in text and 'Ethics information:' not in text for text in lines)
         assert quote + '[1]' in lines and '[1] ' + draft['references'][0]['text'] in lines
         assert len(request(client, 'GET', root)['versions']) == 1
+        if use_skills:
+            revision = body_json | dict(revision_of_request_id=candidate['writing_provenance']['request_id'],
+                                        instructions='Clarify the review limitations.', target_sections=['discussion'])
+            revision_bundle = request(client, 'POST', previews, status=201, key='revision-preview', json=revision)
+            assert 'skills_snapshot' not in revision_bundle['execution_contract']
+            assert revision_bundle['execution_contract']['response_stream'] is True

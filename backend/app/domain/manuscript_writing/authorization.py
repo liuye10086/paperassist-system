@@ -10,9 +10,11 @@ from app.domain.dataset_preparation.service import require_key, append_checkpoin
 from .bundle import build_bundle, require_current_source_projection, validate_bundle
 from .live_contracts import PreviewRequest, AuthorizationRequest, LiveWritingRequest, WORKFLOW,preview_data,scoped_draft_revision
 from .policy import POLICY_VERSION, ENDPOINT, EXTERNAL_STORAGE_NOTICE, capabilities
-from .frozen import contract,bundle_contract,execution_settings,SCI_ARTICLE_PROSE_REVISION
+from .frozen import (INITIAL_DRAFT_STEP, SCI_ARTICLE_PROSE_REVISION, bundle_contract,
+                     contract, execution_settings, initial_draft_workflow)
 from app.domain.admin_configuration.bindings import resolve,bind
 from app.domain.manuscripts.delivery_context import resolve_document_context
+from app.domain.runtime_skills.runtime import is_enabled, load_step
 
 def denied():
     return StorageError('manuscript_writing_not_authorized','外发包、逻辑任务或有效授权不匹配。',409)
@@ -53,13 +55,16 @@ class LiveWritingService:
             if configuration is not None:
                 if frozen is None:
                     raise ValueError('Bundle binding mismatch')
-                bound = contract(configuration,schema_version=frozen['schema_version'],
-                    instruction_revision=frozen.get('instruction_revision'),document_kind=frozen.get('document_kind','sci'),
+                bound = contract(
+                    configuration, schema_version=frozen['schema_version'],
+                    instruction_revision=frozen.get('instruction_revision'), document_kind=frozen.get('document_kind','sci'),
                     article_instruction_revision=frozen.get('article_instruction_revision'),
                     source_selection_version=frozen.get('source_selection_version'),
-                               school_presentation_version=frozen.get('school_presentation_version'),
-                               response_stream=frozen.get('response_stream'),
-                               scope_figure_input=frozen.get('scope_figure_input'))
+                    school_presentation_version=frozen.get('school_presentation_version'),
+                    response_stream=frozen.get('response_stream'),
+                    scope_figure_input=frozen.get('scope_figure_input'),
+                    skills_snapshot=frozen.get('skills_snapshot'),
+                )
                 if execution_settings(frozen) != execution_settings(bound):
                     raise ValueError('Bundle binding mismatch')
             elif frozen is not None:
@@ -192,9 +197,9 @@ class LiveWritingService:
             configuration=resolve(db)
             schema_version=4 if body['schema_version']==4 else (3 if school else 2)
             prose_revision=SCI_ARTICLE_PROSE_REVISION if schema_version==4 and not school else None
-            from .school_presentation import PRESENTATION_VERSION
+            from .school_presentation import PRESENTATION_ALIASES_VERSION
             response_stream = True if scoped_draft_revision(body) else None
-            presentation = (PRESENTATION_VERSION if schema_version == 3 and body['mode'] == 'full_draft' and not response_stream
+            presentation = (PRESENTATION_ALIASES_VERSION if schema_version == 3 and body['mode'] == 'full_draft' and not response_stream
                             and body.get('document_context_version') == 'selected-text-v1' else None)
             sections = None
             revision_school_presentation = None
@@ -218,11 +223,17 @@ class LiveWritingService:
                         aliases = chapter_aliases(sections)
                         for figure in figures:
                             figure['section_ids'] = [aliases[sid] for sid in figure['section_ids']]
+            skills = None
+            workflow = initial_draft_workflow(body) if self.manuscripts.assets.customer else None
+            if workflow and is_enabled(workflow):
+                skills = load_step(workflow, INITIAL_DRAFT_STEP).freeze_writing()
             try:
-                frozen=contract(configuration,schema_version=schema_version,document_kind='thesis' if school else 'sci',
-                                article_instruction_revision=prose_revision,source_selection_version=2,
-                                school_presentation_version=presentation,response_stream=response_stream,
-                                scope_figure_input=True if figures else None)
+                frozen = contract(
+                    configuration, schema_version=schema_version, document_kind='thesis' if school else 'sci',
+                    article_instruction_revision=prose_revision, source_selection_version=2,
+                    school_presentation_version=presentation, response_stream=response_stream,
+                    scope_figure_input=True if figures else None, skills_snapshot=skills,
+                )
                 data=build_bundle(version['snapshot_json'],body,execution_contract=frozen,revision_sections=sections,
                                   revision_figures=figures,revision_school_presentation=revision_school_presentation)
             except (ValueError,KeyError,TypeError) as exc:

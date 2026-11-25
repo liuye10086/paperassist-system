@@ -1,4 +1,5 @@
 export const figureWorkbenchMessages:Record<string,string>={
+ '本次统计解释规则':'Statistical interpretation rules for this figure','查看完整外发指令':'View the complete instructions to be sent',
  '图说明格式无法核验，请重新读取。':'The figure description format could not be verified. Reload to check.','完整图说明':'Complete figure description','横轴与单位':'X axis and unit','纵轴与单位':'Y axis and unit','图例说明':'Legend','色标说明':'Color scale','色标范围：{min} 至 {max}':'Scale range: {min} to {max}','色标中心：{value}':'Scale center: {value}','色标刻度：{values}':'Scale ticks: {values}','色标配色':'Scale palette','发散配色':'Diverging palette','自定义配色':'Custom palette','缩写说明':'Abbreviations','统计说明':'Statistical notes','事实依据':'Evidence','单图说明使用图1；集合图号由各集合独立冻结。':'Standalone descriptions use Figure 1; each collection freezes its own figure numbers.',
 
  '当前版本':'Current version',

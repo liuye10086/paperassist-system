@@ -74,7 +74,7 @@ def materialize(root,owner,project,candidate,images,plan,*,db=None,frozen=None,s
         content,record=read(root,owner,project,frozen,candidate=candidate,images=images,plan=plan)
         return content,record,deepcopy(frozen)
     from app.adapters.pdf_renderer import renderer_identity
-    from app.adapters.manuscript_docx import RENDERER_VERSION
+    from app.adapters.manuscript_docx import COMPATIBLE_DEFAULT_FONTS_VERSION, RENDERER_VERSION
     from app.domain.school_templates.bsu_gs501 import SUBMISSION_FORMS_RENDERER
 
     docx_renderer=RENDERER_VERSION
@@ -83,6 +83,8 @@ def materialize(root,owner,project,candidate,images,plan,*,db=None,frozen=None,s
     if 'submission_forms_source_sha256' in plan:
         docx_renderer+='+'+SUBMISSION_FORMS_RENDERER
     mapper_version='school-final-map-v2' if plan.get('pagination_version')==2 else 'school-final-map-v1'
+    if mapper_version=='school-final-map-v2':
+        docx_renderer+='+'+COMPATIBLE_DEFAULT_FONTS_VERSION
     renderer=renderer_identity();key=basis(candidate,images,plan,renderer,mapper_version=mapper_version,docx_renderer=docx_renderer)
     docx,path=_paths(root,owner,project,key)
     if path.exists():

@@ -90,6 +90,33 @@ it('submits the full frozen research draft with the selected files and distinct 
   expect(new Set(posts.map(p => p.key)).size).toBe(3)
 })
 
+it.each(['sci_research_article', 'thesis_initial_draft'])('waits for explicit confirmation of %s before authorizing the exact bundle', async (workflow) => {
+  const {posts} = server({changeBundle: bundle => ({...bundle,
+    execution_contract: {skills_snapshot: {trace: {workflow}}}})})
+  const school = {confirmation_id: 'confirmed', chapters: [{id: 'custom-methods', purpose: 'materials_and_methods'}]} as NonNullable<ManuscriptVersion['snapshot']['thesis_context']>
+  const draft = workflow === 'thesis_initial_draft' ?
+    {...version, snapshot: {...version.snapshot, thesis_context: school}} : version
+  let approve: () => void = () => { throw new Error('Preview has not been shown') }
+  const confirmSkills = vi.fn(async () => new Promise<void>(resolve => { approve = resolve }))
+  const submission = submitPaperDraft({...options(), version: draft, confirmSkills})
+  await vi.waitFor(() => {
+    expect(confirmSkills).toHaveBeenCalledWith(expect.objectContaining({bundle: expect.objectContaining({
+      bundle_sha256: bundleFixture().bundle_sha256,
+    })}))
+  })
+  expect(posts.map(post => post.endpoint)).toEqual(['writing-previews'])
+  approve()
+  await submission
+  expect(posts.map(post => post.endpoint)).toEqual(['writing-previews', 'writing-authorizations', 'writing-requests'])
+})
+
+it('requires the confirmation step when a new writing skill is present', async () => {
+  const {posts} = server({changeBundle: bundle => ({...bundle,
+    execution_contract: {skills_snapshot: {trace: {workflow: 'sci_research_article'}}}})})
+  await expect(submitPaperDraft(options())).rejects.toThrow()
+  expect(posts.map(post => post.endpoint)).toEqual(['writing-previews'])
+})
+
 it('includes review literature and its planned illustrations while excluding original study results', async () => {
   const {posts} = server()
   await submitPaperDraft({...options(), version: {...version, snapshot: {...version.snapshot,

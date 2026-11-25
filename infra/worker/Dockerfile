@@ -40,5 +40,8 @@ COPY backend/requirements-bio-insights.lock.txt /app/requirements-bio-insights.l
 COPY backend/app /app/app
 COPY infra/worker/runtime_probe.py /app/runtime_probe.py
 RUN python -c "from app.adapters.ocr_runtime import get_runtime; get_runtime()"
+ENV PAPERASSIST_SKILLS_DIR=/app/SKILLS
+COPY SKILLS /app/SKILLS
 USER paperassist
+RUN python -m app.domain.runtime_skills
 CMD ["python", "-m", "app.workers", "worker"]

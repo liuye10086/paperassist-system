@@ -9,6 +9,7 @@ import BioMatrixPreview from './BioMatrixPreview'
 import BioQcSummary from './BioQcSummary'
 import BioReproducibility from './BioReproducibility'
 import BulkQcDetails from './BulkQcDetails'
+import BulkFixedPreview from './BulkFixedPreview'
 import {BioResultSteps} from './BioResultPanels'
 import {figureConfigName,isTechnicalResultFile,resultTableLabels} from './bioPresentation'
 import {bulkPanels, bulkPanelTab, hasBulkPanel, isTranscriptomeAssay, type BulkPanel} from '../bio-insights/bulk'
@@ -42,6 +43,9 @@ export default function TabularAnalysisResult({projectId,result,tab,onNavigate,q
   {!qualityMode&&<><button type="button" onClick={()=>onNavigate({view:'bio-insights',fileId:'',processedId:result.id,
     ...(result.source.assay==='bulk_rna_counts'?{bulkView:'differential'}:{})})}>{t('差异与功能分析')}</button><button type="button" onClick={()=>onNavigate({view:'research-findings',fileId:'',processedId:result.id})}>{t('整理研究发现与报告')}</button></>}
   <nav className="intake-actions" aria-label={t('生信结果标签页')}>{Object.entries(tabs).map(([key,label])=><button type="button" key={key} aria-current={key===active?'page':undefined} onClick={()=>onNavigate({view:'bio-result',fileId:'',processedId:result.id,tab:key as BioResultTab})}>{t(label)}</button>)}</nav>
+  {reportActive&&result.bulk_fixed_preview===true&&result.source.assay==='bulk_rna_counts'&&(active==='qc'||active==='embedding')&&
+   <BulkFixedPreview key={JSON.stringify([projectId,result.id,active])} {...{projectId,result}}
+    panel={active==='qc'?'qc_missing':'pca_scores'}/>}
   {panels.length>0&&<div className="intake-actions" aria-label={t('基于固定处理版本重绘')}>
    {panels.map(panel=><button type="button" key={panel} onClick={()=>onNavigate({view:'bio-insight-result',fileId:'',processedId:result.id,bulkPanel:panel})}>
     {t('重绘{panel}',{panel:t(bulkPanels[panel])})}

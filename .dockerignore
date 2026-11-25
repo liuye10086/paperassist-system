@@ -5,6 +5,8 @@
 !backend/requirements-bio-insights.lock.txt
 !backend/app/
 !backend/app/**
+!SKILLS/
+!SKILLS/**
 !backend/tests/
 !backend/tests/numeric/
 !backend/tests/numeric/**

@@ -13,6 +13,7 @@ from app.adapters.task_store import TaskStore,source_conflict
 from app.adapters.figure_workbench_store import FigureWorkbenchStore,read_bundle
 from app.domain.figure_workbench.tasks import assets_for,require_task_sources,validate_policy,PLOT_KEY,EXPLANATION_KEY
 from app.domain.figure_workbench.contracts import RENDERER
+from app.domain.figure_workbench import skill_approval
 from app.domain.figure_workbench.presentation import renderer_for
 from app.domain.external_processing import digest
 from app.domain.model_usage.gateway import ModelGateway,ModelGatewayError,input_digest
@@ -97,8 +98,9 @@ def _execute(repository,lease,provider_factory,providers,explanation):
     from app.domain.figure_workbench.explanations import build_payload,instructions_for as explanation_instructions,render,task_version
     bundle=None
     call=_call(repository,lease)
+    has_skills = 'skills_snapshot' in task['input_snapshot']
     if unknown_submission(call):return repository.wait_explanation(lease,'submission_unknown','model_submission_unknown')
-    if call and call['status']=='released':return repository.fail(lease,'task_source_conflict')
+    if call and call['status']=='released' and not has_skills:return repository.fail(lease,'task_source_conflict')
     if not explanation and task.get('figure_candidate'):
         task,store,row,result,projection,payload,expected=_context(repository,lease)
         candidate=task['figure_candidate']
@@ -111,7 +113,23 @@ def _execute(repository,lease,provider_factory,providers,explanation):
             bundle=read_bundle(store.assets,task['project_id'],task['input_snapshot']['figure']['id']);payload=build_payload(bundle,version=task_version(task['input_snapshot']));instructions=explanation_instructions(payload)
         else:instructions=instructions_for(payload)
         from app.domain.admin_configuration.model_consumption import task_instructions
-        with repository.connection() as db:instructions=task_instructions(db,task,instructions,'explanation' if explanation else 'plot')
+        with repository.connection() as db:
+            if has_skills:
+                instructions = skill_approval.replay(db, task, payload)['effective_instructions']
+                unsubmitted = call is None or (call['status'] in ('released','reserved') and not call.get('provider_state'))
+                existing = db.execute('SELECT id FROM explanations WHERE figure_id=%s AND engine_version=%s',
+                                      (bundle['figure']['id'], task_version(task['input_snapshot']))).fetchone() if unsubmitted else None
+            else:
+                instructions=task_instructions(db,task,instructions,'explanation' if explanation else 'plot')
+                existing = None
+        if existing:
+            cached = read_bundle(store.assets, task['project_id'], bundle['figure']['id'], existing['id'])
+            if call and call['status'] == 'reserved':
+                ModelUsageService(task['user_id'],repository.config).release_unsubmitted(
+                    call['id'],event_key='figure:reuse_saved_v5:v1',reason_code='cached_explanation')
+            return _publish_explanation(repository, lease, cached, cached['explanation'])
+        if call and call['status'] == 'released':
+            return repository.fail(lease,'task_source_conflict')
         frozen=validate_policy(task['input_snapshot']['explanation_policy' if explanation else 'boxplot_policy'],payload,explanation=explanation,instructions=instructions)
         if not explanation:repository.admit_figure_storage(lease)
     provider=provider_factory();providers.append(provider);gateway=ModelGateway(ModelUsageService(task['user_id'],repository.config),provider)
@@ -136,11 +154,21 @@ def _execute(repository,lease,provider_factory,providers,explanation):
     task,store,row,result,projection,payload,expected=_context(repository,lease)
     if explanation:
         bundle=read_bundle(store.assets,task['project_id'],task['input_snapshot']['figure']['id']);payload=build_payload(bundle,version=task_version(task['input_snapshot']))
-    validate_policy(task['input_snapshot']['explanation_policy' if explanation else 'boxplot_policy'],payload,explanation=explanation)
+    material = None
+    if has_skills:
+        with repository.connection() as db:
+            material = skill_approval.replay(db, task, payload)
+        if input_digest(instructions=material['effective_instructions'], payload=payload) != call['input_digest']:
+            raise source_conflict()
+    validate_policy(task['input_snapshot']['explanation_policy' if explanation else 'boxplot_policy'],payload,
+                    explanation=explanation, instructions=material['effective_instructions'] if material else None)
     if explanation:
         from app.domain.explanation_response import parse_explanation_response
         parsed=parse_explanation_response(response)
-        value=render(bundle,parsed['draft'],{**parsed['provenance'],'model_call_id':call['id'],'model_input_digest':call['input_digest']},version=task_version(task['input_snapshot']))
+        provenance = {**parsed['provenance'], 'model_call_id':call['id'], 'model_input_digest':call['input_digest']}
+        if material:
+            provenance['skills_trace'] = material['skills_snapshot']['trace']
+        value=render(bundle,parsed['draft'],provenance,version=task_version(task['input_snapshot']))
         return _publish_explanation(repository,lease,bundle,value)
     from app.domain.plot_response import parse_plot_response,PlotVerificationError,bounded_manifest
     from app.domain.figure_workbench.material import verify_manifest

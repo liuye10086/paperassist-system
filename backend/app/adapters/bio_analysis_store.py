@@ -380,15 +380,15 @@ class BioAnalysisStore:
             assay=manifest.get('assay','visium'),observation_level='cell' if single_cell else 'spot',recipes=['single_cell_explore_v1' if single_cell else 'visium_explore_v1'],design_gaps=['independent_donor_design_not_confirmed'],default_params=new_single_cell_parameters().model_dump(by_alias=True) if single_cell else BioRecipeParameters().model_dump(),runtime=runtime,**({'resource_estimate':estimate,'requires_qc_confirmation':self.store.assignment is not None,
             'single_cell_libraries':[{k:s.get(k) for k in ('library_id','sample_id')} for s in manifest.get('samples',[])]} if single_cell else {}))
 
-    def processed_record(self,db,project,identifier):
-        return self._processed_record(db,project,identifier)
+    def processed_record(self,db,project,identifier,*,verify_raw_bytes=True):
+        return self._processed_record(db,project,identifier,verify_raw_bytes=verify_raw_bytes)
 
     @phase_guard
     def _processed_lineage_in_phase(self,db,project,identifier,*,phase,progress=None):
         require_phase(phase,db,self.assets,project)
         return self._processed_record(db,project,identifier,phase=phase,progress=progress)
 
-    def _processed_record(self,db,project,identifier,*,phase=None,progress=None):
+    def _processed_record(self,db,project,identifier,*,phase=None,progress=None,verify_raw_bytes=True):
         row=self.require(db,'bio_processed_dataset_versions',project,identifier)
         obj=scoped_object(db,project,self.store.user_id,row['manifest_object_id'])
         if obj['sha256']!=row['manifest_sha256']:raise conflict('bio_input_integrity_changed')
@@ -398,7 +398,7 @@ class BioAnalysisStore:
             recipe=db.execute('SELECT setup_id FROM bio_analysis_recipe_versions WHERE id=%s AND project_id=%s',(row['recipe_version_id'],project)).fetchone()
             if not recipe or manifest['identity']['setup_id']!=recipe['setup_id']:raise conflict('bio_input_integrity_changed')
         raw_source=manifest.get('raw_source') or manifest.get('identity',{}).get('raw_source')
-        if phase is None:self.raw(db,project,raw_source)
+        if phase is None:self.raw(db,project,raw_source,verify=verify_raw_bytes)
         else:self._raw_lineage_in_phase(db,project,raw_source,phase=phase,progress=progress)
         rows=db.execute('SELECT * FROM bio_analysis_artifacts WHERE processed_dataset_version_id=%s AND project_id=%s ORDER BY key',(identifier,project)).fetchall()
         frozen={m['id']:m for m in manifest['members']};members=[]

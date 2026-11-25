@@ -10,6 +10,7 @@ from app.adapters.storage import ProjectStore
 from app.adapters.figure_workbench_store import FigureWorkbenchStore,read_bundle
 from app.domain.external_processing import digest
 from app.domain.figure_workbench.contracts import RENDERER
+from app.domain.figure_workbench import skill_approval
 from app.core.exceptions import StorageError
 
 PLOT_KEY='figure_workbench:v1'
@@ -82,12 +83,15 @@ def require_task_sources(repository,db,task):
             if bundle['figure']!=snapshot['figure']:raise ValueError()
             payload=build_payload(bundle,version=task_version(snapshot))
         external=snapshot['external_processing']
-        if external['confirmed'] is not True or external['confirmed_by']!=task['user_id'] or external['payload_sha256']!=digest(payload) or external['version_id']!=v:raise ValueError()
+        if external['confirmed'] is not True or external['version_id']!=v:raise ValueError()
+        if 'skills_snapshot' in snapshot or external.get('version') == 8:
+            skill_approval.replay(db, task, payload)
+        elif external['confirmed_by']!=task['user_id'] or external['payload_sha256']!=digest(payload):raise ValueError()
     except (KeyError,TypeError,ValueError):raise source_conflict() from None
     return snapshot
 
 
-def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=None,db=None):
+def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=None,db=None,direct_explanation=False):
     """Use one transaction for the public queue and any caller-owned intent."""
     row,result,computed,payload,expected=workbench.material(project_id,file_id,run_id,version_id)
     explanation=figure_id is not None;bundle=None
@@ -96,7 +100,9 @@ def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=No
         bundle=read_bundle(workbench.assets,project_id,figure_id);payload=build_payload(bundle)
         if bundle['figure']['figure_config_version_id']!=version_id:raise source_conflict()
     external=request.external_processing
-    if set(external)!={'confirmed','payload_sha256'} or external.get('confirmed') is not True or external.get('payload_sha256')!=digest(payload):raise source_conflict()
+    if set(external)!={'confirmed','payload_sha256'} or external.get('confirmed') is not True:raise source_conflict()
+    direct_v5 = direct_explanation and explanation and payload.get('figure_explanation_contract') == 5
+    if not direct_v5 and external['payload_sha256'] != digest(payload):raise source_conflict()
     kind='figure_explanation' if explanation else 'figure_workbench'
     with (nullcontext(db) if db is not None else workbench.tasks.connection(write=True)) as db:
         row=workbench._version(db,project_id,file_id,run_id,version_id,lock=True);projection=workbench._projection(db,row)
@@ -109,12 +115,39 @@ def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=No
         from app.domain.admin_configuration.bindings import resolve,bind
         from app.domain.admin_configuration.model_consumption import execution
         configuration=resolve(db)
+        skill_fields = {}
+        delegation = {}
+        preview = None
+        if direct_v5 and skill_approval.enabled(payload):
+            # The write transaction already locked and rechecked the assigned project scope.
+            delegation = skill_approval.delegated_approval(workbench.assets.assignment)
+            preview, base = skill_approval.prepare(payload, bundle['figure'], configuration, delegation)
+            skill_fields = dict(skills_snapshot=preview['skills_snapshot'], explanation_base_instructions=base)
+        approved_digest = preview['payload_sha256'] if preview else digest(payload)
+        if external['payload_sha256'] != approved_digest:raise source_conflict()
+        if direct_v5:
+            from app.domain.figure_workbench.explanations import LATEST_VERSION
+            saved = db.execute('SELECT id FROM explanations WHERE figure_id=%s AND engine_version=%s',
+                               (figure_id, LATEST_VERSION)).fetchone()
+            if saved:
+                original = db.execute("""SELECT * FROM tasks WHERE project_id=%s AND user_id=%s
+                    AND task_type='figure_explanation' AND result_explanation_id=%s AND status='succeeded'
+                    ORDER BY created_at,id LIMIT 1""", (project_id, workbench.tasks.user_id, saved['id'])).fetchone()
+                if original:
+                    return {'task': workbench.tasks.public_task(dict(original)), 'explanation': None}
+                cached = read_bundle(workbench.assets, project_id, figure_id, saved['id'])['explanation']
+                return {'task': None, 'explanation': cached}
         frozen=execution(configuration,'explanation' if explanation else 'plot',payload,figure=True) if configuration else policy_for(payload,explanation=explanation)
         if frozen is None:raise StorageError('explanation_not_configured' if explanation else 'plot_not_configured','模型策略尚未配置。',503)
+        if preview:
+            validate_policy(frozen, payload, explanation=True, instructions=preview['effective_instructions'])
         active=db.execute('''SELECT * FROM tasks WHERE project_id=%s AND task_type=%s AND input_snapshot->'figure_workbench'->>'version_id'=%s ORDER BY created_at DESC,id DESC LIMIT 1''',(project_id,kind,version_id)).fetchone()
         same_contract=not explanation or not active or active['input_snapshot']['explanation_policy']['policy']['prompt_version']==frozen['policy']['prompt_version']
         if active and not same_contract and active['status'] not in ('succeeded','failed','cancelled'):
             raise StorageError('task_transition_invalid','旧版本解释任务尚未结束，请先核对原调用。',409)
+        if (explanation and active and active['status'] not in ('failed','succeeded','cancelled')
+                and active['input_snapshot']['external_processing']['payload_sha256'] != approved_digest):
+            raise StorageError('task_transition_invalid','已有解释任务采用不同的外发材料，请先核对原调用。',409)
         if active and same_contract and active['status']!='failed':return {'task':workbench.tasks.public_task(dict(active)),'explanation':None}
         if active and active['status']=='failed':
             call=_call(db,active)
@@ -125,7 +158,9 @@ def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=No
         now=datetime.now(timezone.utc)
         snapshot={'schema_version':2,'result':result,'source':result['source'],'output_language':row['config_json']['language'],
             'figure_workbench':{'version_id':version_id,'projection_id':projection['id'],'configuration_sha256':row['sha256']},
-            'external_processing':{**external,'version':7,'version_id':version_id,'confirmed_by':workbench.tasks.user_id,'confirmed_at':now.isoformat()},
+            **skill_fields,
+            'external_processing':{**external,'version':8 if preview else 7,'version_id':version_id,
+                                   'confirmed_by':workbench.tasks.user_id,**delegation,'confirmed_at':now.isoformat()},
             'explanation_policy' if explanation else 'boxplot_policy':frozen}
         if bundle:snapshot['figure']=bundle['figure']
         task={'id':str(uuid4()),'project_id':project_id,'user_id':workbench.tasks.user_id,'task_type':kind,'idempotency_key':request.idempotency_key,'input_digest':input_hash,'input_snapshot':snapshot,'workflow_version':kind+'_v1','status':'queued','phase':'interpret' if explanation else 'compute','revision':1,'current_attempt':0,'reason_code':None,'created_at':now,'updated_at':now}
@@ -137,6 +172,20 @@ def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=No
 
 def _call(db,task):
     return db.execute('SELECT * FROM model_calls WHERE task_id=%s ORDER BY created_at DESC,id DESC LIMIT 1',(task['id'],)).fetchone()
+
+
+def local_reuse_blocked(db, project_id, version_id, figure_id, *, lock=False):
+    """The caller holds the version lock while choosing between local and hosted publication."""
+    query = """SELECT id,status FROM tasks WHERE project_id=%s AND task_type='figure_explanation'
+        AND input_snapshot->'figure_workbench'->>'version_id'=%s AND input_snapshot->'figure'->>'id'=%s
+        AND input_snapshot->'external_processing'->>'version'='8' ORDER BY id"""
+    rows = db.execute(query + (' FOR UPDATE' if lock else ''), (project_id, version_id, figure_id)).fetchall()
+    if not rows:
+        return False
+    if any(row['status'] not in ('succeeded','failed','cancelled') for row in rows):
+        return True
+    return db.execute("""SELECT 1 FROM model_calls WHERE task_id=ANY(%s)
+        AND status NOT IN ('completed','failed','released') LIMIT 1""", ([row['id'] for row in rows],)).fetchone() is not None
 
 
 def allowed_recovery_actions(db,task):

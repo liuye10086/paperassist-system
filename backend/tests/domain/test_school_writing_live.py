@@ -5,7 +5,7 @@ import pytest
 from app.domain.literature.service import digest
 from app.domain.manuscripts.school import seed_school_snapshot
 from app.domain.manuscript_writing.bundle import build_bundle,validate_bundle
-from app.domain.manuscript_writing.frozen import contract,validate_wire
+from app.domain.manuscript_writing.frozen import contract,initial_draft_workflow,validate_wire,wire_parts
 from app.domain.manuscript_writing.live_execution import compose_live_candidate,validate_live_candidate
 from tests.domain.test_thesis_chapters import sample
 
@@ -80,6 +80,40 @@ def test_school_output_rejects_reordered_or_protected_chapters():
         with pytest.raises(ValueError):compose_live_candidate(changed,snapshot,bundle,'call','synthetic_fixture')
 
 
+def test_new_school_presentation_freezes_exact_aliases_without_changing_v1():
+    from app.domain.manuscript_writing.school_live import output_schema
+
+    snapshot, _, _, _ = fixture()
+    base, request = snapshot['base_snapshot'], snapshot['input']
+    options = dict(schema_version=3, source_selection_version=2)
+    old = contract(**options, school_presentation_version='school-presentation-v1')
+    legacy = build_bundle(base, request, execution_contract=old)
+    validate_wire(legacy['wire_json'], old)
+    legacy_format = json.loads(legacy['wire_json'])['text']['format']
+    assert legacy_format['name'] == 'manuscript_school_presentation_v1'
+    limits = legacy_format['schema']['$defs']['Presentation']['properties']
+    assert limits['chapter_titles']['maxItems'] == limits['figure_titles']['maxItems'] == 300
+
+    frozen = contract(**options, school_presentation_version='school-presentation-v2')
+    bundle = build_bundle(base, request, execution_contract=frozen)
+    validate_bundle(dict(bundle, base_snapshot=base, request_json=request))
+    wire = json.loads(bundle['wire_json'])
+    selected = json.loads(wire['input'])
+    assert wire['text']['format']['name'] == 'manuscript_school_presentation_v2'
+    assert 'If a list is empty, return an empty array' in wire['instructions']
+    properties = wire['text']['format']['schema']['$defs']['Presentation']['properties']
+    assert properties['chapter_titles']['maxItems'] == properties['figure_titles']['maxItems'] == 0
+    assert properties['keywords']['minItems'] == properties['keywords']['maxItems'] == len(selected['draft_presentation']['abstracts'])
+
+    selected['draft_presentation']['chapter_titles'] = ['chapter3']
+    selected['draft_presentation']['figure_titles'] = [{'id': 'figure1', 'number': 1}, {'id': 'figure2', 'number': 2}]
+    schema = output_schema(selected, presentation_version='school-presentation-v2')
+    values = schema['$defs']['Presentation']['properties']
+    assert values['chapter_titles']['items']['properties']['id']['enum'] == ['chapter3']
+    assert values['figure_titles']['items']['properties']['id']['enum'] == ['figure1', 'figure2']
+    assert values['figure_titles']['minItems'] == values['figure_titles']['maxItems'] == 2
+
+
 def test_customer_school_presentation_is_frozen_and_uses_exact_citation_sentences():
     from app.domain.sci_draft_reader import paragraph_parts
     from app.domain.manuscript_writing.school_presentation import PRESENTATION_VERSION
@@ -116,6 +150,77 @@ def test_customer_school_presentation_is_frozen_and_uses_exact_citation_sentence
     item['citation_anchors'][0]['sentence'] = '聚类表现'
     with pytest.raises(ValueError):
         compose_live_candidate(output, snapshot, bundle, 'call', 'synthetic_fixture')
+
+
+def test_thesis_initial_draft_skills_preserve_selected_school_wire_and_replay(monkeypatch, tmp_path):
+    from app.domain.manuscript_writing.school_presentation import PRESENTATION_VERSION
+    from app.domain.runtime_skills import runtime
+
+    snapshot, _, output, _ = fixture(True)
+    base, request = snapshot['base_snapshot'], snapshot['input']
+    base['acknowledgements'] = 'PRIVATE ACKNOWLEDGEMENT'
+    base['sources'] += [dict(id=identity, kind='document_version', role='methods',
+                             content=dict(items=[dict(kind='text', text=body)]))
+                        for identity, body in [('local-selected', 'Selected school protocol.'),
+                                               ('local-unselected', 'PRIVATE UNSELECTED DOCUMENT')]]
+    original = contract(schema_version=3, source_selection_version=2, school_presentation_version=PRESENTATION_VERSION)
+    request.update(document_context_version='selected-text-v1', selected_source_ids=['run', 'local-selected'])
+    original_bundle = build_bundle(base, request, execution_contract=original)
+    assert 'skills_snapshot' not in original_bundle['execution_contract']
+    assert initial_draft_workflow(request) == 'thesis_initial_draft'
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'thesis_initial_draft')
+    monkeypatch.setenv('PAPERASSIST_SKILLS_DIR', str(runtime.PROJECT_ROOT / 'SKILLS'))
+    monkeypatch.delenv('PAPERASSIST_SKILLS_MANIFEST_SHA256', raising=False)
+    skills = runtime.load_step('thesis_initial_draft', 'initial_draft').freeze_writing()
+    assert [ref.name for ref in skills.trace.skills] == [
+        'scientific-writing', 'thesis-writing', 'citation-verification',
+    ]
+    frozen = contract(schema_version=3, source_selection_version=2, school_presentation_version=PRESENTATION_VERSION,
+                      skills_snapshot=skills)
+    bundle = build_bundle(base, request, execution_contract=frozen) | dict(id='school-skills')
+    baseline_wire, skill_wire = (json.loads(item['wire_json']) for item in (original_bundle, bundle))
+    assert skill_wire.pop('instructions') == baseline_wire.pop('instructions') + '\n\n' + skills.instructions
+    assert skill_wire == baseline_wire
+    assert bundle['local_manifest'] == original_bundle['local_manifest']
+    assert bundle['omitted_manifest'] == original_bundle['omitted_manifest']
+    assert skill_wire['text']['format']['name'] == 'manuscript_school_presentation_v1'
+    assert bundle['bundle_sha256'] != original_bundle['bundle_sha256']
+    payload = json.loads(skill_wire['input'])
+    assert payload['sources'][1]['document_excerpt'] == 'Selected school protocol.'
+    assert {chapter['output_language'] for chapter in payload['chapters']} == {'zh-CN', 'en'}
+    assert all(secret not in bundle['wire_json'] for secret in (
+        'PRIVATE AUTHOR', 'PRIVATE ACKNOWLEDGEMENT', 'PRIVATE UNSELECTED DOCUMENT',
+        'school-original', 'private-methods', 'local-selected', 'local-unselected',
+    ))
+    output['presentation'] = dict(english_title='Example Thesis', chapter_titles=[], figure_titles=[],
+        keywords=[dict(id=row['id'], values=['合成'] if row['output_language'] == 'zh-CN' else ['synthetic'])
+                  for row in payload['draft_presentation']['abstracts']])
+    for section in output['sections']:
+        section['paragraphs'][0]['citation_anchors'] = []
+
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', '')
+    monkeypatch.setenv('PAPERASSIST_SKILLS_DIR', str(tmp_path / 'missing'))
+    validate_wire(bundle['wire_json'], frozen)
+    assert validate_bundle(dict(bundle, base_snapshot=base, request_json=request))['wire_json'] == bundle['wire_json']
+    candidate = compose_live_candidate(output, snapshot, bundle, 'call', 'synthetic_fixture')
+    assert candidate['writing_provenance']['skills_trace'] == skills.trace.model_dump(mode='json')
+    assert candidate['sections'][0] == base['sections'][0]
+    assert candidate['acknowledgements'] == base['acknowledgements']
+    validate_live_candidate(candidate, snapshot, bundle)
+    assert validate_bundle(dict(original_bundle, base_snapshot=base, request_json=request))['wire_json'] == original_bundle['wire_json']
+
+    for change in (dict(mode='rewrite_section'), dict(revision_of_request_id='parent'), dict(draft_advice=True),
+                   dict(original_draft=[]), dict(draft_revision_scope='selected_sections'), dict(draft_sections=[])):
+        assert initial_draft_workflow(request | change) is None
+        with pytest.raises(ValueError, match='initial draft workflow'):
+            wire_parts(frozen, payload | change)
+    old_request = {key: value for key, value in request.items() if key != 'document_context_version'}
+    assert initial_draft_workflow(old_request) is None
+    with pytest.raises(ValueError, match='initial draft workflow'):
+        build_bundle(base, old_request, execution_contract=frozen)
+    with pytest.raises(ValueError, match='initial draft skill contract'):
+        contract(schema_version=3, source_selection_version=2, skills_snapshot=skills)
+
 
 def test_school_rewrite_keeps_all_non_target_content():
     snapshot,bundle,output,_=fixture(True)

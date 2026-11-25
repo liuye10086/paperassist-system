@@ -274,7 +274,7 @@ def build_school_docx(snapshot,images,plan,*,source_map=None,excluded_chapter_id
     submission_forms='submission_forms_source_sha256' in plan
     if gs501 and excluded_chapter_ids:
         raise StorageError('school_export_input_invalid','GS501 论文须保留已确认的全部章节。',422)
-    document=_document()
+    document=_document(compatible_default_fonts=plan.get('pagination_version')==2)
     language_nodes={}
     mapping=source_map is not None or plan.get('language_mapping_version')==1
     def mark(paragraph,chapter=None,identity=False,generated_field=False,language=None):

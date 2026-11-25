@@ -2,6 +2,7 @@
 from hashlib import sha256
 from io import BytesIO
 import json
+from pathlib import Path
 import re
 from zipfile import ZipFile
 
@@ -14,6 +15,7 @@ from docx.shared import Cm, Pt
 from fastapi.testclient import TestClient
 from lxml import etree
 from PIL import Image, ImageDraw
+import pytest
 
 from app.adapters.docx_parser import parse_docx
 from app.adapters.school_template_parser import inspect_school_template
@@ -30,7 +32,8 @@ from tests.api.test_manuscript_writing_live import request_v2
 from tests.api.test_school_writing_live import SchoolFixture
 from tests.domain.test_school_writing_live import synthetic_layout_cache
 from tests.integration.test_customer_sci_to_word import (
-    DOCX, assert_customer_writing_queued, record_candidate_citation, request, selected_pubmed_reference,
+    DOCX, assert_compatible_default_fonts, assert_customer_writing_queued, record_candidate_citation, request,
+    selected_pubmed_reference,
 )
 
 
@@ -244,28 +247,51 @@ class ThesisFixture(SchoolFixture):
         result = super().receipt()
         payload = json.loads(json.loads(self.posts[-1])['input'])
         content = result['response']['output'][0]['content'][0]
-        sections = json.loads(content['text'])['sections']
+        output = json.loads(content['text'])
+        sections = output['sections']
         for chapter, section in zip(payload['chapters'], sections):
             generated = section['paragraphs'][0]
             if chapter['purpose'] == 'abstract' and chapter['output_language'] == 'en':
                 generated.update(text=self.quote, evidence_aliases=['e1'])
+                if 'citation_anchors' in generated:
+                    generated['citation_anchors'] = [dict(sentence=self.quote, evidence_aliases=['e1'])]
             if chapter['purpose'] == 'materials_and_methods':
                 number = next(row for row in payload['numeric_context'] if row['text'].endswith(METHOD))
                 generated.update(text=METHOD, study_numeric_bindings=[dict(source_alias=number['alias'], **number['values'][0])])
             if chapter['purpose'] == 'results':
                 generated['text'] = RESULT
-        content['text'] = json.dumps(dict(sections=sections))
+        content['text'] = json.dumps(output)
         return result
 
 
-def write_candidate(client, root, sources, evidence, quote):
-    bundle = request(client, 'POST', root + '/writing-previews', status=201, key='preview', json=dict(
+def write_candidate(client, root, sources, evidence, quote, *, use_skills, monkeypatch, tmp_path):
+    previews = root + '/writing-previews'
+    body = dict(
         schema_version=3, base_revision=1, mode='full_draft', output_language='zh-CN',
         selected_source_ids=[source['id'] for source in sources], selected_evidence_ids=[evidence['id']],
-    ))
+    )
+    if use_skills:
+        body['document_context_version'] = 'selected-text-v1'
+    bundle = request(client, 'POST', previews, status=201, key='preview', json=body)
     assert bundle['execution_contract']['schema_version'] == 3
-    wire = json.loads(json.loads(bundle['wire_json'])['input'])
-    assert TITLE not in bundle['wire_json'] and TEMPLATE_SIGNATURE not in bundle['wire_json']
+    skills = bundle['execution_contract'].get('skills_snapshot')
+    envelope = json.loads(bundle['wire_json'])
+    wire = json.loads(envelope['input'])
+    if use_skills:
+        assert skills is not None and skills['trace']['workflow'] == 'thesis_initial_draft'
+        assert bundle['execution_contract']['school_presentation_version'] == 'school-presentation-v2'
+        schema = envelope['text']['format']['schema']['$defs']['Presentation']['properties']
+        for field in ('chapter_titles', 'figure_titles'):
+            count = len(wire['draft_presentation'][field])
+            assert schema[field]['minItems'] == schema[field]['maxItems'] == count
+        assert wire['draft_presentation']['source_title'] == TITLE
+        assert wire['sources'][0]['document_excerpt'] == METHOD
+        monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', '')
+        monkeypatch.setenv('PAPERASSIST_SKILLS_DIR', str(tmp_path / 'missing'))
+        assert request(client, 'POST', previews, key='preview', json=body) == bundle
+    else:
+        assert TITLE not in bundle['wire_json'] and skills is None
+    assert all(private not in bundle['wire_json'] for private in (TEMPLATE_SIGNATURE, AUTHOR, SIGNATURE))
     assert {chapter['output_language'] for chapter in wire['chapters']} == {'zh-CN', 'en'}
     assert {chapter['purpose'] for chapter in wire['chapters']}.isdisjoint({'manual', 'references'})
     assert wire['evidence'][0]['quote'] == quote
@@ -286,6 +312,7 @@ def write_candidate(client, root, sources, evidence, quote):
     context = request(client, 'GET', path + '/review-context')
     provenance = context['candidate']['writing_provenance']
     assert provenance['provider_provenance'] == 'synthetic_fixture' and provenance['verification_status'] == 'pending'
+    assert provenance.get('skills_trace') == (skills['trace'] if skills else None)
     paragraph = next(s for s in context['candidate']['sections'] if s.get('purpose') == 'abstract' and s['output_language'] == 'en')['paragraphs'][0]
     assert paragraph['suggested_evidence_aliases'] == ['e1'] and paragraph['citations'] == []
     return path, context
@@ -381,6 +408,13 @@ def export_word(client, root, fixed, payload, key):
     return saved, download.content
 
 
+def assert_school_page_numbering(document_xml):
+    page_numbers = document_xml.xpath('//w:sectPr/w:pgNumType', namespaces=NS)
+    assert [(node.get(qn('w:fmt')), node.get(qn('w:start'))) for node in page_numbers] == [
+        ('decimal', None), ('lowerRoman', '1'), ('lowerRoman', None), ('decimal', '1'),
+    ]
+
+
 def assert_school_word(ordinary, png, quote, reference):
     document = Document(BytesIO(ordinary))
     paragraphs = {p.text: p for p in document.paragraphs}
@@ -397,12 +431,10 @@ def assert_school_word(ordinary, png, quote, reference):
     assert '关键词：合成工程；格式核验' in paragraphs and 'Keywords: synthetic exercise; layout verification' in paragraphs
     assert '合成观察见图3.1。' in paragraphs and paragraphs['图 3.1  合成方向图'].style.name == 'School Figure Caption'
     assert CAPTION in paragraphs and '[1] ' + reference in paragraphs
+    assert_compatible_default_fonts(ordinary)
     with ZipFile(BytesIO(ordinary)) as archive:
         main = etree.fromstring(archive.read('word/document.xml'))
-        page_numbers = main.xpath('//w:sectPr/w:pgNumType', namespaces=NS)
-        assert [(node.get(qn('w:fmt')), node.get(qn('w:start'))) for node in page_numbers] == [
-            ('decimal', None), ('lowerRoman', '1'), ('lowerRoman', None), ('decimal', '1'),
-        ]
+        assert_school_page_numbering(main)
         assert any(etree.fromstring(archive.read(name)).xpath('//w:fldSimple[@w:instr="PAGE"]', namespaces=NS)
                    for name in archive.namelist() if name.startswith('word/footer'))
         assert main.xpath('//w:instrText[contains(text(), "TOC")]', namespaces=NS)
@@ -507,7 +539,11 @@ def adopt_template_update(client, project, root, fixed, parent_template, profile
     assert request(client, 'GET', root + '/versions/2')['snapshot'] == fixed['snapshot']
 
 
-def test_customer_confirms_writes_reviews_and_downloads_frozen_thesis(monkeypatch):
+@pytest.mark.parametrize('use_skills', [False, True], ids=['original', 'skills'])
+def test_customer_confirms_writes_reviews_and_downloads_frozen_thesis(monkeypatch, tmp_path, use_skills):
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'thesis_initial_draft' if use_skills else '')
+    monkeypatch.setenv('PAPERASSIST_SKILLS_DIR', str(Path(__file__).resolve().parents[3] / 'SKILLS'))
+    monkeypatch.delenv('PAPERASSIST_SKILLS_MANIFEST_SHA256', raising=False)
     monkeypatch.setattr('app.adapters.pdf_renderer.update_layout_fields', synthetic_layout_cache)
     with TestClient(app) as client, TestClient(app) as foreign:
         sign_in(client, 'customer-thesis@manuscript.test', 'customer')
@@ -563,7 +599,8 @@ def test_customer_confirms_writes_reviews_and_downloads_frozen_thesis(monkeypatc
 
         selected = base['snapshot']['citation_snapshot']['paragraphs'][0]['fragments'][0]['bindings'][0]
         citation = (literature, search, reference, selected['metadata_source'], quote)
-        path, context = write_candidate(client, root, sources, selected['evidence'][0], quote)
+        path, context = write_candidate(client, root, sources, selected['evidence'][0], quote,
+                                        use_skills=use_skills, monkeypatch=monkeypatch, tmp_path=tmp_path)
         reader = path + '/draft-reader'
         view = request(client, 'GET', reader + '?revision=1')
         assert view['can_revise']
@@ -578,6 +615,10 @@ def test_customer_confirms_writes_reviews_and_downloads_frozen_thesis(monkeypatc
         assert client.get(reader + '/figures/1?revision=1').content == png
         school_word = client.get(reader + '/word?revision=1')
         assert school_word.status_code == 200, school_word.text[:500] if school_word.status_code != 200 else ''
+        with ZipFile(BytesIO(school_word.content)) as archive:
+            assert_school_page_numbering(etree.fromstring(archive.read('word/document.xml')))
+            assert png in [archive.read(name) for name in archive.namelist() if name.startswith('word/media/')]
+        assert_compatible_default_fonts(school_word.content)
         candidate_doc = Document(BytesIO(school_word.content))
         assert len(candidate_doc.inline_shapes) == 1
         assert candidate_doc.styles['Normal'].font.size.pt == 14
@@ -588,7 +629,10 @@ def test_customer_confirms_writes_reviews_and_downloads_frozen_thesis(monkeypatc
         assert feedback == dict(text='扩展结论。')
         original_input = request(client, 'GET', path)['input']
         revise = original_input | dict(revision_of_request_id=view['request_id'], instructions=feedback['text'])
+        if use_skills:
+            monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'thesis_initial_draft')
         revision_bundle = request(client, 'POST', root + '/writing-previews', status=201, key='advisor-edits', json=revise)
+        assert 'skills_snapshot' not in revision_bundle['execution_contract']
         original_draft = json.loads(json.loads(revision_bundle['wire_json'])['input'])['original_draft']
         assert any(p['text'] == quote for s in original_draft for p in s['paragraphs'])
         assert checked['id'] not in revision_bundle['wire_json']

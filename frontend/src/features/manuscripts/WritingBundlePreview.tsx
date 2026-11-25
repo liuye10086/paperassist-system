@@ -1,6 +1,6 @@
 import {useEffect,useState} from 'react'
 import {useI18n} from '../../shared/i18n'
-import {object,wireDigest,dollars,type Bundle} from './writingLiveTypes'
+import {object,wireDigest,dollars,writingSkillsWorkflow,type Bundle} from './writingLiveTypes'
 import type {Snapshot} from './manuscriptTypes'
 import {plannedSectionTitle} from './paperPlan'
 import {readingScopeName} from '../literature/evidenceApi'
@@ -8,6 +8,11 @@ import VersionLabel from '../../shared/VersionLabel'
 export function MaterialTree({value}:{value:unknown}){if(Array.isArray(value))return <ol>{value.map((v,i)=><li key={i}><MaterialTree value={v}/></li>)}</ol>;if(object(value))return <dl>{Object.entries(value).map(([k,v])=><div key={k}><dt>{k}</dt><dd><MaterialTree value={v}/></dd></div>)}</dl>;return <span style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{value===null?'null':String(value)}</span>}
 const records=(value:unknown)=>Array.isArray(value)?value.filter(object):[]
 const strings=(value:unknown)=>Array.isArray(value)?value.filter((item):item is string=>typeof item==='string'):[]
+const ruleLabels = new Map([
+ ['sci_narrative_review','综述写作规则'],
+ ['sci_research_article','研究论文写作规则'],
+ ['thesis_initial_draft','毕业论文写作规则'],
+])
 const omittedLabels:Record<string,string>={
  attachments:'文件附件',binary_images:'图片的像素原件',local_paths:'本机文件路径',private_configuration:'私有配置',
  unselected_sources:'未选择的来源与段落',prior_reviews:'以往复核记录',school_identity:'学校与个人身份字段',
@@ -29,7 +34,17 @@ function WireTable({columns,rows}:{columns:string[];rows:string[][]}){
 // base version as “第 N 版 · 时间” when it is given savedAt.
 function ReadableWritingBundle({bundle,snapshot,wire,verified,failed,materialsOnly=false,savedAt}:{bundle:Bundle;snapshot:Snapshot;wire:unknown;verified:boolean;failed:boolean;materialsOnly?:boolean;savedAt?:string}){
  const {t}=useI18n()
- const [view,setView]=useState<'content'|'omitted'|'request'>('content')
+ type View='content'|'omitted'|'request'|'rules'
+ const [view,setView]=useState<View>('content')
+ const contract=bundle.execution_contract
+ const skill=object(contract)?contract.skills_snapshot:null
+ const ruleLabel=ruleLabels.get(writingSkillsWorkflow(bundle) ?? '')
+ const rules=ruleLabel&&verified&&object(skill)&&skill.schema_version===1&&typeof skill.instructions==='string'&&skill.instructions
+  &&object(wire)&&typeof wire.instructions==='string'&&wire.instructions.includes(skill.instructions)?skill.instructions:null
+ const views:Array<[View,string]>=[['content','发送内容'],['omitted','未外发材料清单']]
+ if(rules&&ruleLabel)views.push(['rules',ruleLabel])
+ if(!materialsOnly)views.push(['request','完整请求原文'])
+ const activeView=view==='rules'&&!rules?'content':view
  const input:Record<string,unknown>=object(wire)&&object(wire.input)?wire.input:{}
  const headings=new Map<string,string>()
  for(const section of records(input.article_structure))if(typeof section.id==='string'&&typeof section.heading==='string')headings.set(section.id,section.heading)
@@ -61,12 +76,12 @@ function ReadableWritingBundle({bundle,snapshot,wire,verified,failed,materialsOn
   <p>{t('模型')} {bundle.policy_json.model} · {t('预计费用')} {bundle.reserved_micro_usd==null?t('待核对'):dollars(bundle.reserved_micro_usd)}</p>
   <p>{t('授权并提交后，后台响应会由模型服务商保存。')}</p></>}
   <nav className="manuscript-view-nav" aria-label={t('发送材料视图')}>
-   {(materialsOnly?[['content','发送内容'],['omitted','未外发材料清单']] as const:[['content','发送内容'],['omitted','未外发材料清单'],['request','完整请求原文']] as const).map(([id,label])=>
-    <button type="button" key={id} aria-pressed={view===id} onClick={()=>setView(id)}>{t(label)}</button>)}
+   {views.map(([id,label])=><button type="button" key={id} aria-pressed={activeView===id} onClick={()=>setView(id)}>{t(label)}</button>)}
   </nav>
-  {view==='omitted'&&<ul>{omitted.map(key=><li key={key}>{t(omittedLabels[key])}</li>)}</ul>}
-  {view==='request'&&<pre className="paper-plan-note" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{bundle.wire_json}</pre>}
-  {view==='content'&&<>
+  {activeView==='omitted'&&<ul>{omitted.map(key=><li key={key}>{t(omittedLabels[key])}</li>)}</ul>}
+  {activeView==='request'&&<pre className="paper-plan-note" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{bundle.wire_json}</pre>}
+  {activeView==='rules'&&<pre className="paper-plan-note" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{rules}</pre>}
+  {activeView==='content'&&<>
   {names.length>0&&<p><strong>{t('写作章节')}</strong> · {names.join(' · ')}</p>}
   {keywords.length>0&&<p><strong>{t('关键词')}</strong> · {keywords.join(' · ')}</p>}
   {typeof input.instructions==='string'&&input.instructions&&<p className="paper-plan-note"><strong>{t('写作要求')}</strong> · {input.instructions}</p>}

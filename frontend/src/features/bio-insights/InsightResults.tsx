@@ -16,6 +16,7 @@ import type {ReportLocation} from '../bio-reader-reports/navigation'
 import InsightImpact from './InsightImpact'
 import {DataDetails, Field, Members, Paging, ReadState, TaskStatus} from './InsightShared'
 import SingleCellInsightSummary from './SingleCellInsightSummary'
+import FixedCompositionReading from './FixedCompositionReading'
 import SingleCellTopicSummary from './SingleCellTopicSummary'
 import {displayRaw} from './state'
 import {bulkRoute} from './bulkWorkflow'
@@ -102,6 +103,7 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
    <BulkEnrichmentFigureResult result={data} onNavigate={onNavigate}/>
    <BulkPublishedDetails result={data} onNavigate={onNavigate}/>
    <SingleCellInsightSummary result={data}/><SingleCellTopicSummary result={data}/>
+   {data.id===resultId&&data.composition_preview===true&&<FixedCompositionReading key={data.id} {...{projectId,active}} result={data}/>}
    {delivery}
    <DataDetails title="结果概况与样例标记" value={data.summary}/><TaskStatus projectId={projectId} task={data.task}/>
    {researchResult}{methodViews}{impact}

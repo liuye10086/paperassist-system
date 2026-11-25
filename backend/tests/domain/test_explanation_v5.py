@@ -22,6 +22,25 @@ def narrative(payload):
     from app.domain.figure_workbench.explanation_v5 import sentence_draft_v5
     return sentence_draft_v5(payload)
 
+
+@pytest.mark.parametrize('language', ['en', 'zh-CN'])
+def test_new_statistical_skills_preview_uses_the_validated_sentence_frames(language, monkeypatch):
+    from app.domain.figure_workbench import skill_approval
+
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'statistical_explanation')
+    bundle = find('line', language)
+    payload = e.build_payload(bundle)
+    approved, base = skill_approval.prepare(payload, bundle['figure'], None, {})
+    rules = 'Use the supplied sentence frames for numerical results, record populations, and limitations.'
+    assert rules in base
+    assert 'Keep literal count labels, metric names, and participant terminology inside their bound facts' in base
+    marker = 'Validated sentence frames for this payload:\n'
+    supplied = json.loads(base.split(marker, 1)[1])
+    assert supplied == narrative(payload)
+    assert len(e.render(bundle, supplied, {'model_call_id': 'offline', 'response_id': 'offline'})['sections']) == 6
+    assert approved['effective_instructions'].startswith(base + '\n\n')
+    assert rules not in e.instructions_for(payload)
+
 @pytest.mark.parametrize('bundle',bundles(),ids=lambda b:b['figure']['figure_kind']+'-'+b['figure']['language'])
 def test_every_actual_kind_has_substantial_six_sentence_sections(bundle):
     assert e.LATEST_VERSION == 'figure_explanation_v5'

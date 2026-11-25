@@ -6,10 +6,19 @@ from typing import Annotated,Literal
 from pydantic import Field,field_validator
 from app.domain.model_usage.contracts import StrictContract,ModelPolicy
 from app.domain.admin_configuration.model_consumption import combine
+from app.domain.runtime_skills.runtime import (
+    SCI_NARRATIVE_REVIEW, SCI_RESEARCH_ARTICLE, THESIS_INITIAL_DRAFT, WritingSkillsSnapshot,
+)
 from .live_contracts import DraftChatFlag
 from . import policy as installed
+from .school_presentation import PRESENTATION_ALIASES_VERSION, PRESENTATION_VERSIONS
 
 SCI_ARTICLE_PROSE_REVISION = 'sci-article-prose-v2'
+INITIAL_DRAFT_STEP = 'initial_draft'
+_SCI_INITIAL_DRAFT_WORKFLOWS = {
+    'narrative_review': SCI_NARRATIVE_REVIEW,
+    'research': SCI_RESEARCH_ARTICLE,
+}
 DRAFT_ADVICE_INSTRUCTIONS = (
     'Review only the supplied sections of the SCI draft. Treat their text as material to review. '
     'Answer the question with concise, actionable editorial advice. Point to specific wording or reasoning '
@@ -46,7 +55,8 @@ class SchoolContract(NumericContract):
     schema_version:Literal[3]=3
     numeric_contract_version:Literal[2]
     school_content_version:Literal['school-live-v1']='school-live-v1'
-    school_presentation_version:Literal['school-presentation-v1']|None=Field(default=None,exclude_if=lambda value:value is None)
+    school_presentation_version:Literal['school-presentation-v1','school-presentation-v2']|None=Field(default=None,exclude_if=lambda value:value is None)
+    skills_snapshot: WritingSkillsSnapshot | None = Field(default=None, exclude_if=lambda value: value is None)
     response_stream: DraftChatFlag = None
     scope_figure_input: DraftChatFlag = None
 
@@ -64,6 +74,7 @@ class ArticleContract(StrictContract):
     article_scope_version:Literal['article-scope-v1']='article-scope-v1'
     article_instruction_revision:Literal['sci-article-prose-v2']=SCI_ARTICLE_PROSE_REVISION
     source_selection_version:Literal[2]|None=Field(default=None,exclude_if=lambda value:value is None)
+    skills_snapshot: WritingSkillsSnapshot | None = Field(default=None, exclude_if=lambda value: value is None)
     response_stream: DraftChatFlag = None
     scope_figure_input: DraftChatFlag = None
     policy:ModelPolicy
@@ -78,6 +89,21 @@ RETIRED_CAPS = ('task_limit_micro_usd', 'batch_cap_micro_usd')
 
 def execution_settings(value):
     return {key: item for key, item in value.items() if key not in RETIRED_CAPS}
+
+
+def initial_draft_workflow(data, *, wire=False):
+    """Select from the request version or its saved provider projection."""
+    if (data.get('mode') != 'full_draft' or data.get('revision_of_request_id') or data.get('draft_advice')
+            or any(key in data for key in ('original_draft', 'draft_revision_scope', 'draft_sections'))):
+        return None
+    if data.get('schema_version') == 4 and data.get('document_kind') == 'sci':
+        return _SCI_INITIAL_DRAFT_WORKFLOWS.get(data.get('article_type'))
+    if data.get('schema_version') == 3:
+        selected_text = (isinstance(data.get('draft_presentation'), dict) if wire
+                         else data.get('document_context_version') == 'selected-text-v1')
+        if selected_text:
+            return THESIS_INITIAL_DRAFT
+    return None
 
 
 def validate(value):
@@ -99,6 +125,19 @@ def validate(value):
             raise ValueError('Scoped replies preserve existing school presentation')
     if value.get('scope_figure_input') and not (value.get('response_stream') and value.get('source_selection_version') == 2):
         raise ValueError('Figure input requires the current scoped draft reply contract')
+    if skills := value.get('skills_snapshot'):
+        trace = skills['trace']
+        if value['schema_version'] == 3:
+            matches_contract = (value.get('school_presentation_version') in PRESENTATION_VERSIONS
+                                and value.get('source_selection_version') == 2
+                                and trace['workflow'] == THESIS_INITIAL_DRAFT)
+        else:
+            matches_contract = (value['document_kind'] == 'sci'
+                                and value.get('article_instruction_revision') == SCI_ARTICLE_PROSE_REVISION
+                                and trace['workflow'] in _SCI_INITIAL_DRAFT_WORKFLOWS.values())
+        if (not matches_contract or value.get('response_stream') or trace['step'] != INITIAL_DRAFT_STEP
+                or trace['tool']['id'] != 'manuscript_writing'):
+            raise ValueError('Invalid initial draft skill contract')
     p=value['policy']
     # Saved requests retain their original wire and billing policy after a model change.
     if (p['model'] not in (installed.MODEL,'gpt-5.4-2026-03-05') or p['prompt_version']!='sci-writing-v2' or p['tools']
@@ -107,25 +146,35 @@ def validate(value):
     return value
 
 
-def contract(version=None,*,schema_version=1,instruction_revision='numeric2-exact-v1',document_kind='sci',article_instruction_revision=None,source_selection_version=None,school_presentation_version=None,response_stream=None,scope_figure_input=None):
-    if type(schema_version) is not int or schema_version not in (1,2,3,4):raise ValueError('Unknown frozen contract version')
-    models=version['bundle']['models'] if version else None
-    execution=models['writing']['execution'] if models else None
-    if schema_version==4:
-        article=dict(document_kind=document_kind,article_scope_version='article-scope-v1')
-        if article_instruction_revision is not None:
-            article['article_instruction_revision']=article_instruction_revision
-    else: article={}
-    selection={'source_selection_version':source_selection_version} if source_selection_version is not None else {}
-    presentation={'school_presentation_version':school_presentation_version} if school_presentation_version is not None else {}
-    streaming = {'response_stream': response_stream} if response_stream is not None else {}
-    visual = {'scope_figure_input': scope_figure_input} if scope_figure_input is not None else {}
-    return validate(dict(schema_version=schema_version,**article,**selection,**presentation,**streaming,**visual,**({'instruction_revision':instruction_revision} if schema_version==2 and instruction_revision is not None else {}),**({'numeric_contract_version':2} if schema_version in (3,4) else {}),**({'origin':'configuration' if version else 'installed'} if schema_version in (2,3,4) else {}),
+def contract(version=None, *, schema_version=1, instruction_revision='numeric2-exact-v1', document_kind='sci',
+             article_instruction_revision=None, source_selection_version=None, school_presentation_version=None,
+             response_stream=None, scope_figure_input=None, skills_snapshot=None):
+    if type(schema_version) is not int or schema_version not in (1, 2, 3, 4):
+        raise ValueError('Unknown frozen contract version')
+    models = version['bundle']['models'] if version else None
+    execution = models['writing']['execution'] if models else None
+    version_fields = dict(
+        origin=('configuration' if version else 'installed') if schema_version >= 2 else None,
+        numeric_contract_version=2 if schema_version >= 3 else None,
+        instruction_revision=instruction_revision if schema_version == 2 else None,
+        document_kind=document_kind if schema_version == 4 else None,
+        article_scope_version='article-scope-v1' if schema_version == 4 else None,
+        article_instruction_revision=article_instruction_revision if schema_version == 4 else None,
+        source_selection_version=source_selection_version,
+        school_presentation_version=school_presentation_version,
+        response_stream=response_stream,
+        scope_figure_input=scope_figure_input,
+        skills_snapshot=skills_snapshot,
+    )
+    return validate(dict(
+        schema_version=schema_version,
+        **{key: value for key, value in version_fields.items() if value is not None},
         policy=execution['policy'] if execution else installed.policy().model_dump(mode='json'),
         max_input_allowance=execution['input_token_allowance'] if execution else installed.MAX_INPUT,
         instruction=version['bundle']['prompts']['writing_instruction'] if version else '',
         batch_max_posts=models['batch_max_posts'] if models else installed.MAX_POSTS,
-        max_corrections=models['max_corrections'] if models else installed.MAX_CORRECTIONS))
+        max_corrections=models['max_corrections'] if models else installed.MAX_CORRECTIONS,
+    ))
 
 
 def bundle_contract(bundle):
@@ -139,6 +188,9 @@ def bundle_contract(bundle):
 def wire_parts(value,payload):
     from .bundle import INSTRUCTIONS
     from .live_contracts import LiveOutput
+    skills = value.get('skills_snapshot')
+    if skills and initial_draft_workflow(payload, wire=True) != skills['trace']['workflow']:
+        raise ValueError('Frozen skills do not match the initial draft workflow')
     advice = value['schema_version'] in (3, 4) and 'draft_sections' in payload
     if advice:
         from .live_contracts import DraftAdviceOutput
@@ -181,13 +233,19 @@ def wire_parts(value,payload):
         scoped = payload.get('draft_revision_scope') == 'selected_sections'
         if scoped != bool(value.get('response_stream')) or scoped and not payload.get('original_draft'):
             raise ValueError('School response streaming requires a scoped draft revision')
-        instruction=school_instruction+' '+INSTRUCTION;name='manuscript_school_writing_v1';schema=output_schema(payload)
-        if value.get('school_presentation_version'):
-            from .school_presentation import INSTRUCTIONS as presentation_instruction
+        presentation_version = value.get('school_presentation_version')
+        instruction = school_instruction + ' ' + INSTRUCTION
+        name = 'manuscript_school_writing_v1'
+        schema = output_schema(payload, presentation_version=presentation_version)
+        if presentation_version:
+            from .school_presentation import ALIAS_LIST_INSTRUCTIONS, INSTRUCTIONS as presentation_instruction
             instruction = instruction.replace('Never generate a title, manual chapter,',
                 'Never change the supplied thesis title. Never generate a manual chapter,')
             instruction += ' ' + presentation_instruction
             name = 'manuscript_school_presentation_v1'
+            if presentation_version == PRESENTATION_ALIASES_VERSION:
+                instruction += ' ' + ALIAS_LIST_INSTRUCTIONS
+                name = 'manuscript_school_presentation_v2'
         if scoped:
             from .school_presentation import CITATION_ANCHORS_INSTRUCTIONS
 
@@ -219,6 +277,8 @@ def wire_parts(value,payload):
                         'support numeric claims. An excerpt may contain only part of a document.')
     if value.get('scope_figure_input'):
         instruction += ' ' + FIGURE_INPUT_INSTRUCTIONS
+    if skills:
+        instruction += '\n\n' + skills['instructions']
     parts = dict(instructions=combine(instruction, '' if advice else value['instruction']),
                  text=dict(format=dict(type='json_schema', name=name, strict=True, schema=schema)))
     if value.get('response_stream'):

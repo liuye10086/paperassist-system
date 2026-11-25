@@ -5,6 +5,9 @@ import json
 
 from app.adapters.bio_insights_store import BioInsightsStore,invalid
 from app.adapters.bio_analysis_store import scoped_object
+from app.domain.runtime_skills.runtime import SINGLE_CELL_COMPOSITION_PREVIEW, load_step
+
+from . import fixed_composition_reading
 
 
 def checked_members(service,db,project,row,*,resource=False,progress=None):
@@ -49,10 +52,13 @@ class BioInsightResultService(BioInsightsStore):
             task=self.store.require_task(db,row['task_id'])
             from .service import BioInsightsService
             BioInsightsService(self.assets).require_sources(db,task,runtime=False)
-            return dict(id=row['id'],run_id=row['run_id'],plan_version_id=row['plan_version_id'],kind=row['kind'],
+            result = dict(id=row['id'],run_id=row['run_id'],plan_version_id=row['plan_version_id'],kind=row['kind'],
                 provenance=row['provenance'],inference_scope=row['inference_scope'],summary=row['summary_json'],methods=row['methods_json'],
                 manifest_sha256=row['manifest_sha256'],manifest=manifest,task_id=row['task_id'],task=self.store.public_task(task),
                 members=[self.public_member(project,identifier,m) for m in members])
+            if self.store.assignment is not None and fixed_composition_reading.preview_available(result):
+                result['composition_preview'] = True
+            return result
 
     @staticmethod
     def public_member(project,identifier,member,resource=False):
@@ -77,7 +83,6 @@ class BioInsightResultService(BioInsightsStore):
             return member,self.objects.read(member)
 
     def table(self,project,identifier,key,page=1,page_size=50,search=None):
-        from .sources import InsightSourceReader
         with self.store.connection() as db:
             row=self.require(db,'bio_insight_result_versions',project,identifier)
             from .service import BioInsightsService
@@ -85,20 +90,52 @@ class BioInsightResultService(BioInsightsStore):
             _,members=checked_members(self,db,project,row)
             member=next((m for m in members if m['key']==key and m['format'] in ('csv','tsv')),None)
             if not member:raise invalid('bio_insight_not_found',404)
-            path=self.objects.path(member['object_key'])
-            InsightSourceReader._verify(path,member)
-            selected=[];total=matched=0;columns=[]
-            with path.open('r',encoding='utf-8-sig',newline='') as stream:
-                reader=csv.DictReader(stream,delimiter='\t' if member['format']=='tsv' else ',',strict=True)
-                columns=reader.fieldnames or []
-                for item in reader:
-                    total+=1
-                    if None in item:raise invalid()
-                    if search and not any(search.casefold() in value.casefold() for value in item.values() if value is not None):continue
-                    if (page-1)*page_size<=matched<page*page_size:selected.append(item)
-                    matched+=1
-            return dict(key=key,columns=columns,items=selected,total=total,matched_total=matched,page=page,page_size=page_size,
-                sha256=member['sha256'],raw_text_values=True,provenance=row['provenance'],inference_scope=row['inference_scope'])
+            return self._read_table(row, member, page, page_size, search)
+
+    def _read_table(self, row, member, page, page_size, search=None):
+        from .sources import InsightSourceReader
+        path = self.objects.path(member['object_key'])
+        InsightSourceReader._verify(path, member)
+        selected = []
+        total = matched = 0
+        with path.open('r', encoding='utf-8-sig', newline='') as stream:
+            reader = csv.DictReader(stream, delimiter='\t' if member['format'] == 'tsv' else ',', strict=True)
+            columns = reader.fieldnames or []
+            for item in reader:
+                total += 1
+                if None in item:
+                    raise invalid()
+                if search and not any(search.casefold() in value.casefold() for value in item.values() if value is not None):
+                    continue
+                if (page - 1) * page_size <= matched < page * page_size:
+                    selected.append(item)
+                matched += 1
+        return dict(key=member['key'], columns=columns, items=selected, total=total, matched_total=matched,
+                    page=page, page_size=page_size, sha256=member['sha256'], raw_text_values=True,
+                    provenance=row['provenance'], inference_scope=row['inference_scope'])
+
+    def composition_preview(self, project, identifier, page, page_size):
+        from .service import BioInsightsService
+
+        if self.store.assignment is None:
+            raise invalid('bio_insight_not_found', 404)
+        with self.store.connection() as db:
+            row = self.require(db, 'bio_insight_result_versions', project, identifier)
+            metadata = dict(kind=row['kind'], inference_scope=row['inference_scope'], methods=row['methods_json'])
+            if not fixed_composition_reading.supported(metadata):
+                raise invalid('bio_insight_source_unsupported', 422)
+            trace = load_step(SINGLE_CELL_COMPOSITION_PREVIEW, 'read_propeller').trace
+            BioInsightsService(self.assets).require_sources(db, self.store.require_task(db, row['task_id']), runtime=False)
+            _, members = checked_members(self, db, project, row)
+            member = next((item for item in members if item['key'] == fixed_composition_reading.TABLE_KEY
+                           and item['role'] == 'table' and item['format'] == 'tsv'), None)
+            if member is None:
+                raise invalid('bio_insight_source_incomplete', 422)
+            try:
+                table = self._read_table(row, member, page, page_size)
+            except (csv.Error, UnicodeError, OSError) as exc:
+                raise invalid() from exc
+            return fixed_composition_reading.project_table(project, row, metadata, table, trace)
 
     def bulk_comparisons(self, project, identifier, *, contrast_id, subset, q_column, q_threshold,
                          minimum_absolute_effect, page, page_size, search):

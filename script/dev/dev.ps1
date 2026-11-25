@@ -21,8 +21,8 @@ function Invoke-WorkerStack([string]$Operation) {
     if ($LASTEXITCODE -ne 0) { throw "Worker stack $Operation failed. Check Docker Desktop and private runtime configuration." }
 }
 
-function Import-ApiRuntimeManifests([string]$PythonExecutable, [string]$ConfigurationFile) {
-    # The numerical runtime gates read process variables. Import only their paths;
+function Import-ApiRuntimeSettings([string]$PythonExecutable, [string]$ConfigurationFile) {
+    # Import numerical manifest paths and the Skills rollout settings;
     # other settings continue to be read by the API through its normal config path.
     $readManifests = @'
 import json
@@ -32,11 +32,12 @@ from dotenv import dotenv_values
 names = ('BIO_RUNTIME', 'SINGLE_CELL_RUNTIME', 'BIO_INSIGHTS_RUNTIME',
          'BIO_TABULAR_RUNTIME', 'BULK_MODEL_RUNTIME', 'BULK_DISPLAY_RUNTIME')
 keys = [f'PAPERASSIST_{name}_MANIFEST' for name in names]
+keys += ['PAPERASSIST_SKILL_WORKFLOWS', 'PAPERASSIST_SKILLS_MANIFEST_SHA256']
 values = dotenv_values(sys.argv[1], encoding='utf-8-sig', interpolate=False)
 print(json.dumps({key: values[key] for key in keys if values.get(key)}))
 '@
     $manifests = & $PythonExecutable -B -c $readManifests $ConfigurationFile
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to read API runtime manifest paths.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to read API runtime settings.' }
     foreach ($entry in ($manifests | ConvertFrom-Json).PSObject.Properties) {
         if ($null -eq [Environment]::GetEnvironmentVariable($entry.Name, 'Process')) {
             [Environment]::SetEnvironmentVariable($entry.Name, $entry.Value, 'Process')
@@ -165,7 +166,7 @@ function Start-ServiceProcess([string]$Name, [string]$Executable, [string[]]$Arg
 }
 
 function Start-Backend {
-    Import-ApiRuntimeManifests $pythonPath (Join-Path $projectRoot 'backend\.env')
+    Import-ApiRuntimeSettings $pythonPath (Join-Path $projectRoot 'backend\.env')
     Start-ServiceProcess 'backend' $pythonPath @(
         '-m', 'uvicorn', 'app.main:app', '--app-dir', 'backend',
         '--host', '127.0.0.1', '--port', '8000', '--no-proxy-headers', '--no-access-log'

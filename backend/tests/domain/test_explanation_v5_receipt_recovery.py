@@ -25,6 +25,25 @@ def completed_call():
     return {'status': 'completed', 'provider_status': 'completed', 'provider_response_id': FIXTURE['source_response_id']}
 
 
+def test_statistical_approval_distinguishes_figures_with_identical_facts(monkeypatch):
+    from contextlib import nullcontext
+    from app.api import figure_workbench as api
+    from app.domain.admin_configuration import bindings
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'statistical_explanation')
+    monkeypatch.setattr(bindings, 'resolve', lambda db: None)
+    monkeypatch.setattr(api, 'FigureWorkbenchStore',
+                        lambda store: SimpleNamespace(tasks=SimpleNamespace(connection=lambda: nullcontext(None))))
+    def bundle_for(store, project, file, run, figure):
+        result = deepcopy(FIXTURE['bundle'])
+        result['figure'].update(id=figure, sha256='1'*64 if figure=='first' else '2'*64)
+        return result
+    monkeypatch.setattr(api, 'bundle_for', bundle_for)
+    first, second = [api.explanation_preview('project','file','run',figure,SimpleNamespace(assignment=None))
+                     for figure in ('first','second')]
+    assert first['payload'] == second['payload']
+    assert first['payload_sha256'] != second['payload_sha256']
+
+
 def test_only_known_completed_v5_validation_failure_offers_original_retry(monkeypatch):
     task = failed_task()
     before = deepcopy(task)

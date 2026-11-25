@@ -137,6 +137,14 @@ def download_resource(project_id:str,version_id:str,member_id:str,store:Store):
 def result(project_id:str,version_id:str,store:Store):return BioInsightResultService(store).get(project_id,version_id)
 
 
+@router.get('/{project_id}/bio-insight-results/{version_id}/composition-preview')
+def composition_preview(project_id: str, version_id: str, store: Store, response: Response,
+                        page: Page = 1, page_size: PageSize = 50):
+    value = BioInsightResultService(store).composition_preview(project_id, version_id, page, page_size)
+    response.headers['Cache-Control'] = 'no-store'
+    return value
+
+
 @router.get('/{project_id}/bio-insight-results/{version_id}/figures')
 def report_figures(project_id:str,version_id:str,store:Store):
     from app.adapters.single_cell_insight_report import list_report_figures

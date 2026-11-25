@@ -52,8 +52,11 @@ def layout(base,request):
 def build_bundle(base, request, frozen, *, revision_sections=None, revision_figures=(), revision_school_presentation=None):
     from .bundle import build_bundle as common, finish_bundle, safe_text
     from .context import paragraph_sources_selected
+    from .frozen import initial_draft_workflow
     from .numeric_contract import add_literature_numbers,add_reported_results,text_facts
     from .paper_context import add_illustration_context, add_notes, is_note, place_illustrations
+    if (skills := frozen.get('skills_snapshot')) and initial_draft_workflow(request) != skills['trace']['workflow']:
+        raise ValueError('Frozen skills do not match the initial draft workflow')
     school=layout(base,request)
     scoped = scoped_draft_revision(request)
     if scoped != bool(frozen.get('response_stream')) or bool(revision_figures) != bool(frozen.get('scope_figure_input')):
@@ -84,7 +87,11 @@ def build_bundle(base, request, frozen, *, revision_sections=None, revision_figu
     safe.pop('thesis_context',None);safe.pop('sections',None)
     safe.update(title='',methods=[])
     safe['results_groups']=[dict(g,paragraphs=[]) for g in safe.get('results_groups',[])]
-    legacy={k:deepcopy(v) for k,v in frozen.items() if k not in ('origin','numeric_contract_version','school_content_version','source_selection_version','school_presentation_version','response_stream','scope_figure_input')};legacy['schema_version']=1
+    legacy = {key: deepcopy(value) for key, value in frozen.items() if key not in (
+        'origin', 'numeric_contract_version', 'school_content_version', 'source_selection_version',
+        'school_presentation_version', 'response_stream', 'scope_figure_input', 'skills_snapshot',
+    )}
+    legacy['schema_version'] = 1
     seed=common(safe,dict(request,schema_version=2,keywords=[],acknowledgements=''),execution_contract=legacy)
     payload=json.loads(json.loads(seed['wire_json'])['input']);local=seed['local_manifest']
     payload.update(schema_version=3,school_content_version=VERSION,numeric_contract_version=2,context=[],keywords=[],acknowledgements='')
@@ -182,14 +189,15 @@ def allowed_contexts(base,payload,contexts,chapter,*,wire_alias=None):
             if item['kind']=='figure' and item['number'] in figures:result.append(alias)
     return result
 
-def output_schema(payload):
+def output_schema(payload, *, presentation_version=None):
     from .numeric_contract import output_schema as numeric_schema
     result=numeric_schema(payload);aliases=[c['alias'] for c in payload['chapters']]
     section_def = 'LiveSection'
     revision = payload.get('draft_revision_scope') == 'selected_sections'
     if revision or 'draft_presentation' in payload:
-        from .school_presentation import presentation_schema
-        result = presentation_schema(result, revision=revision)
+        from .school_presentation import PRESENTATION_ALIASES_VERSION, presentation_schema
+        selection = payload['draft_presentation'] if presentation_version == PRESENTATION_ALIASES_VERSION else None
+        result = presentation_schema(result, revision=revision, selection=selection)
         section_def = 'PresentationSection'
     result['$defs'][section_def]['properties']['id']=dict(type='string',enum=aliases)
     result['properties']['sections'].update(minItems=len(aliases),maxItems=len(aliases))
@@ -255,6 +263,8 @@ def compose(output,snapshot,bundle,call_id,provenance,composition_version=2):
         result['school_presentation'] = project_presentation(output['presentation'],payload,local)
     if result.get('review_provenance'):result.setdefault('review_history',[]).append(dict(provenance=result.pop('review_provenance'),review=result.pop('review'),applies_to_current_text=False,status='historical_requires_recheck'))
     result['writing_provenance']=dict(schema_version=2,request_id=snapshot['request_id'],bundle_id=bundle['id'],bundle_sha256=bundle['bundle_sha256'],model_call_id=call_id,provider_provenance=provenance,verification_status='pending',raw_output=output,raw_output_sha256=digest(output),required_reviews=['scientific_claims','study_numeric_facts','complete_language','school_export'],base_version_id=snapshot['base_version_id'],composition_version=composition_version,numeric_contract_version=2,school_content_version=VERSION)
+    if skills := bundle['execution_contract'].get('skills_snapshot'):
+        result['writing_provenance']['skills_trace'] = deepcopy(skills['trace'])
     update_notice(result,snapshot['input']);validate_preservation(result,snapshot['base_snapshot'],bundle)
     result['school_content_report']=school_content_report(result)
     return result

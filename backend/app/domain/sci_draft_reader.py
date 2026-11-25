@@ -407,6 +407,9 @@ def school_draft_word(assets, snapshot, draft, images, options, analysis, *, edi
         raise invalid('已完成语言审核的稿件须使用原审核版式。')
     draft, options = apply_export_edits(snapshot, draft, options, edits)
     projected = school_export_projection(snapshot, draft['references'])
+    provenance = projected.get('writing_provenance', {})
+    if provenance.get('school_content_version') == 'school-live-v1' and not provenance.get('language_review_id'):
+        projected['writing_provenance'] = {**provenance, 'school_pagination_version': 2}
     context = projected['thesis_context']
     if (bsu_gs501.selected(projected) and not context['confirmation'].get('front_matter')
             and not snapshot.get('writing_provenance', {}).get('language_review_id')):
@@ -427,7 +430,7 @@ def school_draft_word(assets, snapshot, draft, images, options, analysis, *, edi
 
 
 def draft_word(draft, images):
-    document = _document()
+    document = _document(compatible_default_fonts=True)
     document.core_properties.title = draft['title']
     en = draft['output_language'] == 'en'
     for section in draft['sections']:

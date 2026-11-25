@@ -165,5 +165,21 @@ class ReleaseTests(unittest.TestCase):
         names=[p.as_posix() for p in self.release.source_files(ROOT)]
         self.assertIn('compose.release.yml',names)
         self.assertIn('script/release/release.py',names)
+        self.assertIn('SKILLS/manifest.json',names)
+        self.assertIn('SKILLS/citation-verification/references/evidence-scope.md',names)
+
+    def test_skills_source_walk_includes_declared_resources_and_rejects_extra_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / 'SKILLS'
+            resource = package / 'sample/references/data/rules.md'
+            resource.parent.mkdir(parents=True)
+            resource.write_text('approved', encoding='utf-8')
+            self.release.atomic(package / 'manifest.json', {'skills': {'sample': {'files': {'references/data/rules.md': {}}}}})
+            paths = self.release.source_files(root)
+            self.assertIn(resource.relative_to(root), paths)
+            (resource.parent / 'extra.md').write_text('extra', encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'match the manifest'):
+                self.release.source_files(root)
 
 if __name__=='__main__': unittest.main()

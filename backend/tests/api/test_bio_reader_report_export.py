@@ -10,7 +10,7 @@ import pytest
 from tests.api.test_projects import client
 from tests.api.test_bio_reader_reports import service_for
 from tests.api.test_bio_reader_report_annotation import parent_result, native_figure, freeze
-from tests.api.test_reader_report_narratives import reader_policy, authorize_user_and_project, worker
+from tests.api.test_reader_report_narratives import reader_policy, worker
 
 
 @pytest.mark.parametrize('versioned', [False, True], ids=['new-report', 'exact-version-request'])
@@ -58,7 +58,6 @@ def test_native_context_shares_real_r1_binding_exports_and_offline_rebuild(clien
     assert workspace.json()['artifacts']['bio_reader_report_context_id'] == view['id']
     assert workspace.json()['artifacts']['bio_reader_report_request'] == report_request
     assert workspace.json()['task']['input_version'] == queued['task']['input_version']
-    authorize_user_and_project(queued)
     sample = sample_reader_record(snapshot)
     provider = Fixture(dict(narrative=sample['narrative'], figures=[{k: v for k, v in figure.items() if k != 'caption'} for figure in sample['figures']]))
     done = worker(queued, provider)

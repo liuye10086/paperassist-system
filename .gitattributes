@@ -15,3 +15,6 @@ third_party/*/texts/*.txt conflict-marker-size=32
 # Preserve the hash-bound bio dependency lock and frozen generated DDL text.
 backend/requirements-bio.lock.txt -text whitespace=cr-at-eol
 backend/alembic/versions/0059_bio_spatial_analysis.py whitespace=-blank-at-eol,-blank-at-eof
+
+SKILLS/**/*.md text eol=lf
+SKILLS/manifest.json text eol=lf

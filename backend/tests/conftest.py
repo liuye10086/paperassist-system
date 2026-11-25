@@ -16,6 +16,8 @@ def isolate_cloud_worker(monkeypatch):
     monkeypatch.setenv('PAPERASSIST_NCBI_EMAIL', '')
     monkeypatch.setenv('PAPERASSIST_NCBI_API_KEY', '')
     monkeypatch.setenv('PAPERASSIST_WRITING_LIVE_ENABLED', '0')
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', '')
+    monkeypatch.setenv('PAPERASSIST_SKILLS_MANIFEST_SHA256', '')
     monkeypatch.setenv('PAPERASSIST_READER_REPORT_MODEL_ENABLED', '0')
     monkeypatch.setenv('PAPERASSIST_READER_REPORT_POLICY_FILE', '')
     monkeypatch.setenv('OPENAI_API_KEY', '')

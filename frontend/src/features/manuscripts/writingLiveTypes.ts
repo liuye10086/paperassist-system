@@ -41,7 +41,14 @@ const chapterId=(v:unknown):v is string=>text(v)&&v.length>0&&v.length<=200
 export const schoolWritablePurposes=['abstract','introduction','materials_and_methods','results','discussion','conclusion'] as const
 export const writableSchoolPurpose=(purpose:unknown)=>schoolWritablePurposes.includes(purpose as typeof schoolWritablePurposes[number])
 export type LocalManifest={school?:SchoolManifest;protected_identity?:{sha256:string};sources:Record<string,string>;evidence:Record<string,{evidence_id:string;binding:ResolvedBinding}>;numeric_context?:Record<string,NumericContext>}
-export type Bundle={id:string;project_id:string;manuscript_id:string;base_version_id:string;request_json:PreviewInput;wire_json:string;bundle_sha256:string;wire_sha256:string;wire_bytes:number;input_token_allowance:number;reserved_micro_usd?:number|null;gateway_digest:string;policy_version:string;policy_json:{model:string;max_output_tokens:number;price:{version:string;input_micro_usd_per_million:number;cached_input_micro_usd_per_million:number;output_micro_usd_per_million:number}};omitted_manifest:unknown;local_manifest:LocalManifest}
+export type Bundle={id:string;project_id:string;manuscript_id:string;base_version_id:string;request_json:PreviewInput;wire_json:string;bundle_sha256:string;wire_sha256:string;wire_bytes:number;input_token_allowance:number;reserved_micro_usd?:number|null;gateway_digest:string;policy_version:string;policy_json:{model:string;max_output_tokens:number;price:{version:string;input_micro_usd_per_million:number;cached_input_micro_usd_per_million:number;output_micro_usd_per_million:number}};omitted_manifest:unknown;local_manifest:LocalManifest;execution_contract?:unknown}
+
+export function writingSkillsWorkflow(bundle: Bundle) {
+  const contract = bundle.execution_contract
+  const skills = object(contract) ? contract.skills_snapshot : null
+  const trace = object(skills) ? skills.trace : null
+  return object(trace) && typeof trace.workflow === 'string' ? trace.workflow : null
+}
 // provider and storage_scope come from the server's authorization manifest; when absent the page names no service.
 export type WritingCapabilities={real_calls_enabled:boolean;provider?:string|null;storage_scope?:string|null}
 const optionalText=(v:unknown)=>v===undefined||v===null||text(v)

@@ -37,6 +37,24 @@ it('shows the customer the frozen outgoing passages, report, sources and illustr
  expect(screen.getByText(wire)).toBeTruthy()
  expect(onVerified).toHaveBeenCalledWith(bundle.bundle_sha256)
 })
+it.each([
+ ['sci_narrative_review','综述写作规则'],
+ ['sci_research_article','研究论文写作规则'],
+ ['thesis_initial_draft','毕业论文写作规则'],
+])('shows the frozen %s rules when they are in the signed wire',async(workflow,label)=>{
+ const original=bundleFixture()
+ const instructions='Use only the recorded review evidence.'
+ const wire=JSON.stringify({instructions:'Base writing instructions.\n\n'+instructions,input:JSON.stringify({sources:[]})})
+ const bundle={...original,wire_json:wire,bundle_sha256:hash(wire),wire_bytes:new TextEncoder().encode(wire).length,
+  execution_contract:{skills_snapshot:{schema_version:1,instructions,trace:{workflow}}}}
+ const view=render(<WritingBundlePreview bundle={bundle} readableSnapshot={snapshotFixture as Snapshot} materialsOnly/>)
+ fireEvent.click(await screen.findByRole('button',{name:label}))
+ expect(screen.getByText(instructions)).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'完整请求原文'})).toBeNull()
+ view.rerender(<WritingBundlePreview bundle={original} readableSnapshot={snapshotFixture as Snapshot} materialsOnly/>)
+ expect(screen.queryByRole('button',{name:label})).toBeNull()
+ expect(screen.getByRole('button',{name:'发送内容'}).getAttribute('aria-pressed')).toBe('true')
+})
 it('combines four distinct cross-manuscript tasks and known correction bundles only after explicit confirmation, then closes authorization',async()=>{
  const bundles=[bundleFixture('b1','m1'),bundleFixture('b2','m2'),bundleFixture('b3','m1'),bundleFixture('b4','m2'),bundleFixture('b5','m1')],authorization=authFixture(bundles.slice(0,4)),onSelect=vi.fn()
  const fetcher=vi.fn(async(url:string,init?:RequestInit)=>Response.json(url.endsWith('/manuscripts')?{items:[manuscriptFixture,{...manuscriptFixture,id:'m2',title:'Second manuscript',versions:manuscriptFixture.versions.map(v=>({...v,exports:[]}))}]}:url.endsWith('/writing-previews')?{items:bundles.filter(b=>url.includes('/'+b.manuscript_id+'/'))}:url.endsWith('/close')?{...authorization,status:'closed'}:init?.method==='POST'?authorization:{items:[]}));vi.stubGlobal('fetch',fetcher);render(<WritingAuthorization projectId="p1" onSelect={onSelect}/>)

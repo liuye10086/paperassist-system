@@ -9,7 +9,8 @@ import {articleHeading} from '../manuscripts/articleStructure'
 import {useAnalysisWritingTransfer} from '../manuscripts/analysisWritingTransfer'
 import {emptyInput, manuscriptBase, validCandidates, validManuscript, type Candidates, type Manuscript, type ManuscriptInput} from '../manuscripts/manuscriptTypes'
 import {defaultPaperFiles, preparePaperDraft, type DraftReference} from '../manuscripts/preparePaperDraft'
-import {findPaperDraft, isPaperDraftRejected, submitPaperDraft} from '../manuscripts/submitPaperDraft'
+import {findPaperDraft, isPaperDraftRejected, submitPaperDraft, type DraftSkillsReview} from '../manuscripts/submitPaperDraft'
+import CustomerWritingConfirm from '../manuscripts/CustomerWritingConfirm'
 import {validThesisInput, type SchoolPurpose} from '../manuscripts/thesisTypes'
 import {canonicalJson, frozenWritingEvidence, writableSchoolPurpose} from '../manuscripts/writingLiveTypes'
 import type {Project} from '../projects/projectTypes'
@@ -27,7 +28,7 @@ import './sciDraftGenerator.css'
 type SharedProps = {project: Project; initialSearchId?:string; onOpenProject?: () => void; onOpenOrganizer?: () => void; onOpenMaterials?: () => void; onSubmitted: (manuscriptId: string, revision: number, requestId: string) => void}
 type Props = SharedProps & {settings:SciSettings | null; onOpenResources?: () => void}
 type ThesisProps = SharedProps & {requirements:ThesisRequirements | null}
-type Ticket = {key: string; input: ManuscriptInput; references: DraftReference[]; manuscriptId?: string; preparedId?: string; revision?: number}
+type Ticket = {key: string; input: ManuscriptInput; references: DraftReference[]; manuscriptId?: string; preparedId?: string; revision?: number; needsSkillsConfirmation?: true}
 const maxPapers = 20
 const ignoreDenied = () => undefined
 const pending = (status: string) => status === 'queued' || status === 'running'
@@ -97,6 +98,7 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
   const [page, setPage] = useState(1), [selectedOnly, setSelectedOnly] = useState(false)
   const [refresh, setRefresh] = useState(0), [projectRefresh, setProjectRefresh] = useState(0)
   const [busy, setBusy] = useState(''), [error, setError] = useState('')
+  const [skillsReview, setSkillsReview] = useState<(DraftSkillsReview & {accept: () => void; cancel: () => void}) | null>(null)
   const [failedRecovery, setFailedRecovery] = useState('')
   const operation = useRef<AbortController | null>(null)
   const searchKey = useRef({signature:'', key:''})
@@ -190,7 +192,7 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
     operation.current = controller
     setBusy(label); setError('')
     try {await action(controller)}
-    catch (cause) {if (operation.current === controller) setError(safeError(cause, '本次操作未确认，请重试。'))}
+    catch (cause) {if (operation.current === controller && !controller.signal.aborted) setError(safeError(cause, '本次操作未确认，请重试。'))}
     finally {if (operation.current === controller) {operation.current = null; setBusy('')}}
   }
   function startSearch(event: FormEvent) {
@@ -278,9 +280,21 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
         ...(saved.preparedId && saved.revision ? {existingRevision:saved.revision} : {})})
       preparing = false
       signal.throwIfAborted()
-      setTicket({...saved, preparedId:result.manuscriptId, revision:result.version.revision})
+      const prepared = {...saved, preparedId:result.manuscriptId, revision:result.version.revision}
+      setTicket(prepared)
       const receipt = await submitPaperDraft({projectId:id, manuscriptId:result.manuscriptId, version:result.version,
-        attemptKey:saved.key, sciSettings:settings, documentKind:school ? 'thesis' : 'sci', signal})
+        attemptKey:saved.key, sciSettings:settings, documentKind:school ? 'thesis' : 'sci', signal,
+        confirmSkills: review => new Promise<void>((resolve, reject) => {
+          signal.throwIfAborted()
+          setTicket({...prepared,needsSkillsConfirmation:true})
+          const abort = () => {setSkillsReview(null); reject(signal.reason)}
+          signal.addEventListener('abort', abort, {once:true})
+          setSkillsReview({...review, accept: () => {
+            signal.removeEventListener('abort', abort)
+            setSkillsReview(null)
+            resolve()
+          }, cancel: () => controller.abort()})
+        })})
       signal.throwIfAborted()
       setTicket(null); onSubmitted(result.manuscriptId, result.version.revision, receipt.id)
     } catch (cause) {
@@ -367,13 +381,24 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
           {!!figure.caption && <p>{figure.caption}</p>}
         </li>)}</ul>
       </section>}
+      {skillsReview ? <>
+        <CustomerWritingConfirm bundle={skillsReview.bundle} version={skillsReview.version} capabilities={skillsReview.capabilities}
+          customerThesis={school} generated={false} edited={false} unknown={false} previewUnknown={false} busy={false}
+          onSubmit={async () => skillsReview.accept()}/>
+        <button type="button" onClick={skillsReview.cancel}>{t('取消')}</button>
+      </> : <>
       <p className="muted">{t('点击生成即同意将本项目的写作资料和所选摘要发送至外部写作服务。服务商将保存生成记录，本次写作会产生费用。')}</p>
       {!ticket && failed && !recoverable && ready && <p>{t('当前资料已变更，请使用当前资料生成。')}</p>}
       <button type="button" className="button-primary" disabled={!!busy || !ticket && !ready}
         onClick={() => void perform('正在提交初稿……', controller => generate(controller, !!recoverable && !(school && failedRecovery === failed?.id)))}>
-        {t(school ? '生成毕业论文初稿' : ticket ? '继续本次生成' : recoverable ? '恢复原整理任务并生成初稿' : failed ? '使用当前资料生成' : !missing && materials?.parsing.length ? '使用现有资料继续生成' : '生成初稿')}</button>
+        {t(ticket && (!school || ticket.needsSkillsConfirmation) ? '继续本次生成' : school ? '生成毕业论文初稿' : recoverable ? '恢复原整理任务并生成初稿' : failed ? '使用当前资料生成' : !missing && materials?.parsing.length ? '使用现有资料继续生成' : '生成初稿')}</button>
+      {ticket?.needsSkillsConfirmation&&<button type="button" disabled={!!busy} onClick={() => {
+        setTicket(null)
+        setProjectRefresh(value => value + 1)
+      }}>{t('返回修改')}</button>}
       {!school && !ticket && recoverable && failedRecovery === failed?.id && <button type="button" disabled={!!busy || !ready}
         onClick={() => void perform('正在提交初稿……', controller => generate(controller))}>{t('使用当前资料生成')}</button>}
+      </>}
     </div>
     {school && literatureResults}
   </section>

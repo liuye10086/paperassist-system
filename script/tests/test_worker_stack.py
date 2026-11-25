@@ -2,6 +2,7 @@
 import json
 from io import StringIO
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -93,6 +94,7 @@ class WorkerStackTests(unittest.TestCase):
         self.assertNotIn('PDF renderer', output.getvalue())
 
     def source_tree(self, root):
+        shutil.copytree(worker_stack.ROOT / 'SKILLS', root / 'SKILLS')
         for relative in ('backend/app/worker.py', 'backend/app/adapters/pdf_renderer_lock.json',
                          'backend/requirements.txt', '.dockerignore', 'infra/worker/Dockerfile',
                          'backend/requirements-bio-insights.lock.txt',
@@ -170,6 +172,35 @@ class WorkerStackTests(unittest.TestCase):
                 cached.parent.mkdir()
                 cached.write_bytes(b'generated cache')
                 self.assertEqual(previous, revision())
+                from app.domain.runtime_skills.registry import SkillError, publish
+
+                skill = root / 'SKILLS/bulk-result-reading/SKILL.md'
+                text = skill.read_text(encoding='utf-8')
+                skill.write_text(text + '\nAnother rule.\n', encoding='utf-8')
+                with self.assertRaises(SkillError):
+                    revision()
+                skill.write_text(text.replace('1.0.0', '1.1.0') + '\nAnother rule.\n', encoding='utf-8')
+                publish(root / 'SKILLS')
+                self.assertNotEqual(previous, revision())
+
+    def test_skills_settings_are_applied_to_development_workers_and_off_in_isolated_stacks(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
+            root = Path(directory)
+            disabled = worker_stack.prepare(root, self.values())
+            configured = dict(self.values(), PAPERASSIST_SKILL_WORKFLOWS='sci_narrative_review',
+                              PAPERASSIST_SKILLS_MANIFEST_SHA256='a' * 64)
+            enabled = worker_stack.prepare(root, configured)
+            self.assertEqual(disabled.environment['PAPERASSIST_SKILL_WORKFLOWS'], '')
+            self.assertEqual(enabled.environment['PAPERASSIST_SKILL_WORKFLOWS'], 'sci_narrative_review')
+            self.assertEqual(enabled.environment['PAPERASSIST_SKILLS_MANIFEST_SHA256'], 'a' * 64)
+            self.assertNotEqual(disabled.environment['PAPERASSIST_WORKER_CONFIG_REVISION'],
+                                enabled.environment['PAPERASSIST_WORKER_CONFIG_REVISION'])
+            ident = 'e' * 32
+            isolated = worker_stack.prepare(root, dict(configured, PAPERASSIST_ENV='test',
+                                            PAPERASSIST_DB_SCHEMA='pa_test_' + ident),
+                                            test_id=ident, assets=root / 'isolated')
+            self.assertEqual(isolated.environment['PAPERASSIST_SKILL_WORKFLOWS'], '')
+            self.assertEqual(isolated.environment['PAPERASSIST_SKILLS_MANIFEST_SHA256'], '')
 
     def test_writing_live_switch_defaults_off_is_explicit_and_changes_worker_revision(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack,'protect_directory'):

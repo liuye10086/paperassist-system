@@ -7,12 +7,16 @@ import {isNativeReviewFigure, manuscriptBase, type ManuscriptVersion, type Snaps
 import {authorizationsUrl, intactBundle, materialsChanged} from './useCustomerWritingSubmit'
 import {
   canonicalJson, frozenWritingEvidence, jsonDigest, listOf, object, requestUsesGroup,
-  validAuthorization, validBundle, validCapabilities, validLiveRequest, writableSchoolPurpose,
+  validAuthorization, validBundle, validCapabilities, validLiveRequest, writableSchoolPurpose, writingSkillsWorkflow,
   type Authorization, type Bundle, type LiveRequest, type PreviewInput, type WritingCapabilities,
 } from './writingLiveTypes'
 
 type DraftAttempt = {projectId: string; manuscriptId: string; attemptKey: string; signal: AbortSignal}
-type DraftSubmission = DraftAttempt & {version: ManuscriptVersion; documentKind?: 'sci' | 'thesis'; sciSettings?: Pick<SciSettings, 'article_type' | 'keywords'> | null}
+export type DraftSkillsReview = {bundle: Bundle; version: ManuscriptVersion; capabilities: WritingCapabilities}
+type DraftSubmission = DraftAttempt & {
+  version: ManuscriptVersion; documentKind?: 'sci' | 'thesis'; sciSettings?: Pick<SciSettings, 'article_type' | 'keywords'> | null
+  confirmSkills?: (review: DraftSkillsReview) => Promise<void>
+}
 
 const unknownResult = '暂时无法确定这次提交是否成功。请先查看提交结果。'
 
@@ -117,14 +121,15 @@ export async function findPaperDraft(attempt: DraftAttempt): Promise<LiveRequest
 
 /** Called only after the user confirms external transmission and the writing charge. */
 export async function submitPaperDraft(submission: DraftSubmission): Promise<LiveRequest> {
-  const {projectId, version} = submission
+  const {projectId, version, confirmSkills} = submission
   const attempt = await writingAttempt(submission)
   const previous = await attempt.find()
   if (previous) return previous
   if (version.snapshot.project_id !== projectId || version.status !== 'published') {
     throw new DraftNotSubmitted('当前预览的基础版本不可用。')
   }
-  return submitPreparedInput(submission, attempt, version.id, draftInput(submission))
+  return submitPreparedInput(submission, attempt, version.id, draftInput(submission), undefined,
+    confirmSkills && ((bundle, capabilities) => confirmSkills({bundle, capabilities, version})))
 }
 
 export function matchesDraftRevisionScope(input: PreviewInput, sectionIds?: string[], advice = false) {
@@ -171,7 +176,8 @@ export async function submitPaperDraftRevision(submission: DraftAttempt & {
 }
 
 async function submitPreparedInput({projectId, manuscriptId}: DraftAttempt, attempt: Awaited<ReturnType<typeof writingAttempt>>,
-  baseVersionId: string, input: PreviewInput, capabilities?: WritingCapabilities) {
+  baseVersionId: string, input: PreviewInput, capabilities?: WritingCapabilities,
+  confirmSkills?: (bundle: Bundle, capabilities: WritingCapabilities) => Promise<void>) {
   const {logical, requestUrl, previewUrl, live, request} = attempt
   const available = capabilities ?? await attempt.getCapabilities()
   if (!available.real_calls_enabled) throw new DraftNotSubmitted('写作服务暂未开启，暂时不能生成正文。')
@@ -179,6 +185,11 @@ async function submitPreparedInput({projectId, manuscriptId}: DraftAttempt, atte
     jsonRequest(input, logical + '-preview'))
   if (bundle.base_version_id !== baseVersionId || canonicalJson(bundle.request_json) !== canonicalJson(input) || !await intactBundle(bundle)) {
     throw new DraftNotSubmitted(materialsChanged)
+  }
+  const workflow = writingSkillsWorkflow(bundle)
+  if (workflow === 'sci_research_article' || workflow === 'thesis_initial_draft') {
+    if (!confirmSkills) throw new DraftNotSubmitted('请先核对并确认本次写作材料。')
+    await confirmSkills(bundle, available)
   }
   const ref = {bundle_id: bundle.id, bundle_sha256: bundle.bundle_sha256}
   const tasks = [{logical_task_id: logical, bundles: [ref]}]

@@ -5,12 +5,14 @@ from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
+from itertools import islice
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -204,6 +206,55 @@ def operation(state):
             else: fcntl.flock(stream,fcntl.LOCK_UN)
 
 
+def skills_source_files(root):
+    package = root / 'SKILLS'
+    if not os.path.lexists(package):
+        return []
+
+    pack_bytes = nodes = 0
+
+    def checked_files(path):
+        nonlocal pack_bytes, nodes
+        nodes += 1
+        if nodes > 1122:
+            raise ValueError('Candidate Skills package entry count exceeds limit')
+        details = path.lstat()
+        if stat.S_ISLNK(details.st_mode) or getattr(details, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+            raise ValueError('Candidate Skills package cannot contain links or reparse points')
+        relative = path.relative_to(package)
+        if len(relative.parts) > 5 or any(part.startswith('.') for part in relative.parts):
+            raise ValueError('Candidate Skills package path is invalid')
+        if stat.S_ISDIR(details.st_mode):
+            entries = list(islice(path.iterdir(), 34))
+            if len(entries) > 33:
+                raise ValueError('Candidate Skills package entry count exceeds limit')
+            for entry in sorted(entries):
+                yield from checked_files(entry)
+        elif stat.S_ISREG(details.st_mode) and path != package:
+            if path.suffix not in {'.md', '.txt', '.json', '.csv', '.tsv', '.png', '.jpg', '.jpeg'}:
+                raise ValueError('Candidate Skills package file type is invalid')
+            maximum = 256 * 1024 if relative.as_posix() == 'manifest.json' else 512 * 1024
+            pack_bytes += details.st_size
+            if not 0 < details.st_size <= maximum or pack_bytes > 9 * 1024 * 1024:
+                raise ValueError('Candidate Skills file or total size exceeds limit')
+            yield relative
+        else:
+            raise ValueError('Candidate Skills package contains an invalid entry')
+
+    files = set(checked_files(package))
+    manifest = Path('manifest.json')
+    if manifest not in files:
+        raise ValueError('Candidate Skills manifest is missing')
+    try:
+        entries = read(package / manifest)['skills']
+        declared = {f'{name}/{path}' for name, entry in entries.items() for path in entry['files']}
+    except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
+        raise ValueError('Candidate Skills manifest is invalid') from None
+    if {path.as_posix() for path in files - {manifest}} != declared:
+        raise ValueError('Candidate Skills files must match the manifest')
+    return [Path('SKILLS') / path for path in sorted(files)]
+
+
 def source_files(root=ROOT):
     roots=['backend/app','backend/alembic','frontend/dist','infra/api','script/release','third_party']
     result=[]
@@ -213,6 +264,7 @@ def source_files(root=ROOT):
             if path.is_symlink(): raise ValueError('Candidate cannot contain symlinks')
             if path.is_file() and not any(part.startswith('.env') or part in {'__pycache__','data','backups','private','tests','node_modules','.git'} for part in relative.parts) and path.suffix not in {'.pyc','.pyo','.pem','.key'}:
                 result.append(relative)
+    result.extend(skills_source_files(root))
     single_files=['backend/requirements.txt','backend/alembic.ini','compose.release.yml','infra/pdf/renderer.py','infra/pdf/update_fields.py']
     result.extend(Path(name) for name in single_files if (root/name).is_file())
     return sorted(result)

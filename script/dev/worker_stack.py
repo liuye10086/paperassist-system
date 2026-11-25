@@ -92,7 +92,9 @@ def _identity(root: Path, test_id: str | None = None):
 
 
 def build_fingerprint() -> str:
-    """Bind reuse to Worker and Word field image inputs (legacy infra/pdf paths)."""
+    """Bind reuse to Worker, Skills and Word field image inputs."""
+    from app.domain.runtime_skills.registry import check_release
+
     inputs = [ROOT / relative for relative in (
         '.dockerignore', 'backend/requirements.txt', 'backend/requirements-bio-insights.lock.txt', 'infra/worker/Dockerfile',
         'infra/worker/runtime_probe.py', 'infra/pdf/Dockerfile',
@@ -103,6 +105,7 @@ def build_fingerprint() -> str:
     for path in sorted(inputs):
         fingerprint.update(path.relative_to(ROOT).as_posix().encode('utf-8') + b'\0')
         fingerprint.update(hashlib.sha256(path.read_bytes()).digest())
+    fingerprint.update(check_release(ROOT / 'SKILLS').sha256.encode('ascii'))
     return fingerprint.hexdigest()
 
 
@@ -200,9 +203,12 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
     default_fonts = str(Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts') if os.name == 'nt' else '/usr/local/share/fonts/paperassist'
     fonts = str(Path(values.get('PAPERASSIST_PDF_FONTS_DIR') or default_fonts).expanduser().resolve())
     writing_live_enabled = '1' if not test_id and values.get('PAPERASSIST_WRITING_LIVE_ENABLED') == '1' else '0'
+    skill_workflows = (values.get('PAPERASSIST_SKILL_WORKFLOWS') or '') if not test_id else ''
+    skill_manifest_pin = (values.get('PAPERASSIST_SKILLS_MANIFEST_SHA256') or '') if not test_id else ''
     reader_live_enabled = '1' if not test_id and values.get('PAPERASSIST_READER_REPORT_MODEL_ENABLED') == '1' else '0'
     fingerprint = hashlib.sha256((url.render_as_string(hide_password=False) + '\0' + model_key + '\0' + ncbi_text + '\0' + writing_live_enabled
                                   + '\0' + reader_live_enabled + '\0' + fonts + '\0' + str(data) + '\0' + build_fingerprint()
+                                  + '\0' + skill_workflows + '\0' + skill_manifest_pin
                                   + '\0' + str(staging_source) + '\0' + str(insights_staging_source) + '\0' + str(research_staging_source)
                                   + '\0' + tabular_manifest_path
                                   + '\0' + json.dumps(renderer_host)
@@ -222,6 +228,8 @@ def prepare(root: Path, values: dict, *, test_id=None, assets: Path | None = Non
         'PAPERASSIST_TASK_QUEUE': 'paperassist.test.' + test_id if test_id else 'paperassist.word',
         'PAPERASSIST_QUEUE_TEST_ALLOWED': '1' if test_id else '0',
         'PAPERASSIST_WRITING_LIVE_ENABLED': writing_live_enabled,
+        'PAPERASSIST_SKILL_WORKFLOWS': skill_workflows,
+        'PAPERASSIST_SKILLS_MANIFEST_SHA256': skill_manifest_pin,
         'PAPERASSIST_READER_REPORT_MODEL_ENABLED': reader_live_enabled,
         'PAPERASSIST_DATABASE_SECRET_KEY': key + '_FILE',
         'PAPERASSIST_WORKER_CONFIG_REVISION': fingerprint,

@@ -41,6 +41,45 @@ it('identifies descriptive composition, donor n and cell n while preserving the 
  expect(screen.queryByRole('link',{name:'下载 Word 分析报告'})).toBeNull()
 })
 
+it('opens read-only Propeller interpretation from the saved composition results', async () => {
+ const manifest = 'c'.repeat(64), tableHash = 'd'.repeat(64)
+ const table = {id:'table',key:'composition_results',role:'table',format:'tsv',sha256:tableHash,size_bytes:70,download_url:'/download'}
+ const result = {id:'comp',kind:'comparison',provenance:'system_computed',inference_scope:'donor_inference',
+  composition_preview:true,summary:{},methods:{config:{schema_version:5,mode:'donor_unpaired'}},manifest:{},
+  manifest_sha256:manifest,task:{id:'task',status:'succeeded'},members:[table]}
+ const preview = {schema_version:1,project_id:'p1',result_version_id:'comp',manifest_sha256:manifest,table_sha256:tableHash,
+  design:{denominator:'ctrl',numerator:'stim',n_denominator:4,n_numerator:4},runtime:{speckle:'1.6.0'},
+  total:2,page:1,page_size:50,rows:[
+   {category:'label',label_id:'T',mean_proportion_denominator:'0.3300',mean_proportion_numerator:'0.5875',
+    proportion_difference:'0.2575',p_adjust:'0.00048353808306252034',inference_status:'tested',reason:''},
+   {category:'unknown',label_id:'',mean_proportion_denominator:'0',mean_proportion_numerator:'0',
+    proportion_difference:'0',p_adjust:'',inference_status:'not_computable',reason:'no_variation'},
+  ]}
+ let blocked = false
+ const fetcher = vi.mocked(apiFetch).mockImplementation(async url => {
+  if (url.includes('/composition-preview?')) return blocked
+   ? Response.json({detail:{code:'project_not_found'}},{status:404}) : Response.json(preview)
+  if (url.includes('/tables/')) return Response.json({columns:[],items:[],total:0,matched_total:0,page:1,page_size:50})
+  if (url.endsWith('/figures')) return Response.json({items:[]})
+  return Response.json(result)
+ })
+ render(<InsightResults projectId="p1" resultId="comp" active onResearch={()=>{}}/>)
+ const open = await screen.findByRole('button',{name:'查看固定组成解读'})
+ expect(fetcher.mock.calls.every(([url]) => !url.includes('/composition-preview?'))).toBe(true)
+ fireEvent.click(open)
+ const view = await screen.findByRole('table',{name:'固定组成比例与检验'})
+ expect(within(view).getByRole('columnheader',{name:'ctrl'})).toBeTruthy()
+ expect(within(view).getByRole('columnheader',{name:'stim'})).toBeTruthy()
+ expect(within(view).getByText('0.3300')).toBeTruthy()
+ expect(within(view).getByText('0.00048353808306252034')).toBeTruthy()
+ expect(within(view).getByText('no_variation')).toBeTruthy()
+ expect(fetcher.mock.calls.every(([,init]) => !init?.method || init.method === 'GET')).toBe(true)
+ blocked = true
+ fireEvent.click(open)
+ await within(screen.getByRole('region',{name:'固定组成解读'})).findByRole('alert')
+ expect(screen.queryByRole('table',{name:'固定组成比例与检验'})).toBeNull()
+})
+
 it('renders donor units from the actual DE methods shape without a config wrapper',async()=>{
  vi.mocked(apiFetch).mockResolvedValue(Response.json({id:'de',kind:'comparison',provenance:'system_computed',inference_scope:'donor_inference',summary:{actual_units:[{contrast_id:'contrast_1',observation_level:'donor',n_numerator:4,n_denominator:4,spots_numerator:60,spots_denominator:70}]},methods:{name:'PyDESeq2_0.5.4_Wald',single_cell_selection:{processed_source_id:'p',annotation_source_id:'ann',label_ids:['T'],labels_confirmed:true,label_basis:'manual'}},manifest:{},manifest_sha256:'d'.repeat(64),task:{id:'task',status:'succeeded'},members:[]}))
  render(<InsightResults projectId="p1" resultId="de" active onResearch={()=>{}}/>)

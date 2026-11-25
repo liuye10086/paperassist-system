@@ -85,6 +85,7 @@ class FigureWorkbenchStore:
         figure=json.loads(fig['figure_json']) if fig else None
         task=db.execute("SELECT * FROM tasks WHERE project_id=%s AND task_type='figure_workbench' AND input_snapshot->'figure_workbench'->>'version_id'=%s ORDER BY created_at DESC,id DESC LIMIT 1",(row['project_id'],row['id'])).fetchone()
         explanation=explanation_task=None
+        reuse_state = {}
         if figure:
             from app.domain.figure_workbench.explanations import version_for
             exp=db.execute('SELECT explanation_json FROM explanations WHERE figure_id=%s ORDER BY (engine_version=%s) DESC,id DESC LIMIT 1',(figure['id'],version_for(figure))).fetchone()
@@ -94,8 +95,12 @@ class FigureWorkbenchStore:
             figure,explanation=verified['figure'],verified['explanation']
             et=db.execute("SELECT * FROM tasks WHERE project_id=%s AND task_type='figure_explanation' AND input_snapshot->'figure'->>'id'=%s ORDER BY created_at DESC,id DESC LIMIT 1",(row['project_id'],figure['id'])).fetchone()
             explanation_task=self.tasks.public_task(dict(et)) if et else None
+            if et and not explanation:
+                from app.domain.figure_workbench.tasks import local_reuse_blocked
+                if local_reuse_blocked(db, row['project_id'], row['id'], figure['id']):
+                    reuse_state['explanation_reuse_blocked'] = True
         pending=self._pending(db,row)
-        return {'projection_task':self.tasks.public_task(pending[0]) if pending else None,'projection_check':self._check_view(row,*pending) if pending else None,'id':row['configuration_id'],'revision':row['revision'],'version':self.public_version(row),'projection':self._projection(db,row),'figure':figure,'task':self.tasks.public_task(dict(task)) if task else None,'explanation':explanation,'explanation_task':explanation_task}
+        return {**reuse_state,'projection_task':self.tasks.public_task(pending[0]) if pending else None,'projection_check':self._check_view(row,*pending) if pending else None,'id':row['configuration_id'],'revision':row['revision'],'version':self.public_version(row),'projection':self._projection(db,row),'figure':figure,'task':self.tasks.public_task(dict(task)) if task else None,'explanation':explanation,'explanation_task':explanation_task}
     def state(self,project_id,file_id,run_id):
         result,sheet=load_source(self.assets,project_id,file_id,run_id)
         from app.domain.artifact_contracts import figure_kind,artifact_language

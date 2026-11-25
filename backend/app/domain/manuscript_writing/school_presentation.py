@@ -1,4 +1,5 @@
 """Versioned presentation suggestions for the simplified thesis draft."""
+from copy import deepcopy
 import re
 from typing import Annotated
 
@@ -8,6 +9,8 @@ from .contracts import Strict
 from .live_contracts import LiveParagraph
 
 PRESENTATION_VERSION = 'school-presentation-v1'
+PRESENTATION_ALIASES_VERSION = 'school-presentation-v2'
+PRESENTATION_VERSIONS = (PRESENTATION_VERSION, PRESENTATION_ALIASES_VERSION)
 CITATION_ANCHORS_INSTRUCTIONS = (
     'For each literature claim, copy the exact full sentence, including its final punctuation, into citation_anchors '
     'with only the evidence aliases that support that sentence. A citation anchor must be a single '
@@ -20,6 +23,10 @@ INSTRUCTIONS = (
     'content-specific headings only for the listed chapter and figure aliases. Do not supply chapter '
     'or figure numbers in those headings. Use existing evidence aliases only. '
     + CITATION_ANCHORS_INSTRUCTIONS
+)
+ALIAS_LIST_INSTRUCTIONS = (
+    'For each presentation list, use exactly the aliases in its matching draft_presentation list, '
+    'once each. If a list is empty, return an empty array. All other headings stay unchanged.'
 )
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=220)]
 Keyword = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -86,7 +93,7 @@ def add_presentation_input(base, payload, local):
     )
 
 
-def presentation_schema(numeric, *, revision=False):
+def presentation_schema(numeric, *, revision=False, selection=None):
     schema = (SchoolRevisionOutput if revision else SchoolPresentationOutput).model_json_schema()
     defs = schema['$defs']
     defs['StudyNumericBinding'] = numeric['$defs']['StudyNumericBinding']
@@ -98,6 +105,20 @@ def presentation_schema(numeric, *, revision=False):
         defs['PresentationParagraph']['properties']['citation_anchors']['maxItems'] = 0
     else:
         defs['CitationAnchor']['properties']['evidence_aliases']['items'] = evidence['items']
+    if selection is not None:
+        properties = defs['Presentation']['properties']
+        allowed = (
+            ('keywords', 'AliasKeywords', [row['id'] for row in selection['abstracts']]),
+            ('chapter_titles', 'AliasTitle', selection['chapter_titles']),
+            ('figure_titles', 'AliasTitle', [row['id'] for row in selection['figure_titles']]),
+        )
+        for key, row_type, aliases in allowed:
+            field = properties[key]
+            field.update(minItems=len(aliases), maxItems=len(aliases))
+            if aliases:
+                row = deepcopy(defs[row_type])
+                row['properties']['id']['enum'] = list(aliases)
+                field['items'] = row
     return schema
 
 

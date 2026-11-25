@@ -52,9 +52,15 @@ test.each([3,4])('v3 figure with historical explanation v%i upgrades only after 
  const frozen=JSON.stringify({historicalFigure,historicalExplanation})
  let queued=false
  const posts:string[]=[]
+ const skills = {schema_version:1, instructions:'Use only verified statistical facts.',instructions_sha256:'d'.repeat(64),
+  trace:{workflow:'statistical_explanation',workflow_version:'1.0.0',step:'explain_fixed_figure',
+   tool:{id:'figure_explanation',version:'1.0.0'},manifest_sha256:'a'.repeat(64),
+   skills:[{name:'statistical-reading',version:'1.0.0',sha256:'c'.repeat(64),resources:[]}]}}
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
   if(init?.method==='POST')posts.push(url)
-  if(url.endsWith('/explanation-preview'))return Response.json({payload_sha256:'b'.repeat(64),payload:{figure_explanation_contract:5},requires_confirmation:true})
+  if(url.endsWith('/explanation-preview'))return Response.json({payload_sha256:'b'.repeat(64),payload:{figure_explanation_contract:5},requires_confirmation:true,
+   ...(engine===4?{figure_binding:{id:figure.id,sha256:figure.sha256},skills_snapshot:skills,
+    effective_instructions:'Keep six sections. Use only verified statistical facts.'}:{})})
   if(url.endsWith('/explanations')){expect(JSON.parse(String(init?.body)).external_processing).toEqual({payload_sha256:'b'.repeat(64),confirmed:true});queued=true;return Response.json({task:taskFixture})}
   return Response.json({language:'zh-CN',available_kinds:['scatter'],fields:[],configurations:[{id:'c1',revision:1,version:{id:'v1',configuration_id:'c1',revision:1,config:defaultConfig('scatter','zh-CN'),source},projection:null,task:null,figure:historicalFigure,explanation:historicalExplanation,explanation_task:queued?{...taskFixture,task_type:'figure_explanation',status:'queued',display_status:'queued',input_version:{kind:'dataset_analysis',source,setup_revision:2,output_language:'zh-CN'}}:null}]})
  }))
@@ -62,6 +68,10 @@ test.each([3,4])('v3 figure with historical explanation v%i upgrades only after 
  fireEvent.click(await screen.findByRole('button',{name:'预览新版六节解释外发材料'}))
  const generate=await screen.findByRole('button',{name:'确认外发并生成六节解释'})
  expect((generate as HTMLButtonElement).disabled).toBe(true)
+ if(engine===4){
+  expect(screen.getByText(skills.instructions)).toBeTruthy()
+  expect(screen.getByText(/statistical-reading/)).toBeTruthy()
+ }
  expect(posts).toHaveLength(1)
  fireEvent.click(screen.getByLabelText('已核对本次材料并同意外发与费用'))
  fireEvent.click(generate)
@@ -78,4 +88,20 @@ test.each([3,4])('v%i figure already carrying v5 does not offer another upgrade'
  await screen.findByText('查看绑定此图的六节解释')
  expect(screen.queryByRole('button',{name:'预览新版六节解释外发材料'})).toBeNull()
  expect(screen.getAllByText('Preserved explanation')).toHaveLength(6)
+})
+
+test.each([[false,5],[true,5],[true,4]] as const)('local reuse follows the server v8 call fence (%s, v%i)',async (blocked,engine)=>{
+ const config=defaultConfig('scatter','zh-CN')
+ const current={id:'c1',revision:1,version:{id:'v1',configuration_id:'c1',revision:1,config,source},
+  projection:null,task:null,figure,explanation:null,explanation_reuse_blocked:blocked}
+ const priorFigure={...figure,id:'prior',figure_config_version_id:'v2'}
+ const prior={...current,id:'c2',version:{...current.version,id:'v2',configuration_id:'c2'},
+  figure:{...priorFigure,engine:{id:'openai_figure_workbench_v3'},presentation:{...presentation,schema_version:2}},
+  explanation:{...explanation,figure_id:'prior',engine:{id:'figure_explanation_v'+engine}},explanation_reuse_blocked:false}
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({language:'zh-CN',available_kinds:['scatter'],
+  fields:[],configurations:[current,prior]})))
+ render(<FigureWorkbench base="/api/v1/projects/p1/files/f1" runId={figure.analysis_run_id} source={source}
+  language="zh-CN" disabled={false}/>)
+ await screen.findByText('查看绑定此图的六节解释')
+ expect(!!screen.queryByRole('button',{name:'复用兼容六节解释'})).toBe(!blocked||engine!==5)
 })

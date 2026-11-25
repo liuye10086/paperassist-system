@@ -129,6 +129,12 @@ class ModelUsageService:
             if provenance_context is not None:
                 from app.domain.model_usage.provenance import apply_admission_provenance
                 call['provider_state']=apply_admission_provenance(call,task,provenance_context)
+            if (task['task_type'] == 'figure_explanation'
+                    and task['input_snapshot'].get('external_processing', {}).get('version') == 8):
+                from app.domain.figure_workbench.skill_approval import require_new_submission
+                evidence = (call.get('provider_state') or {}).get('submission_provenance', {})
+                synthetic_fixture = self.store.config.environment == 'test' and evidence.get('kind') == 'synthetic_fixture'
+                require_new_submission(db, task, synthetic_fixture=synthetic_fixture)
             from app.domain.model_usage.observation import start
             now = datetime.now(timezone.utc)
             call.update(status='submitting', provider_state=start(call.get('provider_state'), now), updated_at=now)

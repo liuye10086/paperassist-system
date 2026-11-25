@@ -4,7 +4,7 @@ from tests.api.test_projects import client,create_project
 from tests.domain.test_bio_tabular_contracts import request_body
 
 
-def processed_fixture(client,monkeypatch,tmp_path,assay='proteomics'):
+def processed_fixture(client,monkeypatch,tmp_path,assay='proteomics',*,project_base=None,recipe_params=None):
     from app.domain.bioinformatics import tabular_settings
     from app.domain.bioinformatics.execution import run_bio_import_task
     from app.domain.bioinformatics.analysis_execution import run_bio_analysis_task
@@ -12,7 +12,8 @@ def processed_fixture(client,monkeypatch,tmp_path,assay='proteomics'):
     runtime=dict(available=True,blockers=[],engine_version='tabular_quantitative_v1.0.0',code_digest='a'*64,environment_digest='b'*64)
     monkeypatch.setattr(tabular_settings,'runtime_identity',lambda:runtime)
     staging=tmp_path/'science';monkeypatch.setenv('PAPERASSIST_BIO_STAGING_DIR',str(staging))
-    project=create_project(client);base=f"/api/v1/projects/{project['id']}";files=[]
+    base=project_base or f"/api/v1/projects/{create_project(client)['id']}"
+    files=[]
     for name,content in [('matrix.csv',b'feature_id,B0,B1,B2,A0,A1,A2\nf1,6,8,13,1,2,5\nf2,10,11,15,1,3,7\nf3,1,1,1,1,1,1\n'),('samples.csv',b'sample_id,condition,biological_unit_id,sample_role,time\nB0,B,B0,biological,2023\nB1,B,B1,biological,2024\nB2,B,B2,biological,2025\nA0,A,A0,biological,2020\nA1,A,A1,biological,2021\nA2,A,A2,biological,2022\n')]:
         item=str(uuid4());batch=client.post(base+'/bio-upload-batches',json={'items':[dict(client_id=item,filename=name,size_bytes=len(content))]},headers={'Idempotency-Key':str(uuid4())})
         assert batch.status_code==201,batch.text
@@ -38,7 +39,7 @@ def processed_fixture(client,monkeypatch,tmp_path,assay='proteomics'):
     done=run_bio_import_task(task['id'],confirm.json()['revision'],parser=parser,staging_directory=staging)
     assert done['status']=='succeeded',done
     source=client.get(base+'/bio-imports/'+value['id']).json()['result_source']
-    setup=client.post(base+'/bio-analysis-setups',headers={'Idempotency-Key':'setup'},json=dict(recipe_code='tabular_quantitative_v1',name='samples',raw_source=source,expected_revision=0,params={}))
+    setup=client.post(base+'/bio-analysis-setups',headers={'Idempotency-Key':'setup'},json=dict(recipe_code='tabular_quantitative_v1',name='samples',raw_source=source,expected_revision=0,params=recipe_params or {}))
     assert setup.status_code==201,setup.text
     recipe=setup.json()
     run=client.post(base+'/bio-analysis-runs',headers={'Idempotency-Key':'run'},json=dict(raw_source=source,recipe_version_id=recipe['id'],expected_setup_revision=1))

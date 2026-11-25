@@ -73,6 +73,8 @@ def main(argv=None):
             return 0 if app.control.inspect(destination=[node], timeout=3).ping() else 1
         logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
         if arguments.command == 'worker':
+            from app.domain.runtime_skills.runtime import log_configured_installation
+            log_configured_installation()
             startup = startup_configuration()
             record_worker_startup(startup)
             # Dispose the startup-check connection before forking child processes.

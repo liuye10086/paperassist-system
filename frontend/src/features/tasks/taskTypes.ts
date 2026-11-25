@@ -286,6 +286,10 @@ function validBioReaderReportRequest(value:unknown,title:string):boolean {
     &&(value.language==='zh-CN'||value.language==='en')&&value.reader_narrative_id===null
     &&(value.root_id===null?value.expected_revision===0:id(value.root_id)&&integer(value.expected_revision,1)&&value.expected_revision<2147483647)
 }
+function isSourceFigurePackage(url: string, analysisBase: string): boolean {
+  const prefix = `${analysisBase}/figure-workbench/figures/`
+  return url.startsWith(prefix) && /^[A-Za-z0-9_-]{1,64}\/package$/.test(url.slice(prefix.length))
+}
 export function isWorkspace(value: unknown, projectId: string, taskId: string): value is TaskWorkspace {
   if (!record(value) || !isTask(value.task, projectId, taskId) || !source(value.source, ['bio_annotation','bio_cloud_run','bio_resource_import','bio_comparison','bio_result_import','bio_enrichment','bio_candidate','bio_integration','bio_feature_extract','bio_insight_figure','research_figure','research_report','research_fact_draft','delivery_package','bio_analysis','bio_figure','bio_import','school_template_parse','school_rule_suggestion','statistics_compute','collection_word_report','parse_file', 'extract_dataset', 'prepare_dataset', 'analysis_plan', 'analysis_recommendation', 'review_ocr'].includes(value.task.task_type)||['bio_annotation','bio_cloud_run','bio_resource_import','bio_comparison','bio_result_import','bio_enrichment','bio_candidate','bio_integration','bio_feature_extract','bio_insight_figure','research_figure','research_report','research_fact_draft','delivery_package','reader_report_narrative','bio_analysis','bio_figure','bio_import','review_revision','review_document_export','review_round_plan','journal_adaptation','journal_format_check','journal_recommendation','layout_docx','manuscript_writing','pdf_export','manuscript_draft','manuscript_docx','literature_search','literature_assistance'].includes(value.task.task_type),['bio_annotation','bio_cloud_run','bio_resource_import','bio_comparison','bio_result_import','bio_enrichment','bio_candidate','bio_integration','bio_feature_extract','bio_insight_figure','research_figure','research_report','research_fact_draft','delivery_package','reader_report_narrative','bio_analysis','bio_figure','bio_import','review_revision','review_document_export','review_round_plan','journal_adaptation','journal_format_check','journal_recommendation','layout_docx','manuscript_writing','pdf_export','manuscript_draft','manuscript_docx','literature_search','literature_assistance'].includes(value.task.task_type)) || !record(value.artifacts)
     || (value.wait !== null && !isTaskWait(value.wait)) || !Array.isArray(value.allowed_actions)
@@ -370,8 +374,12 @@ export function isWorkspace(value: unknown, projectId: string, taskId: string): 
   if (value.task.origin === 'legacy' && (report !== null
     || (value.task.task_type === 'boxplot' ? explanation !== null : figure !== null))) return false
   const base = `/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(value.source.file_id??'')}/analysis-runs/${encodeURIComponent(value.source.analysis_run_id ?? '')}`
-  return (figure === null || (record(figure) && text(figure.title) && text(figure.caption) && id(value.task.result_figure_id)
-    && figure.download_url === (value.task.task_type==='figure_workbench'?`${base}/figure-workbench/figures/${encodeURIComponent(value.task.result_figure_id)}/package`:`${base}/figures/${encodeURIComponent(value.task.result_figure_id)}/download`)))
+  return (figure === null || (record(figure) && text(figure.title) && text(figure.caption) && text(figure.download_url)
+    && (taskType === 'figure_explanation'
+      ? isSourceFigurePackage(figure.download_url, base)
+      : id(value.task.result_figure_id) && figure.download_url === (taskType === 'figure_workbench'
+        ? `${base}/figure-workbench/figures/${encodeURIComponent(value.task.result_figure_id)}/package`
+        : `${base}/figures/${encodeURIComponent(value.task.result_figure_id)}/download`))))
     && (report === null || (record(report) && text(report.filename) && id(value.task.result_report_id)
       && report.download_url === `${base}/report/${encodeURIComponent(value.task.result_report_id)}/download`))
     && (explanation === null || (record(explanation) && Array.isArray(explanation.sections)

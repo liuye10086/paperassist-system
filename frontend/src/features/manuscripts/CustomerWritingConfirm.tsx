@@ -19,7 +19,7 @@ type Props={
  /** A writing preview request has an unknown result; it costs nothing and may be resent. */
  previewUnknown:boolean
  busy:boolean
- onPreview:()=>void;onSubmit:(bundle:Bundle)=>Promise<void>;onCheckResult:()=>void
+ onPreview?:()=>void;onSubmit:(bundle:Bundle)=>Promise<void>;onCheckResult?:()=>void
 }
 const articleNames:Record<string,string>={research:'研究型论文',brief:'简报',narrative_review:'综述',methods:'方法论文'}
 // Rounded up to the cent, so the displayed cost estimate is never lower than the server's.
@@ -52,10 +52,10 @@ export default function CustomerWritingConfirm({bundle,version,capabilities,cust
   {!enabled&&capabilities&&<p role="status">{t('写作服务暂未开启，暂时不能生成正文。')}</p>}
   {unknown?<>
    <p role="alert" className="warning-panel">{t('暂时无法确定这次提交是否成功。请先查看提交结果。')}</p>
-   <div className="actions"><button type="button" disabled>{t(action)}</button><button type="button" disabled={busy} onClick={onCheckResult}>{t('查看提交结果')}</button></div>
+   <div className="actions"><button type="button" disabled>{t(action)}</button>{onCheckResult&&<button type="button" disabled={busy} onClick={onCheckResult}>{t('查看提交结果')}</button>}</div>
   </>:!bundle?<>
    <p role="status">{t(previewUnknown?'写作材料预览还没有准备好，请重新准备。':busy?'正在准备写作材料预览……':edited?'写作材料已修改，请更新写作材料预览后再生成。':'请先准备本次写作材料预览。')}</p>
-   <button type="button" disabled={busy} onClick={onPreview}>{t(previewUnknown?'重新准备写作材料预览':'更新写作材料预览')}</button>
+   {onPreview&&<button type="button" disabled={busy} onClick={onPreview}>{t(previewUnknown?'重新准备写作材料预览':'更新写作材料预览')}</button>}
   </>:<>
    <h4>{t('本次将使用以下材料生成正文')}</h4>
    <WritingBundlePreview bundle={bundle} customerThesis={customerThesis} readableSnapshot={version.snapshot} materialsOnly savedAt={version.created_at}/>

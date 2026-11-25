@@ -7,7 +7,9 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.image.image import Image
-from docx.oxml import OxmlElement
+from docx.opc.oxml import serialize_part_xml
+from docx.opc.part import XmlPart
+from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.shared import Cm, Inches, Pt, RGBColor
 
@@ -18,9 +20,14 @@ RENDERER_VERSION = 'manuscript_docx_v7'
 CUSTOMER_RENDERER_VERSION = 'manuscript_docx_v8'
 CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION = 'manuscript_docx_v9'
 CUSTOMER_ARTICLE_RENDERER_VERSION = 'manuscript_docx_v10'
+COMPATIBLE_DEFAULT_FONTS_VERSION = 'default-word-fonts-v1'
 CUSTOMER_RENDERER_VERSIONS = (
     CUSTOMER_RENDERER_VERSION, CUSTOMER_NARRATIVE_REVIEW_RENDERER_VERSION, CUSTOMER_ARTICLE_RENDERER_VERSION,
 )
+
+DEFAULT_FONT_PARTS = frozenset({'/word/styles.xml', '/word/stylesWithEffects.xml', '/word/fontTable.xml',
+                               '/word/theme/theme1.xml'})
+DEFAULT_FONT_REPLACEMENTS = {'Courier': 'Courier New', 'ＭＳ 明朝': 'MS Gothic'}
 
 def customer_renderer_version(snapshot):
     if snapshot.get('sections') and not snapshot.get('thesis_context'):
@@ -51,8 +58,26 @@ def _font(style, size):
         fonts.attrib.pop(qn('w:' + key), None)
 
 
-def _document():
+def _replace_default_fonts(document):
+    # Update the blank template before applying any user-confirmed font rules.
+    for part in document.part.package.parts:
+        if str(part.partname) not in DEFAULT_FONT_PARTS:
+            continue
+        xml_part = isinstance(part, XmlPart)
+        root = part.element if xml_part else parse_xml(part.blob)
+        for node in root.iter():
+            for attribute, value in node.attrib.items():
+                replacement = DEFAULT_FONT_REPLACEMENTS.get(value)
+                if replacement is not None:
+                    node.set(attribute, replacement)
+        if not xml_part:
+            part._blob = serialize_part_xml(root)
+
+
+def _document(*, compatible_default_fonts=False):
     document = Document()
+    if compatible_default_fonts:
+        _replace_default_fonts(document)
     section = document.sections[0]
     section.page_width, section.page_height = Cm(21), Cm(29.7)
     section.top_margin = section.bottom_margin = Cm(2.2)

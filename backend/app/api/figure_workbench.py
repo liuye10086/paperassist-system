@@ -40,16 +40,26 @@ def bundle_for(store,project_id,file_id,run_id,figure_id):
 @router.post('/figures/{figure_id}/explanation-preview')
 def explanation_preview(project_id:str,file_id:str,run_id:str,figure_id:str,store:Store):
     from app.domain.figure_workbench.explanations import build_payload
+    from app.domain.figure_workbench import skill_approval
+    from app.domain.admin_configuration.bindings import resolve
     bundle=bundle_for(store,project_id,file_id,run_id,figure_id);payload=build_payload(bundle)
+    if skill_approval.enabled(payload):
+        with FigureWorkbenchStore(store).tasks.connection() as db:
+            preview, _ = skill_approval.prepare(payload, bundle['figure'], resolve(db),
+                                                skill_approval.delegated_approval(store.assignment))
+            return preview
     return {'payload_sha256':digest(payload),'payload':payload,'requires_confirmation':True}
 @router.post('/figures/{figure_id}/explanations',status_code=202)
 def explain(project_id:str,file_id:str,run_id:str,figure_id:str,request:GenerateFigure,store:Store):
     from app.domain.figure_workbench.tasks import submit
     bundle=bundle_for(store,project_id,file_id,run_id,figure_id)
-    return submit(FigureWorkbenchStore(store),project_id,file_id,run_id,bundle['figure']['figure_config_version_id'],request,figure_id=figure_id)
+    return submit(FigureWorkbenchStore(store),project_id,file_id,run_id,bundle['figure']['figure_config_version_id'],
+                  request,figure_id=figure_id,direct_explanation=True)
 @router.post('/versions/{version_id}/reuse-explanation')
 def reuse_explanation(project_id:str,file_id:str,run_id:str,version_id:str,request:ReuseExplanation,store:Store):
-    from app.domain.figure_workbench.explanations import reuse,version_for,validate_saved
+    from app.domain.figure_workbench.explanations import reuse,LATEST_VERSION,validate_saved
+    from app.domain.figure_workbench.tasks import local_reuse_blocked
+    from app.core.exceptions import StorageError
     workbench=FigureWorkbenchStore(store)
     with workbench.tasks.connection() as db:
         workbench._version(db,project_id,file_id,run_id,version_id)
@@ -61,8 +71,12 @@ def reuse_explanation(project_id:str,file_id:str,run_id:str,version_id:str,reque
     version=value['engine']['id']
     with workbench.tasks.connection(write=True) as db:
         workbench._version(db,project_id,file_id,run_id,version_id,lock=True)
+        blocked = (version == LATEST_VERSION
+                   and local_reuse_blocked(db, project_id, version_id, target['id'], lock=True))
         existing=db.execute('SELECT explanation_json FROM explanations WHERE figure_id=%s AND engine_version=%s',(target['id'],version)).fetchone()
         if existing:return validate_saved(new,json.loads(existing['explanation_json']))
+        if blocked:
+            raise StorageError('task_transition_invalid','此图已有解释任务或待核对的调用，请先核对任务。',409)
         db.execute('INSERT INTO explanations(id,analysis_run_id,figure_id,engine_version,explanation_json) VALUES (%s,%s,%s,%s,%s)',(value['id'],run_id,target['id'],version,json.dumps(value,ensure_ascii=False,allow_nan=False)))
     return value
 @router.get('/figures/{figure_id}/png')

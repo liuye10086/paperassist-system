@@ -10,6 +10,7 @@ from zipfile import ZipFile
 import json
 import pytest
 from tests.api.test_analysis import client
+from tests.api.test_admin_configurations import accounts, admin, baseline, saved as save_config, validated, switch
 from tests.integration.test_batch05_figure_execution import queued_figure, FigureExplanationProvider
 from tests.integration.test_batch06_pipeline import IndependentV2LineProvider, checked_policy
 from tests.integration.test_batch08_recovery import finish
@@ -18,17 +19,38 @@ from app.adapters.collection_store import CollectionStore
 from app.domain.figure_workbench.execution import run_figure_workbench_task, run_figure_explanation_task
 from app.domain.figure_workbench.explanations import build_payload
 from app.domain.figure_workbench.explanation_v5 import sentence_draft_v5
+from app.domain.external_processing import digest
+from app.domain.model_usage.gateway import input_digest
 from app.domain.report_collections.contracts import CollectionRequest
 from app.domain.report_collections.execution import run_collection_word_task
 from app.domain.report_collections.service import advance_pending
 
 
 class SyntheticSentenceProvider(FigureExplanationProvider):
+    source_kind = 'synthetic_fixture'
+
+    def __init__(self, *, pending=False):
+        super().__init__()
+        self.pending = pending
+        self.gets = []
+
     def create(self, **kwargs):
+        self.instructions = kwargs['instructions']
+        assert kwargs['policy'].tools == []
         receipt=super().create(**kwargs)
+        receipt['model'] = receipt['response']['model'] = kwargs['policy'].model
         payload=kwargs['payload']
         receipt['response']['output'][0]['content'][0]['text']=json.dumps(sentence_draft_v5(payload))
+        if self.pending:
+            self.completed = deepcopy(receipt)
+            receipt['status'] = receipt['response']['status'] = 'in_progress'
+            receipt['usage'] = receipt['response']['usage'] = None
         return receipt
+
+    def retrieve(self, response_id, *, policy):
+        self.gets.append(response_id)
+        assert response_id == self.completed['response_id']
+        return self.completed
 
 
 def authenticated_v5_explanation(client,workbench,project,result,figure,key):
@@ -155,8 +177,9 @@ def test_new_contract3_missing_dependency_advances_v5_without_rewriting_history(
     assert provider.posts==['container','upload','response']
 
 
-@pytest.mark.parametrize('figure_contract',[3,4])
-def test_authenticated_v5_pipeline_preserves_figure_version_and_exact_word_png(client,monkeypatch,figure_contract):
+@pytest.mark.parametrize(('figure_contract', 'skills'), [(3, False), (4, False), (4, True)],
+                         ids=['3', '4', 'statistics-skills'])
+def test_authenticated_v5_pipeline_preserves_figure_version_and_exact_word_png(client,monkeypatch,figure_contract,skills,request,tmp_path):
     config={'figure_kind':'line','language':'en','projection':{'x_column':'A','y_column':'C'},
             'style':{'aliases':{'A':'Axis alias','C':'Response alias'},'caption':'Author caption.'}}
     workbench,project,result,version,plot=queued_figure(client,monkeypatch,config,contract_version=figure_contract)
@@ -169,23 +192,89 @@ def test_authenticated_v5_pipeline_preserves_figure_version_and_exact_word_png(c
     assert figure['engine']['id']=='openai_figure_workbench_v'+str(figure_contract)
     assert figure['presentation']['schema_version']==figure_contract-1
     base=f'/api/v1/projects/{project}/files/{result["file_id"]}/analysis-runs/{result["id"]}/figure-workbench/figures/{figure["id"]}'
+    if skills:
+        monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'statistical_explanation')
     preview=client.post(base+'/explanation-preview')
     assert preview.status_code==200,preview.text
     payload=preview.json()['payload']
     assert payload['figure_explanation_contract']==5
     assert payload==build_payload(bundle)
     body={'idempotency_key':'b07-v5','external_processing':{'confirmed':True,'payload_sha256':preview.json()['payload_sha256']}}
+    if skills:
+        assert preview.json()['payload_sha256'] != digest(payload)
+        snapshot = preview.json()['skills_snapshot']
+        trace = snapshot['trace']
+        assert (trace['workflow'], trace['step'], trace['tool']['id']) == (
+            'statistical_explanation', 'explain_fixed_figure', 'figure_explanation')
+        assert [rule['name'] for rule in trace['skills']] == ['statistical-reading']
+        assert snapshot['instructions'] in preview.json()['effective_instructions']
+        with monkeypatch.context() as disabled:
+            disabled.delenv('PAPERASSIST_SKILL_WORKFLOWS')
+            assert client.post(base+'/explanations', json=body).status_code == 409
+        with workbench.tasks.connection() as db:
+            assert db.execute("SELECT count(*) n FROM tasks WHERE project_id=%s AND task_type='figure_explanation'",
+                              (project,)).fetchone()['n'] == 0
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from tests.api.test_customer_workspace import sign_in
+        with TestClient(app) as customer:
+            sign_in(customer, 'stats-review-customer@example.test', 'customer')
+            assert customer.post(base+'/explanation-preview').status_code in (403, 404)
+            assert customer.post(base+'/explanations', json=body).status_code in (403, 404)
+        wrong_run = base.replace('/analysis-runs/'+result['id']+'/', '/analysis-runs/other-run/')
+        assert client.post(wrong_run+'/explanation-preview').status_code == 409
+        assert client.post(wrong_run+'/explanations', json=body).status_code == 409
+
+        from tests.domain.test_explanation_policy import execution_policy
+        policy = execution_policy()
+        policy['policy']['model'] = policy['policy']['price']['model'] = 'gpt-6.1-sol'
+        policy['policy']['max_output_tokens'] = 16000
+        policy['input_token_allowance'] = 100000
+        policy_file = tmp_path / 'statistical-policy.json'
+        policy_file.write_text(json.dumps(policy), encoding='utf-8')
+        monkeypatch.setenv('PAPERASSIST_EXPLANATION_POLICY_FILE', str(policy_file))
+        administrator = request.getfixturevalue('admin')
+        first = save_config(administrator, baseline(administrator), 'prompts', 'explanation_instruction',
+                            'Use concise sentences.')
+        validated(administrator, first)
+        assert switch(administrator, first, 0, 'statistical-style').status_code == 200
+        assert client.post(base+'/explanations', json=body).status_code == 409
+        preview = client.post(base+'/explanation-preview')
+        assert preview.json()['skills_snapshot'] == snapshot and preview.json()['payload'] == payload
+        assert 'Use concise sentences.' in preview.json()['effective_instructions']
+        body['external_processing']['payload_sha256'] = preview.json()['payload_sha256']
     response=client.post(base+'/explanations',json=body)
     assert response.status_code==202,response.text
     task=response.json()['task']
+    if skills:
+        second = save_config(administrator, first, 'prompts', 'explanation_instruction', 'Use short paragraphs.')
+        validated(administrator, second)
+        assert switch(administrator, second, 1, 'statistical-style-changed').status_code == 200
+        monkeypatch.setenv('PAPERASSIST_SKILLS_MANIFEST_SHA256', '0'*64)
+        assert client.post(base+'/explanation-preview').status_code == 503
+        assert client.post(base+'/explanations',json=body).json()['task']['id']==task['id']
+        monkeypatch.delenv('PAPERASSIST_SKILL_WORKFLOWS')
     assert client.post(base+'/explanations',json=body).json()['task']['id']==task['id']
-    prose=SyntheticSentenceProvider()
+    prose=SyntheticSentenceProvider(pending=skills)
     task=finish(task,prose,run_figure_explanation_task)
     assert task['status']=='succeeded',task
     saved=read_bundle(workbench.assets,project,figure['id'],task['result_explanation_id'])
     assert saved['figure']==figure
     assert saved['explanation']['engine']['id']=='figure_explanation_v5'
     assert len(saved['explanation']['sections'])==6
+    with workbench.tasks.connection() as db:
+        frozen = db.execute('SELECT input_snapshot FROM tasks WHERE id=%s', (task['id'],)).fetchone()['input_snapshot']
+        call = db.execute('SELECT input_digest FROM model_calls WHERE task_id=%s', (task['id'],)).fetchone()
+    if skills:
+        assert frozen['skills_snapshot'] == snapshot
+        assert frozen['external_processing']['version'] == 8
+        assert saved['explanation']['provenance']['skills_trace'] == trace
+        assert prose.posts == [payload] and prose.instructions == preview.json()['effective_instructions']
+        assert prose.gets == [saved['explanation']['provenance']['response_id']]
+        assert call['input_digest'] == input_digest(instructions=prose.instructions, payload=payload)
+    else:
+        assert frozen['external_processing']['version'] == 7
+        assert 'skills_snapshot' not in frozen and 'skills_trace' not in saved['explanation']['provenance']
     repository=CollectionStore(workbench.assets)
     selection = {'figure_id': figure['id'], 'explanation_id': task['result_explanation_id']}
     assert saved['configuration']['config']['style']['caption'] == 'Author caption.'
@@ -246,3 +335,67 @@ def test_reader_figure_keeps_each_authored_caption_once(collection_caption):
     old_digests = {'Collection annotation.': '39863374b0f771fe9b24b8a1708c40bccbf48714b090ec87cc4760d00e46149c',
                    'Author caption.': 'a3db97882abd1c5251f0a66921829500db060d8195991fd80cc7c1c7c40dced9'}
     assert digest(figure_output(item, 1, 'en', context_schema_version=1)) == old_digests[collection_caption]
+
+
+@pytest.mark.parametrize('reserved', [False, True], ids=['before-reserve','reserved'])
+def test_skills_submission_reuses_saved_v5_without_a_matching_task_or_model_post(client, monkeypatch, reserved):
+    from app.domain.figure_workbench.explanations import render
+    from app.domain.figure_workbench.contracts import GenerateFigure
+    from app.domain.figure_workbench.tasks import submit
+    config = {'figure_kind':'line', 'language':'en', 'projection':{'x_column':'A', 'y_column':'C'}}
+    workbench, project, result, version, plot = queued_figure(client, monkeypatch, config, contract_version=4)
+    monkeypatch.setattr('app.domain.figure_workbench.tasks.policy_for', checked_policy)
+    plot = finish(plot, IndependentV2LineProvider(result, pending=False), run_figure_workbench_task)
+    bundle = read_bundle(workbench.assets, project, plot['result_figure_id'])
+    figure = bundle['figure']
+    payload = build_payload(bundle)
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'statistical_explanation')
+    base = f'/api/v1/projects/{project}/files/{result["file_id"]}/analysis-runs/{result["id"]}/figure-workbench/figures/{figure["id"]}'
+    preview = client.post(base+'/explanation-preview').json()
+    body = dict(idempotency_key='queued-before-local-reuse',
+                external_processing=dict(confirmed=True, payload_sha256=preview['payload_sha256']))
+    queued = client.post(base+'/explanations', json=body).json()['task']
+    # A separately approved plain request keeps its v7 fact-only identity.
+    # It cannot silently adopt the in-progress, differently approved v8 task.
+    plain = GenerateFigure(idempotency_key='separate-workflow', external_processing={
+        'confirmed': True, 'payload_sha256': digest(payload)})
+    from app.core.exceptions import StorageError
+    with pytest.raises(StorageError) as mismatch:
+        submit(workbench, project, result['file_id'], result['id'], version, plain, figure_id=figure['id'])
+    assert mismatch.value.code == 'task_transition_invalid'
+    # Represent an existing separately saved v5 artifact with no originating task in this database.
+    old = render(bundle, sentence_draft_v5(payload), {
+        'model':'fixture', 'model_call_id':'historical-offline-call', 'response_id':'historical-offline-response'})
+    with workbench.tasks.connection(write=True) as db:
+        db.execute('INSERT INTO explanations(id,analysis_run_id,figure_id,engine_version,explanation_json) VALUES(%s,%s,%s,%s,%s)',
+                   (old['id'],result['id'],figure['id'],old['engine']['id'],json.dumps(old)))
+    repeated = client.post(base+'/explanations', json={**body, 'idempotency_key':'reuse-saved-v5'})
+    assert repeated.status_code == 202 and repeated.json() == {'task':None, 'explanation':old}
+    def unexpected_provider():
+        pytest.fail('An already saved explanation must finish without constructing a provider.')
+    if reserved:
+        from app.adapters.task_execution_store import TaskExecutionStore
+        from app.domain.figure_workbench import execution
+        from app.domain.figure_workbench.tasks import EXPLANATION_KEY
+        from app.domain.model_usage.contracts import CallRequest, ModelPolicy
+        from app.domain.model_usage.service import ModelUsageService
+        executor = TaskExecutionStore()
+        lease = executor.claim(queued['id'], queued['revision'])
+        with executor.connection() as db:
+            running = executor.require_lease(db,lease)
+        policy = running['input_snapshot']['explanation_policy']
+        service = ModelUsageService(running['user_id'])
+        service.reserve_call(CallRequest(task_id=queued['id'],expected_task_revision=running['revision'],
+            call_key=EXPLANATION_KEY, input_digest=input_digest(instructions=preview['effective_instructions'],payload=payload),
+            policy=ModelPolicy.model_validate(policy['policy']),input_token_allowance=policy['input_token_allowance']),
+            execution_lease=lease)
+        done = execution._execute(executor,lease,unexpected_provider,[],True)
+    else:
+        done = run_figure_explanation_task(queued['id'], queued['revision'], provider_factory=unexpected_provider)
+    assert done['status'] == 'succeeded' and done['result_explanation_id'] == old['id']
+    assert read_bundle(workbench.assets, project, figure['id'], old['id'])['explanation'] == old
+    with workbench.tasks.connection() as db:
+        calls = db.execute('SELECT status,provider_response_id,estimated_cost_micro_usd FROM model_calls WHERE task_id=%s',
+                           (queued['id'],)).fetchall()
+        assert [dict(call) for call in calls] == ([{'status':'released','provider_response_id':None,
+                                                    'estimated_cost_micro_usd':0}] if reserved else [])

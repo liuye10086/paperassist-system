@@ -117,6 +117,7 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
   const customerWordTitle = data?.task.task_type === 'review_document_export' ? '意见成果'
     : data?.task.task_type === 'manuscript_docx' ? '稿件' : '分析报告'
   const taskReport = data?.artifacts.report
+  const hasFigurePackage = data?.task.task_type === 'figure_workbench' || data?.task.task_type === 'figure_explanation'
   const reportFiles = statisticalExport && validStatisticsReaderExport(taskReport, projectId, data.task.task_type, taskId) ? taskReport : null
   const narrativeContext=data?.task.task_type==='reader_report_narrative'?data.artifacts.bio_reader_report_context_id:undefined
   const narrativeBack=narrativeContext?bioReportLink(projectId,narrativeContext,
@@ -171,7 +172,7 @@ function Detail({ projectId, taskId, onChanged, onOpenFiles, onOpenLiterature, o
         {data.artifacts.literature&&<p>{t('检索结果：已获取 {retrieved} 篇；匹配 {matched} 篇。',{retrieved:data.artifacts.literature.retrieved_count,matched:data.artifacts.literature.matched_count??t('尚未返回')})}</p>}
         {data.artifacts.analysis&&<StatisticsTaskArtifact result={data.artifacts.analysis}/>}
         {data.artifacts.figure && <article><h4>{data.artifacts.figure.title}</h4><p>{data.artifacts.figure.caption}</p>
-          <ProjectDownloadLink href={data.artifacts.figure.download_url} filename={data.task.task_type==='figure_workbench'?t('图表与说明')+'.zip':t('箱线图')+'.png'}>{t(data.task.task_type==='figure_workbench'?'下载图表与说明包':'下载此任务的 PNG')}</ProjectDownloadLink></article>}
+          <ProjectDownloadLink href={data.artifacts.figure.download_url} filename={hasFigurePackage?t('图表与说明')+'.zip':t('箱线图')+'.png'}>{t(hasFigurePackage?'下载图表与说明包':'下载此任务的 PNG')}</ProjectDownloadLink></article>}
         {data.artifacts.explanation && <article className="task-saved-explanation"><p className="warning-panel">{t('AI 草稿，需人工审核。')}</p>
           {data.artifacts.explanation.sections.map((section, index) => <section key={`${section.key}:${index}`}><h4>{section.title}</h4><p>{section.text}</p></section>)}
           {data.artifacts.explanation.limitations.length > 0 && <><h4>{t('解释限制')}</h4><ul>{data.artifacts.explanation.limitations.map((item, index) => <li key={index}>{item}</li>)}</ul></>}</article>}

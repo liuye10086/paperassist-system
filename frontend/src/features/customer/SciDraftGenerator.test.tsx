@@ -1,3 +1,4 @@
+import {webcrypto} from 'node:crypto'
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react'
 import {afterEach, beforeEach, expect, it, vi} from 'vitest'
 import type {Reference} from '../literature/literatureApi'
@@ -7,7 +8,7 @@ import {methodFields, validManuscript, type Candidates} from '../manuscripts/man
 import {preparePaperDraft} from '../manuscripts/preparePaperDraft'
 import {submitPaperDraft} from '../manuscripts/submitPaperDraft'
 import {TaskRequestError} from '../tasks/taskApi'
-import {liveRequest} from '../manuscripts/writingLiveFixtures'
+import {bundleFixture,liveRequest} from '../manuscripts/writingLiveFixtures'
 import type {Project} from '../projects/projectTypes'
 import {SciDraftGenerator, ThesisDraftGenerator} from './SciDraftGenerator'
 import type {ThesisRequirements} from './thesisProjectRequirements'
@@ -105,6 +106,35 @@ it('uses the school outline, saved requirements and shortlisted abstracts and on
         output_language:'project',result_group_ids:i===4?['p-results']:[],
       }))}})}))
   expect(submitPaperDraft).toHaveBeenCalledWith(expect.objectContaining({documentKind:'thesis'}))
+})
+
+it('reopens the same prepared thesis after cancelling the Skills confirmation', async () => {
+  vi.stubGlobal('crypto',webcrypto)
+  serveThesis()
+  const submitted = vi.fn()
+  vi.mocked(submitPaperDraft).mockImplementation(async ({version, confirmSkills}) => {
+    if (!confirmSkills) throw new Error('Missing preview confirmation')
+    await confirmSkills({version,bundle:bundleFixture(),capabilities:{real_calls_enabled:true}})
+    return liveRequest
+  })
+  mountThesis(submitted)
+  fireEvent.change(await screen.findByRole('combobox',{name:'独立专题'}),{target:{value:'discussion'}})
+  fireEvent.click(screen.getByRole('button',{name:'生成毕业论文初稿'}))
+  const review = await screen.findByRole('region',{name:'生成正文确认'})
+  expect(within(review).getByRole('button',{name:'生成正文初稿'})).toHaveProperty('disabled',true)
+  expect(submitted).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button',{name:'取消'}))
+  await waitFor(() => expect(screen.queryByRole('region',{name:'生成正文确认'})).toBeNull())
+  expect(submitted).not.toHaveBeenCalled()
+  fireEvent.click(await screen.findByRole('button',{name:'继续本次生成'}))
+  const next = await screen.findByRole('region',{name:'生成正文确认'})
+  const [first, second] = vi.mocked(preparePaperDraft).mock.calls.map(([options])=>options)
+  expect(second).toMatchObject({attemptKey:first.attemptKey,manuscriptId:'m1',existingRevision:1})
+  const consent = within(next).getByRole('checkbox')
+  await waitFor(() => expect(consent).toHaveProperty('disabled',false))
+  fireEvent.click(consent)
+  fireEvent.click(within(next).getByRole('button',{name:'生成正文初稿'}))
+  await waitFor(() => expect(submitted).toHaveBeenCalledOnce())
 })
 it('blocks generation when the school directory is unavailable and links to its repair step', async () => {
   serveThesis({...thesisCandidates, thesis:{...thesisCandidates.thesis,ready:false,blocking_reasons:['school_template_not_ready']}})

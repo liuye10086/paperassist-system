@@ -57,6 +57,30 @@ def test_bulk_expression_accepts_a_tabular_feature_id_as_data():
         FigureConfig(result_source_id='version', figure_type='qpcr_samples', contrast_id='A_B', feature_ids=['gene/isoform'])
 
 
+def test_fixed_preview_preserves_tabular_sample_labels_as_data():
+    from app.domain.bio_insights.fixed_bulk_preview import PcaScores, QcMissing
+
+    sample_ids = ['donor/S01', 'donor\\S02', '样本 3']
+    common = dict(
+        schema_version=1, source_id='version', source_sha256='a' * 64, displayed_count=3,
+        omitted_count=0, missing_count=0, empty_reason=None, sample_ids=sample_ids,
+    )
+    qc = QcMissing.model_validate(common | dict(
+        figure_type='bulk_qc', panel='qc_missing', axes={'x': 'sample_id', 'y': 'missing_fraction'},
+        input_member='qc_missing_data', source_members={'qc_missing_data': 'b' * 64},
+        missing_fraction=[0., .5, .25],
+    ))
+    pca = PcaScores.model_validate(common | dict(
+        figure_type='bulk_pca', panel='pca_scores', axes={'x': 'pc1', 'y': 'pc2'},
+        input_member='pca_scores', source_members={'pca_scores': 'b' * 64},
+        components=[1, 2], variance_ratio=[.75, .25], scores=[[2., 0.], [-1., 1.], [-1., -1.]],
+        condition=['group/A', 'group/A', 'group\\B'], batch=['run/1', 'run\\2', ''],
+    ))
+    assert qc.sample_ids == pca.sample_ids == sample_ids
+    assert pca.condition == ['group/A', 'group/A', 'group\\B']
+    assert pca.batch == ['run/1', 'run\\2', '']
+
+
 def test_bulk_candidate_top_n_is_separate_from_threshold_and_frozen_contrast():
     config = dict(kind='candidate', result_source_ids=['version'], primary_result_source_id='version',
                   source_contrasts={'version': 'A_B'}, steps=[], bulk_selection=selection(direction='down'), bulk_top_n=100)
