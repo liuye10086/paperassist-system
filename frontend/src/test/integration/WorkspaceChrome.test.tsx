@@ -21,6 +21,52 @@ function mount() {
 }
 afterEach(() => {cleanup();vi.unstubAllGlobals();window.history.replaceState(null,'','/')})
 
+it.each([
+  ['research', ['项目资料', '上传资料', '选择需求', '任务进度', '查看交付'], 'upload'],
+  ['sci', ['项目资料', '上传资料', '图件拼版', '模板设定和资源配置', '文献与初稿'], 'materials'],
+  ['thesis', ['项目资料', '上传资料', '图件拼版', '模板与资料整理', '文献与初稿'], 'materials'],
+] as const)('puts the numbered %s steps in the customer header', async (projectType, labels, uploadStep) => {
+  const customerProject = { ...project, project_type: projectType }
+  window.history.replaceState(null, '', `/#customer-project=${project.id}&step=details`)
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.endsWith('/auth/me')) return Response.json({ user: { id: 'customer', email: 'customer@example.test', role: 'customer' }, csrf_token: 'fixture-token' })
+    if (url === `/api/v1/projects/${project.id}`) return Response.json(customerProject)
+    if (url.endsWith('/sci-settings')) return Response.json({ settings: null, revision: 0 })
+    if (url.endsWith('/thesis-requirements')) return Response.json({ title: '', keywords: [], sections: [], template: null, language: 'zh-CN', revision: 0 })
+    if (url.endsWith('/config')) return Response.json({ max_upload_bytes: 10485760, preview_row_limit: 20 })
+    return Response.json({ items: [], total: 0, page: 1, page_size: 12 })
+  }))
+  render(<App />)
+
+  const header = within((await screen.findByRole('button', { name: '账号' })).closest('header')!)
+  const steps = within(await header.findByRole('navigation', { name: '项目操作步骤' }))
+  expect(screen.getAllByRole('navigation', { name: '项目操作步骤' })).toHaveLength(1)
+  expect(steps.getAllByRole('button').map(button => button.textContent)).toEqual(labels.map((label, index) => `${index + 1}${label}`))
+  expect(steps.getByRole('button', { name: '第 1 步：项目资料', current: 'step' })).toBeTruthy()
+  expect(header.queryByText(project.name)).toBeNull()
+  expect(header.queryByText('我的项目')).toBeNull()
+  const content = within(screen.getByRole('main'))
+  const detailsHeading = content.getByRole('heading', { name: '项目资料', level: 1 })
+  const detailsNext = content.getByRole('button', { name: '下一步 上传资料' })
+  expect(detailsHeading.classList.contains('visually-hidden')).toBe(true)
+  expect(detailsHeading.closest('.customer-section')?.lastElementChild?.contains(detailsNext)).toBe(true)
+
+  const sidebar = within(screen.getByRole('complementary', { name: '主要导航' }))
+  expect(sidebar.getByRole('button', { name: `当前项目 ${project.name}` })).toBeTruthy()
+  fireEvent.click(steps.getByRole('button', { name: '第 2 步：上传资料' }))
+  const uploadsHeading = await content.findByRole('heading', { name: '上传资料', level: 1 })
+  const uploadsNext = content.getByRole('button', { name: /^下一步 / })
+  expect(uploadsHeading.classList.contains('visually-hidden')).toBe(true)
+  expect(uploadsHeading.closest('.customer-section')?.lastElementChild?.contains(uploadsNext)).toBe(true)
+  expect(document.activeElement).toBe(uploadsHeading)
+  expect(steps.getByRole('button', { name: '第 2 步：上传资料', current: 'step' })).toBeTruthy()
+  expect(new URLSearchParams(window.location.hash.slice(1)).get('step')).toBe(uploadStep)
+
+  fireEvent.click(sidebar.getByRole('button', { name: '我的项目' }))
+  expect(header.queryByRole('navigation', { name: '项目操作步骤' })).toBeNull()
+  expect(await screen.findByRole('heading', { name: '我的项目' })).toBeTruthy()
+})
+
 it('keeps one project step navigation in the header and hides it when leaving the project',async()=>{
   mount();await screen.findByRole('navigation',{name:'项目操作步骤'})
   const header=screen.getByRole('button',{name:'账号'}).closest('header')!

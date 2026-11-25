@@ -53,8 +53,8 @@ def preview(project_id:str,manuscript_id:str,request:ArticlePreviewRequest | Pre
     return result
 
 @preview_router.get('')
-def previews(project_id:str,manuscript_id:str,store:Store):
-    return LiveWritingService(store).list_previews(project_id,manuscript_id)
+def previews(project_id:str,manuscript_id:str,store:Store,capabilities_only:bool=False):
+    return LiveWritingService(store).list_previews(project_id,manuscript_id,capabilities_only=capabilities_only)
 
 @preview_router.get('/{bundle_id}')
 def preview_get(project_id:str,manuscript_id:str,bundle_id:str,store:Store):

@@ -15,7 +15,7 @@ const detail = { project_id: props.projectId, manuscript_id: props.manuscriptId,
 
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks() })
 
-it('renders school headings and bibliography in template order and offers advisor revision', async () => {
+it('renders school headings and bibliography in template order and offers draft revision', async () => {
   const thesis = {...detail.draft, sections: [
     {id:'cn-ref', purpose:'references', heading:'学校参考书目', level:1, output_language:'zh-CN', paragraphs:[], groups:[]},
     {id:'english-abstract', purpose:'abstract', heading:'Abstract', level:1, output_language:'en', paragraphs:[], groups:[]},
@@ -26,7 +26,7 @@ it('renders school headings and bibliography in template order and offers adviso
   expect(screen.getAllByRole('heading').map(h => h.textContent)).toEqual(['Draft title','学校参考书目','Abstract'])
   expect(screen.getByText(/Full bibliographic entry/).closest('section')?.getAttribute('lang')).toBe('zh-CN')
   expect(screen.getByRole('link', {name:'按学校模板下载 Word'}).getAttribute('href')).toBe(url + '/word?revision=2')
-  fireEvent.click(screen.getByRole('button', {name:'按导师意见修改'}))
+  fireEvent.click(screen.getByRole('button', {name:'修改初稿'}))
   expect(props.onRevise).toHaveBeenCalledOnce()
 })
 
@@ -53,7 +53,7 @@ it('reloads read failures and shows before and after even if paragraph ids chang
     .mockResolvedValueOnce(Response.json({ ...detail, previous_request_id: 'original', changes: [
       { section_id: 'discussion', heading: 'Discussion', before: ['Original wording.'], after: ['Manuscript prose.[2]'], paragraph_ids: ['p'] },
     ] })))
-  render(<SciDraftReader {...props}/>)
+  render(<SciDraftReader {...props} thesis/>)
   fireEvent.click(within(await screen.findByRole('alert')).getByRole('button', {name:'重试'}))
   const changes = await screen.findByText('查看修改处')
   fireEvent.click(changes)

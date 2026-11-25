@@ -18,7 +18,7 @@ export default function SingleCellExecutionGuide({group,files,imports,checking,o
     ? {view:'bio-dataset' as const,datasetId:reusable.datasetId,versionId:reusable.versionId}
     : reusable ? {view:'bio-import' as const,importId:reusable.id} : null
   const methods=group.choices.filter(choice=>choice.scope.id.startsWith('customer.analysis.'))
-  return <article className="single-cell-execution" aria-label={t(group.title)}>
+  return <article className="rna-execution-guide" aria-label={t(group.title)}>
     <h3>{t('单细胞分析流程')}</h3>
     <ol>
       <li><div><h4>{t('导入计数矩阵')}</h4>

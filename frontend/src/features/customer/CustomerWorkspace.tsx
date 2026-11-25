@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { watchProjectAccess } from '../../shared/api/projectAccess'
+import ModuleViews, { ModuleView } from '../../shared/components/ModuleViews'
 import { useI18n } from '../../shared/i18n'
 import ProjectDetails from '../projects/ProjectDetails'
 import ProjectList, { type ProjectListQuery } from '../projects/ProjectList'
@@ -17,7 +18,10 @@ import CustomerMaterials, { ThesisMaterialOrganizer } from './CustomerMaterials'
 import CustomerProgress from './CustomerProgress'
 import CustomerProjectCreate from './CustomerProjectCreate'
 import CustomerRequirements from './CustomerRequirements'
+import CustomerSciFigures from './CustomerSciFigures'
+import CustomerSciResources from './CustomerSciResources'
 import CustomerSciSettings from './CustomerSciSettings'
+import CustomerSciTemplate from './CustomerSciTemplate'
 import CustomerSciWorkflow from './CustomerSciWorkflow'
 import CustomerThesisRequirements, { ThesisTemplateOrganizer } from './CustomerThesisRequirements'
 import CustomerWritingMaterials from './CustomerWritingMaterials'
@@ -29,7 +33,7 @@ import { readSummary, summaryRoute } from './customerWorkspaceApi'
 import { buildReturn, readReturn } from './returnToken'
 import './customerWorkspace.css'
 
-const steps = [
+const analysisSteps = [
   ['details', '项目资料'],
   ['upload', '上传资料'],
   ['requirements', '选择需求'],
@@ -41,12 +45,13 @@ const paperSteps = [
   ['materials', '上传资料'],
   ['manuscripts', '文献与初稿'],
 ] as const
-const thesisSteps = [paperSteps[0], paperSteps[1], ['school', '模板与资料整理'], paperSteps[2]] as const
-type Step = typeof steps[number][0] | typeof paperSteps[number][0] | 'school' | 'word' | 'reviews' | 'citations' | 'tasks' | 'journals'
+const thesisSteps = [paperSteps[0], paperSteps[1], ['thesis-figures', '图件拼版'], ['school', '模板与资料整理'], paperSteps[2]] as const
+const sciSteps = [paperSteps[0], paperSteps[1], ['sci-figures', '图件拼版'], ['sci-template', '模板设定和资源配置'], paperSteps[2]] as const
+type Step = typeof analysisSteps[number][0] | typeof sciSteps[number][0] | typeof thesisSteps[number][0] | 'word' | 'reviews' | 'citations' | 'tasks' | 'journals'
 type Route = { projectId: string; step: Step; params?: URLSearchParams } | null
 type RouteOptions = { confirmed?: boolean; replace?: boolean }
-const allowedSteps = new Set<string>([...steps, ...paperSteps].map(([key]) => key))
-for (const key of ['school', 'word', 'reviews', 'citations', 'tasks', 'journals']) allowedSteps.add(key)
+const allowedSteps = new Set<string>([...analysisSteps, ...sciSteps, ...thesisSteps].map(([key]) => key))
+for (const key of ['word', 'reviews', 'citations', 'tasks', 'journals']) allowedSteps.add(key)
 const navigationIndexKey = 'paperassistCustomerNavigationIndex'
 // Customers see about one screen of project cards per page (user decision 2026-11-20); analysts keep five.
 const customerPageSize = 12
@@ -87,6 +92,7 @@ export default function CustomerWorkspace() {
   const [query, setQuery] = useState<ProjectListQuery>({ page: 1, q: '', type: '' })
   const [search, setSearch] = useState('')
   const [chapterRevision, setChapterRevision] = useState(0)
+  const [figureConfigRevision, setFigureConfigRevision] = useState(0)
   // Summary landing for “打开项目” only (接口设计第一节 2); `failed` keeps the retry on project details.
   const [landing, setLanding] = useState<{ projectId: string; attempt: number; failed: boolean } | null>(null)
   const projectListHeading = useRef<HTMLHeadingElement | null>(null)
@@ -100,9 +106,9 @@ export default function CustomerWorkspace() {
   const canLeave = useCallback((next?: Route) => {
     const current = currentRoute.current
     const samePage = current && next && current.projectId === next.projectId && current.step === next.step
-    const editingTemplate = current?.step === 'school' || current?.params?.has('schoolView')
+    const editingTemplate = current?.step === 'school' || current?.step === 'sci-template' || current?.params?.has('schoolView')
     const preserveDraft = !editingTemplate && (!!samePage ||
-      !['upload', 'school', 'materials', 'citations', 'manuscripts', 'journals', 'word', 'reviews', 'tasks'].includes(current?.step ?? ''))
+      !['upload', 'school', 'materials', 'sci-figures', 'thesis-figures', 'citations', 'manuscripts', 'journals', 'word', 'reviews', 'tasks'].includes(current?.step ?? ''))
     return [...guards.current.keys()].every(guard => guard(preserveDraft))
   }, [])
 
@@ -120,10 +126,11 @@ export default function CustomerWorkspace() {
   const isAnalysis = project?.project_type === 'research'
   const isSci = project?.project_type === 'sci'
   const isThesis = project?.project_type === 'thesis'
-  const writingSteps = isThesis ? thesisSteps : paperSteps
+  const writingSteps = isThesis ? thesisSteps : sciSteps
+  const projectSteps = isAnalysis ? analysisSteps : writingSteps
   const hasAnalysisHistory = project?.has_analysis_history === true
   const allowedStep = (step: Step) => step === 'details' || step === 'tasks' || step === 'deliveries' && hasAnalysisHistory ||
-    (isAnalysis && steps.some(([key]) => key === step)) ||
+    (isAnalysis && analysisSteps.some(([key]) => key === step)) ||
     ((isSci || isThesis) && writingSteps.some(([key]) => key === step))
   const requestedStep = route?.step === 'upload' && (isSci || isThesis) ? 'materials' : route?.step
   const routeParams = route?.params ?? new URLSearchParams()
@@ -136,6 +143,7 @@ export default function CustomerWorkspace() {
   const templateId = routeParams.get('template')
   const templateView = schoolTemplateViews.find(view => view === (routeParams.get('schoolView') ?? routeParams.get('view')))
   const schoolPanel = activeStep === 'school' && (!!templateView || !!templateId)
+  const sciResources = activeStep === 'sci-template' && routeParams.get('view') === 'resources'
   const manuscriptParams = new URLSearchParams(routeParams)
   if (isThesis && requestedStep === 'word' && routeParams.has('manuscript') && !routeParams.has('writingRequest')) manuscriptParams.set('view', 'saved')
   if (isThesis && requestedStep === 'reviews') {
@@ -214,7 +222,7 @@ export default function CustomerWorkspace() {
     const target = projectId ? heading.current : projectListHeading.current
     target?.focus({ preventScroll: true })
     if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'instant' })
-  }, [projectId, activeStep, project?.id, schoolPanel, supplementing])
+  }, [projectId, activeStep, project?.id, schoolPanel, sciResources, supplementing])
 
   // Read only here: refresh, Back/Forward and deep links restore from the address instead.
   const pendingLanding = landing && !landing.failed ? landing : null
@@ -300,7 +308,7 @@ export default function CustomerWorkspace() {
   }
 
   return <WorkspaceFrame className="customer-workbench" homeLabel="返回我的项目" onHome={() => navigate(null)}
-    location="我的项目" projectName={project?.name}
+    location={route ? undefined : '我的项目'}
     sidebarAction={closeMenu => <button type="button" className="sidebar-create"
       aria-label={t('新建项目')} title={t('新建项目')} onClick={() => { if (canLeave()) setCreating(true); closeMenu() }}>
       <WorkspaceIcon name="plus" /><span className="sidebar-text">{t('新建项目')}</span>
@@ -342,50 +350,57 @@ export default function CustomerWorkspace() {
         <p role="status">{t('正在读取项目……')}</p>
       </div>}
       {route && project && <>
-        {isAnalysis && <WorkspaceSteps current={steps.findIndex(([key]) => key === activeStep)} steps={steps.map(([key, title]) => ({
+        <WorkspaceSteps current={projectSteps.findIndex(([key]) => key === activeStep)} steps={projectSteps.map(([key, title]) => ({
           title, action: () => chooseStep(key),
-        }))} />}
-        {(isSci || isThesis) && <nav className="customer-switches customer-manuscript-navigation" aria-label={t(isThesis ? '毕业论文项目步骤' : 'SCI 项目步骤')}>
-          {writingSteps.map(([key, title]) => <button key={key} type="button" className="button-quiet"
-            aria-current={activeStep === key ? 'step' : undefined}
-            onClick={() => chooseStep(key)}>{t(title)}</button>)}
-        </nav>}
+        }))} />
         <div key={project.id} className="customer-step-content">
           {activeStep === 'details' && <div className="customer-section customer-project-details project-details-card">
-            {landing?.failed && landing.projectId === project.id && <div className="customer-landing-error">
-              <p role="alert" className="error-panel">{t('暂时无法读取项目进度。')}</p>
-              <button type="button" onClick={retryLanding}>{t('重新读取')}</button>
-            </div>}
-            <div className="customer-section-heading">
-              <h1 ref={heading} tabIndex={-1}>{t('项目资料')}</h1>
-              <button type="button" className="button-primary" onClick={() => chooseStep(isAnalysis ? 'upload' : 'materials')}>{t('下一步 上传资料')}</button>
+            <h1 ref={heading} tabIndex={-1} className="visually-hidden">{t('项目资料')}</h1>
+            <div>
+              {landing?.failed && landing.projectId === project.id && <div className="customer-landing-error">
+                <p role="alert" className="error-panel">{t('暂时无法读取项目进度。')}</p>
+                <button type="button" onClick={retryLanding}>{t('重新读取')}</button>
+              </div>}
+              <ProjectDetails project={project} showHeading={false} showLanguage={!isThesis} onUpdated={details.refresh} registerLeaveGuard={registerLeaveGuard} />
+              {isThesis && hasAnalysisHistory && <button type="button" className="button-quiet" onClick={() => chooseStep('deliveries')}>{t('历史分析交付')}</button>}
+              {project.project_type === 'sci' && <CustomerSciSettings projectId={project.id} registerLeaveGuard={registerLeaveGuard}
+                onContinue={() => chooseStep('materials', true)} />}
+              {isThesis && <CustomerThesisRequirements projectId={project.id}
+                onContinue={() => chooseStep('materials', true)} onLanguageChanged={details.refresh} registerLeaveGuard={registerLeaveGuard} />}
             </div>
-            <ProjectDetails project={project} showHeading={false} showLanguage={!isThesis} onUpdated={details.refresh} registerLeaveGuard={registerLeaveGuard} />
-            {isThesis && hasAnalysisHistory && <button type="button" className="button-quiet" onClick={() => chooseStep('deliveries')}>{t('历史分析交付')}</button>}
-            {project.project_type === 'sci' && <CustomerSciSettings projectId={project.id} registerLeaveGuard={registerLeaveGuard}
-              onContinue={() => chooseStep('materials', true)} />}
-            {isThesis && <CustomerThesisRequirements projectId={project.id}
-              onContinue={() => chooseStep('materials', true)} onLanguageChanged={details.refresh} registerLeaveGuard={registerLeaveGuard} />}
+            <footer className="customer-step-actions">
+              <button type="button" className="button-primary" onClick={() => chooseStep(isAnalysis ? 'upload' : 'materials')}>{t('下一步 上传资料')}</button>
+            </footer>
           </div>}
           {isThesis && activeStep === 'school' && <section className="customer-section thesis-organizer">
             <div className="customer-section-heading">
-              <h1 ref={heading} tabIndex={-1}>{t(schoolPanel ? '学校模板' : '模板与资料整理')}</h1>
-              {schoolPanel
-                ? <button type="button" className="button-quiet" onClick={() => chooseStep('school')}>{t('返回模板与资料整理')}</button>
-                : <button type="button" className="button-primary" onClick={() => chooseStep('manuscripts')}>{t('下一步 文献与初稿')}</button>}
+              <h1 ref={heading} tabIndex={-1} className={schoolPanel ? undefined : 'visually-hidden'}>{t(schoolPanel ? '学校模板' : '模板与资料整理')}</h1>
+              {schoolPanel && <button type="button" className="button-quiet" onClick={() => chooseStep('school')}>{t('返回模板与资料整理')}</button>}
             </div>
             {schoolPanel ? (templateId && !validCustomerRouteId(templateId) ? <p role="alert">{t('指定学校模板版本不可用。')}</p>
               : <SchoolTemplates projectId={project.id} active customerView registerLeaveGuard={registerLeaveGuard}
                   navigation={{view:templateView ?? 'detail', templateId:templateId ?? ''}}
                   onNavigate={({view, templateId}) => updatePaperRoute({schoolView:view, view:undefined, template:templateId || undefined}, true)}
-                  onAdopted={() => chooseStep('school', true)}/>) : <div className="thesis-organizer-panels">
-              <ThesisTemplateOrganizer projectId={project.id} registerLeaveGuard={registerLeaveGuard}
-                onOpenProject={() => chooseStep('details')}
-                onSectionsSaved={() => setChapterRevision(value => value + 1)}
-                onOpenTemplate={hasTemplate => updatePaperRoute({schoolView:hasTemplate ? 'list' : 'upload'})}/>
-              <ThesisMaterialOrganizer projectId={project.id} registerLeaveGuard={registerLeaveGuard} chapterRevision={chapterRevision}
-                onUpload={() => chooseStep('materials')}/>
-            </div>}
+                  onAdopted={() => chooseStep('school', true)}/>) : <ModuleViews label={t('模板与资料整理')} lazy>
+              <ModuleView id="template" title={t('学校模板')}>
+                <ThesisTemplateOrganizer projectId={project.id} registerLeaveGuard={registerLeaveGuard}
+                  figureConfigRevision={figureConfigRevision}
+                  onOpenProject={() => chooseStep('details')}
+                  onSectionsSaved={() => setChapterRevision(value => value + 1)}
+                  onOpenTemplate={hasTemplate => updatePaperRoute({schoolView:hasTemplate ? 'list' : 'upload'})}/>
+              </ModuleView>
+              <ModuleView id="materials" title={t('资料整理')}>
+                <ThesisMaterialOrganizer projectId={project.id} registerLeaveGuard={registerLeaveGuard} chapterRevision={chapterRevision}/>
+              </ModuleView>
+              <ModuleView id="figures" title={t('图件配置')}>
+                <CustomerSciResources projectType="thesis" projectId={project.id} registerLeaveGuard={registerLeaveGuard}
+                  chapterRevision={chapterRevision} onSaved={() => setFigureConfigRevision(value => value + 1)}
+                  onFigures={() => chooseStep('thesis-figures')} />
+              </ModuleView>
+            </ModuleViews>}
+            {!schoolPanel && <footer className="customer-step-actions">
+              <button type="button" className="button-primary" onClick={() => chooseStep('manuscripts')}>{t('下一步 文献与初稿')}</button>
+            </footer>}
           </section>}
           {activeStep === 'upload' && <CustomerMaterials key={supplementing ? 'supplement' : 'upload'} projectId={project.id} headingRef={heading}
             onContinue={() => chooseStep('requirements')} onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard}
@@ -396,7 +411,7 @@ export default function CustomerWorkspace() {
             onSubmitted={() => chooseStep('progress', true)} registerLeaveGuard={registerLeaveGuard} />}
           {activeStep === 'progress' && <CustomerProgress projectId={project.id} headingRef={heading} onRequirements={() => chooseStep('requirements')}
             onUpload={openSupplement} onDeliveries={() => chooseStep('deliveries')} registerLeaveGuard={registerLeaveGuard} />}
-          {activeStep === 'deliveries' && <CustomerDeliveries projectId={project.id} headingRef={heading}
+          {activeStep === 'deliveries' && <CustomerDeliveries projectId={project.id} headingRef={heading} showHeading={!isAnalysis}
             initialSnapshotId={routeParams.get('snapshot') ?? undefined} initialDeliveryId={routeParams.get('delivery') ?? undefined}
             onSelectSnapshot={snapshot => updatePaperRoute({ snapshot: snapshot ?? undefined }, true)}
             registerLeaveGuard={registerLeaveGuard} />}
@@ -407,14 +422,25 @@ export default function CustomerWorkspace() {
             onOpenFiles={() => chooseStep(isAnalysis ? 'upload' : 'materials')}
             headingRef={heading} registerLeaveGuard={registerLeaveGuard} />}
           {isSci && activeStep === 'materials' && <CustomerMaterials key="sci-upload" projectId={project.id} forWriting="sci"
-            headingRef={heading} onContinue={() => chooseStep('manuscripts', false, 'select')} onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} />}
+            headingRef={heading} onContinue={() => chooseStep('sci-figures')} onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} />}
+          {(isSci && activeStep === 'sci-figures' || isThesis && activeStep === 'thesis-figures') &&
+            <CustomerSciFigures projectType={isThesis ? 'thesis' : 'sci'} projectId={project.id} headingRef={heading}
+              registerLeaveGuard={registerLeaveGuard} onContinue={() => chooseStep(isThesis ? 'school' : 'sci-template')} />}
+          {isSci && activeStep === 'sci-template' && (sciResources
+            ? <CustomerSciResources key={project.id} projectId={project.id} headingRef={heading} registerLeaveGuard={registerLeaveGuard}
+                onTemplate={() => chooseStep('sci-template')} onFigures={() => chooseStep('sci-figures')}
+                onContinue={() => chooseStep('manuscripts', true, 'select')} />
+            : <CustomerSciTemplate key={project.id} projectId={project.id} language={project.default_output_language ?? 'zh-CN'}
+                headingRef={heading} registerLeaveGuard={registerLeaveGuard} onDetails={() => chooseStep('details')}
+                onContinue={() => chooseStep('sci-template', true, 'resources')} />)}
           {isThesis && activeStep === 'materials' && <CustomerWritingMaterials project={project} params={routeParams} headingRef={heading}
-            onUpdateRoute={updatePaperRoute} onContinue={() => chooseStep('school')}
+            onUpdateRoute={updatePaperRoute} onContinue={() => chooseStep('thesis-figures')}
             onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard} onOpenAnalysisResults={openMaterialsAnalysisResults}
             materialsReturn={returnTarget} onFollowReturn={href => followReturn(href, false, 'materials')} />}
           {(isSci || isThesis) && activeStep === 'manuscripts' &&
             <CustomerSciWorkflow key={project.id} project={project} headingRef={heading} params={manuscriptParams} onUpdateRoute={updatePaperRoute}
-              onDetails={() => chooseStep('details')} onMaterials={() => chooseStep('materials')} onOrganizer={() => chooseStep('school')}
+              onDetails={() => chooseStep('details')} onMaterials={() => chooseStep('materials')} onOrganizer={() => chooseStep(isSci ? 'sci-template' : 'school')}
+              onResources={isSci ? () => chooseStep('sci-template', false, 'resources') : undefined}
               openSearch={oldLiterature || requestedStep === 'citations'} />}
         </div>
       </>}

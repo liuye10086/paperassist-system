@@ -1,4 +1,4 @@
-import {articleHeading} from './articleStructure'
+import {articleHeading,templateSectionHeading} from './articleStructure'
 import type {ManuscriptInput,PaperPlan,Snapshot} from './manuscriptTypes'
 import type {SchoolPurpose,ThesisInput,ThesisReadiness} from './thesisTypes'
 
@@ -44,6 +44,7 @@ export function supplementaryInput(input:ManuscriptInput,fileIds:ReadonlySet<str
 export function plannedWritingSources(snapshot:Snapshot):string[]{
   if(!snapshot.paper_plan)return []
   const linked=new Set(snapshot.paper_plan.materials.map(material=>material.selection.id))
+  for(const figure of snapshot.paper_plan.sci_figures??snapshot.paper_plan.thesis_figures??[]) linked.add(figure.figure_id)
   for(const group of snapshot.paper_plan.kind==='narrative_review'?[]:snapshot.results_groups){
     for(const item of [...group.figures,...group.tables])for(const id of item.source_ids)linked.add(id)
     for(const paragraph of group.paragraphs)if(paragraph.origin==='user_provided')for(const id of paragraph.source_ids)linked.add(id)
@@ -54,6 +55,7 @@ export function plannedWritingSources(snapshot:Snapshot):string[]{
 export function plannedSectionTitle(snapshot:Snapshot,id:string):string|undefined{
   return snapshot.journal_display_context?.names[id]??snapshot.sections?.find(section=>section.id===id)?.title??
     snapshot.paper_plan?.sections.find(section=>section.id===id)?.label??
+    templateSectionHeading(snapshot.paper_plan?.sci_template,id,snapshot.output_language)??
     (snapshot.article_type?articleHeading(snapshot.article_type,id,snapshot.output_language):undefined)
 }
 

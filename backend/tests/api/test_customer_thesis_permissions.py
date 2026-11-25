@@ -113,6 +113,7 @@ def test_customer_school_templates_and_parse_tasks_require_visible_project_sourc
         assert saved.status_code == 200, saved.text
         assert saved.json()['sections'] == [section]
         assert saved.json()['template']['chapters'] == confirmation['chapters']
+        assert saved.json()['template']['source_file'] == dict(file_id=file_id, filename='visible-template.docx')
         assert client.put(requirements_url, json=write).json() == saved.json()
 
         hide(file_id, actor)
@@ -128,6 +129,83 @@ def test_customer_school_templates_and_parse_tasks_require_visible_project_sourc
         assert post(client, confirm_url, confirmation_body, 'rules').status_code == 404
         assert client.post(retry_url, json={}).status_code == 404
         assert client.get(task_url + '/events').status_code == 404
+
+
+def test_saved_thesis_chapter_content_reaches_its_confirmed_chapter_in_initial_writing():
+    with TestClient(app) as client:
+        sign_in(client, 'thesis-author-chapters@example.test', 'customer')
+        project = thesis_project(client)
+        submitted, file_id, _ = template(client, project, 'author-content-template')
+        assert run_school_template_task(submitted['task']['id'], 1, parser=analysis)['status'] == 'succeeded'
+        parsed = client.get(project + '/school-templates').json()['items'][0]
+        content = [
+            ('abstract', 'Abstract', 'Summarize the scope of the observations.'),
+            ('introduction', 'Introduction', 'The archive contains 42 background reports.'),
+            ('materials_and_methods', 'Methods', 'Describe the coding framework.'),
+            ('results', 'Results', 'Record the observations supplied by the author.'),
+            ('discussion', 'Discussion', 'Consider uncertainty about recruitment.'),
+            ('conclusion', 'Conclusion', 'Provide a summary of the remaining questions.'),
+        ]
+        chapters = [dict(id='school-' + role, title=title, level=1) for role, title, _ in content]
+        response = post(client, f"{project}/school-templates/{submitted['id']}/confirm", dict(
+            analysis_sha256=parsed['analysis_sha256'], chapters=chapters,
+            decisions=[dict(conflict_id='conflict-1', option_id='text-2')]), 'chapter-rules')
+        assert response.status_code == 201, response.text
+        confirmation = response.json()
+        profile = bind(client, project, confirmation, 0)
+        sections = [dict(chapter_id='school-' + role, purpose=role, content=text) for role, _, text in content]
+        requirements = project + '/thesis-requirements'
+        edited = client.put(requirements, json=dict(
+            expected_revision=profile['revision'], expected_language='zh-CN', language='en',
+            basics=dict(education_level='硕士', school='Synthetic university', title='Synthetic thesis',
+                        keywords=['cohort', 'sampling', 'observations', 'comparison']),
+            chapter_plan=dict(confirmation_id=confirmation['id'], sections=sections)))
+        assert edited.status_code == 200, edited.text
+        assert edited.json()['sections'] == sections
+        assert client.get(requirements).json()['template']['source_file'] == dict(
+            file_id=file_id, filename='author-content-template.docx')
+        plan = client.get(project + '/manuscripts/candidates').json()['paper_plan']
+        assert [(row['chapter_id'], row['purpose'], row['text']) for row in plan['sections']] == [
+            (row['chapter_id'], row['purpose'], row['content']) for row in sections]
+        groups = {row['purpose']: row['id'] for row in plan['sections']}
+        assert {row['label'] for row in client.get(project + '/paper-materials').json()['targets']} == {'Results'}
+        mappings = [dict(chapter_id=row['chapter_id'], purpose=row['purpose'], output_language='project',
+                         result_group_ids=[groups['results']] if row['purpose'] == 'results' else [])
+                    for row in sections]
+        draft = dict(title=plan['title'], output_language='en', paper_plan_token=plan['token'], thesis=dict(
+            confirmation_id=confirmation['id'], profile_revision=edited.json()['revision'], chapter_mappings=mappings))
+        wrong = dict(draft, thesis=dict(draft['thesis'], chapter_mappings=[
+            row if row['purpose'] != 'introduction' else dict(row, purpose='discussion') for row in mappings]))
+        assert post(client, project + '/manuscripts', wrong, 'wrong-purpose').status_code == 422
+        created = post(client, project + '/manuscripts', draft, 'author-facts')
+        assert created.status_code == 201, created.text
+        root = created.json()
+        version = root['versions'][0]
+        assert run_task(version['task_id'], 1)['status'] == 'succeeded'
+        snapshot = version['snapshot']
+        assert [group['id'] for group in snapshot['results_groups']] == [groups['results']]
+        for saved, (_, _, text) in zip(snapshot['sections'], content, strict=True):
+            paragraph, = saved['paragraphs']
+            assert paragraph['id'] == 'paper-finding:' + groups[saved['purpose']]
+            assert paragraph['text'] == text and paragraph['origin'] == 'user_provided'
+
+        url = project + '/manuscripts/' + root['id'] + '/writing-previews'
+        preview = post(client, url, dict(schema_version=3, base_revision=1, mode='full_draft',
+                                         output_language='en', selected_source_ids=[], selected_evidence_ids=[]),
+                       'author-writing-preview')
+        assert preview.status_code == 201, preview.text
+        payload = json.loads(json.loads(preview.json()['wire_json'])['input'])
+        aliases = {row['purpose']: row['alias'] for row in payload['chapters']}
+        assert payload['paper_notes'] == [dict(section_id=aliases[role], text=text, source_aliases=[])
+                                          for role, _, text in content]
+        number, = payload['numeric_context']
+        assert number['kind'] == 'provided_context' and number['location'] == 'paper_notes[1]'
+        assert number['values'] == [dict(fact_path='/numbers/0', value='42')]
+        assert {row['purpose'] for row in payload['chapters'] if number['alias'] in row['allowed_context_aliases']} == {
+            'abstract', 'introduction', 'discussion', 'conclusion'}
+        assert payload['sources'] == []
+        with database_connection() as db:
+            assert db.execute('SELECT count(*) AS n FROM model_calls').fetchone()['n'] == 0
 
 
 def test_confirmed_declaration_is_unavailable_for_research_requirements_and_materials():

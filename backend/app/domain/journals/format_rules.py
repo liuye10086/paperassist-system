@@ -117,7 +117,8 @@ def check_format(snapshot,requirements,conflicts,*,public_issues=(),warnings=(),
             actual=[dict(section_id=k,display_name=v) for k,v in display['names'].items()] if key=='section_display_names' else display['styles'].get(key)
             if key in ('heading_line_spacing','body_line_spacing') and frontiers_profile.get('single_spacing'):
                 actual = 1
-            matches=({i['section_id']:i['display_name'] for i in actual}=={i['section_id']:i['display_name'] for i in expected}) if key=='section_display_names' else actual==expected
+            matches = (all(display['names'].get(row['section_id']) == row['display_name'] for row in expected)
+                       if key == 'section_display_names' else actual == expected)
             status='pass' if matches else 'mismatch';location='journal_display_context';reason='读取固定期刊显示配置；未指定格式不认证为已适配。';automation='journal_display_v1'
         elif key in ('required_sections','section_order'):
             actual=section_headings(snapshot, main_only=frontiers_scope)

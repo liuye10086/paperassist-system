@@ -11,6 +11,7 @@ export type BioReportSelection=(NativeSelection&{figure_version_ids:string[]})|B
 export type BioReportRequest={title:string;language:ReportLanguage;selection:BioReportSelection}
 export type BioReportContext=BioReportRequest&{
  id:string
+ workbook_limited?:boolean
  report:FrozenReportRequest
  source:{source_kind:'bio_report_context';source_id:string;sha256:string;selection:BioReportSelection;
   supporting_sources?:{kind:string;facts?:{enrichments?:{kind:string;version_id:string}[]}}[]}

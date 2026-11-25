@@ -34,7 +34,7 @@ export default function CustomerProgress({ projectId, headingRef, onRequirements
   const submissions = progress?.submissions ?? []
   return <div className="customer-section customer-progress">
     <div className="customer-section-heading">
-      <h1 ref={headingRef} tabIndex={-1}>{t('任务进度')}</h1>
+      <h1 ref={headingRef} tabIndex={-1} className="visually-hidden">{t('任务进度')}</h1>
       <button type="button" className="button-quiet" disabled={read.loading} onClick={read.refresh}>{t('刷新进度')}</button>
     </div>
     {read.error && <p role="alert" className="error-panel">{t(read.error)}</p>}

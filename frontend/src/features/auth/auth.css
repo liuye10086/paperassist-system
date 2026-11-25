@@ -127,7 +127,7 @@
   min-width: 0;
 }
 .auth-topbar-brand { color: var(--foreground); font-size: 16px; font-weight: 600; }
-.auth-topbar:has(.workspace-location, .admin-page-title) .auth-topbar-brand { display: none; }
+.auth-topbar:has(.workspace-location, .admin-page-title, .project-steps) .auth-topbar-brand { display: none; }
 .workspace-location { display: flex; align-items: center; gap: 8px; }
 .workspace-location-label, .workspace-location strong {
   overflow: hidden;
@@ -153,6 +153,16 @@
   margin-inline: calc(-1 * var(--topbar-start)) calc(-1 * var(--page-gutter));
   padding: 4px var(--page-gutter);
   border-top: 1px solid var(--border);
+}
+@media (min-width: 768px) {
+  .authenticated-app[data-role='customer']:has(.auth-project-navigation > .project-steps) { --project-nav-space: 0px; }
+  .authenticated-app[data-role='customer'] .auth-project-navigation > .project-steps {
+    grid-column: 1;
+    grid-row: 1;
+    margin-inline: 0;
+    padding: 0;
+    border-top: 0;
+  }
 }
 .auth-account { position: relative; flex: 0 0 auto; }
 .auth-account-button { display: grid; place-items: center; width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; }

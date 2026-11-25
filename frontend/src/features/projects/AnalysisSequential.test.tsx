@@ -15,7 +15,7 @@ it('shows one starting point for the four-file single-cell workflow and resumes 
  expect(matrixIds).toEqual(['f0','f1','f2'])
  expect(singleCellMtxFiles([...files,{...files[0],id:'other'}])).toEqual([])
  const submitted={...version,operation:'confirm' as const,content:{...version.content,scope_items:['customer.type.single_cell','customer.figure.single_cell.umap','customer.delivery.word'].map(id=>({id,title:id,delivery_kind:'analysis',status:'planned'}))}}
- const act={...props,files,version:submitted,assigned:true,alternateQuality:<p>独立质控工具</p>}
+ const act={...props,files,version:submitted,assigned:true,guidedRna:true,alternateQuality:<p>独立质控工具</p>}
  const view=render(<AnalysisGuide {...act}/>)
  expect(screen.getByRole('button',{name:'导入并核对单细胞矩阵'})).toBeTruthy()
  expect(screen.queryByRole('button',{name:'查看 UMAP 来源'})).toBeNull()

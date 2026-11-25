@@ -10,6 +10,42 @@ from app.domain.bio_insights.bulk_workflow import BulkWorkflowService
 from app.domain.bio_insights.results import checked_members
 
 
+_REPORT_SUPPORT_TABLES = frozenset({
+    'candidate_results', 'enrichment_results', 'posthoc_results',
+    'model_sample_metadata', 'sample_exclusions', 'size_factors',
+    'samples', 'sample_qc', 'normalization_factors', 'sample_clustering', 'pca_scores', 'pca_variance_ratio',
+})
+
+
+def _limit_workbook_tables(builder):
+    from .materials import MAX_REPORT_TABLE_CELLS, table_cell_count
+
+    sizes = [table_cell_count(table) for table in builder.tables]
+    if sum(sizes) <= MAX_REPORT_TABLE_CELLS:
+        return
+
+    # Leave space for the workbook's narrative, facts, captions, and index.
+    budget = MAX_REPORT_TABLE_CELLS * 95 // 100
+    # Keep complete tables in priority order. Larger matrices and QC details
+    # stay available through their immutable source and Bulk reproduction downloads.
+    selected, comparison, supporting = [], [], []
+    for index, table in enumerate(builder.tables):
+        if 'selection' in table['source']:
+            selected.append(index)
+        elif table['key'] == 'comparison_results':
+            comparison.append(index)
+        elif table['key'] in _REPORT_SUPPORT_TABLES:
+            supporting.append(index)
+    retained = set()
+    for index in selected + comparison + supporting:
+        if sizes[index] <= budget:
+            retained.add(index)
+            budget -= sizes[index]
+    builder.tables = [table for index, table in enumerate(builder.tables) if index in retained]
+    builder.blobs = [blob for index, blob in enumerate(builder.blobs) if index in retained]
+    builder.workbook_limited = True
+
+
 def selected_rows(raw, selection):
     from app.domain.bio_insights.bulk_results import bulk_row_class
     from app.domain.bio_insights.contracts import BulkSelection
@@ -70,6 +106,7 @@ def resolve_bulk(builder, raw):
         for member in members:
             if member['format'] in ('csv', 'tsv'):
                 builder.add_table(member, builder.bio.objects, dict(source_kind='bio_analysis_artifact', source_id=member['id'], processed_version_id=identifier))
+    _limit_workbook_tables(builder)
     # The native service controls QC/attachment image ordering and repeated keys.
     for figure in facts['figures']:
         png = figure.get('png')

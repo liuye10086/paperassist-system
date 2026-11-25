@@ -4,18 +4,15 @@ This module never grants execution or publication. Stored schema1/2/3 wire bytes
 are deliberately not reinterpreted by the new contract.
 """
 from copy import deepcopy
-import hashlib
 import json
 import re
 
 from pydantic import Field
-from app.adapters.models.openai_responses import canonical_payload
+from app.core.exceptions import StorageError
 from app.domain.literature.service import digest
-from app.domain.model_usage.contracts import ModelPolicy
-from app.domain.model_usage.gateway import input_digest
-from app.domain.model_usage.pricing import reserve_micro_usd
+from app.domain.research_intake.sci_templates import MAX_SCI_SECTIONS
 from .contracts import Strict
-from .live_contracts import LiveParagraph
+from .live_contracts import LiveParagraph, scoped_draft_revision
 
 VERSION='article-scope-v1'
 COMMON={
@@ -54,11 +51,12 @@ SCI_PROSE_INSTRUCTIONS=(
 
 def theme_sections(snapshot):
     plan = (snapshot or {}).get('paper_plan') or {}
-    if plan.get('kind') != 'narrative_review':
+    if plan.get('kind') != 'narrative_review' or plan.get('combine_review_topics'):
         return []
     rows = plan['sections']
     ids = [row['id'] for row in rows]
-    if (not rows or len(rows) + len(STRUCTURES['narrative_review']) > 300
+    outline = plan.get('sci_template', {}).get('sections', STRUCTURES['narrative_review'])
+    if (not rows or len(rows) + len(outline) > MAX_SCI_SECTIONS
             or len(ids) != len(set(ids))
             or any(not re.fullmatch(r'paper-[a-f0-9]{32}', sid) for sid in ids)
             or any(not row['label'].strip() for row in rows)):
@@ -69,12 +67,33 @@ def theme_sections(snapshot):
 
 def labels(kind, snapshot=None):
     children = theme_sections(snapshot) if kind == 'narrative_review' else []
+    template = ((snapshot or {}).get('paper_plan') or {}).get('sci_template')
+    if template and template['article_type'] == kind:
+        headings = [(section['id'], section['en'], section['zh']) for section in template['sections']]
+    else:
+        headings = [(sid, *OVERRIDES.get(kind, {}).get(sid, COMMON[sid])) for sid in STRUCTURES[kind]]
     result = []
-    for sid in STRUCTURES[kind]:
-        result.append((sid, *OVERRIDES.get(kind, {}).get(sid, COMMON[sid])))
+    for sid, english, chinese in headings:
+        result.append((sid, english, chinese))
         if sid == 'themes':
             result.extend((s['id'], s['title'], s['title']) for s in children)
     return result
+
+
+def template_heading_levels(kind, snapshot):
+    template = (snapshot.get('paper_plan') or {}).get('sci_template')
+    if not template or template['article_type'] != kind:
+        return {}
+    return {section['id']: section['level'] for section in template['sections'] if 'level' in section}
+
+
+def combined_theme_group_ids(snapshot):
+    plan = snapshot.get('paper_plan') or {}
+    if not plan.get('combine_review_topics'):
+        return []
+    target_ids = {row['id'] for row in plan['sections']}
+    target_ids.add('themes')
+    return [group['id'] for group in snapshot['results_groups'] if group['id'] in target_ids]
 
 
 def matches_structure(snapshot):
@@ -84,6 +103,13 @@ def matches_structure(snapshot):
     sections = snapshot.get('sections', [])
     if [s['id'] for s in sections] != [sid for sid, _, _ in labels(kind, snapshot)]:
         return False
+    levels = template_heading_levels(kind, snapshot)
+    if any(s.get('level') != levels[s['id']] for s in sections if s['id'] in levels):
+        return False
+    if kind == 'narrative_review' and (snapshot.get('paper_plan') or {}).get('combine_review_topics'):
+        parent = next(s for s in sections if s['id'] == 'themes')
+        if parent.get('result_group_ids') != combined_theme_group_ids(snapshot):
+            return False
     children = {s['id']: s for s in theme_sections(snapshot)} if kind == 'narrative_review' else {}
     if children:
         group_ids = [g['id'] for g in snapshot.get('results_groups', [])]
@@ -105,11 +131,19 @@ def seed_review_sections(snapshot):
     common = {s['id']: s['paragraphs'] for s in normalize_sections(snapshot)}
     groups = {g['id']: g['paragraphs'] for g in snapshot['results_groups']}
     children = {s['id']: s for s in theme_sections(snapshot)}
+    combined = (snapshot.get('paper_plan') or {}).get('combine_review_topics')
+    combined_ids = combined_theme_group_ids(snapshot)
+    levels = template_heading_levels('narrative_review', snapshot)
     sections = []
     for identity, _, _ in labels('narrative_review', snapshot):
         section = dict(children[identity]) if identity in children else dict(id=identity)
+        if identity in levels:
+            section['level'] = levels[identity]
         if identity in children:
             paragraphs = groups[identity]
+        elif identity == 'themes' and combined:
+            section['result_group_ids'] = combined_ids
+            paragraphs = [paragraph for group in combined_ids for paragraph in groups[group]]
         elif identity == 'literature_scope':
             paragraphs = literature_paragraphs(snapshot)
         else:
@@ -127,22 +161,25 @@ def writing_keywords(base, request):
 
 def illustration_groups(snapshot, section):
     groups = snapshot.get('results_groups', [])
-    if section['id'] == 'results':
-        return groups
+    sid = section['id']
     plan = snapshot.get('paper_plan') or {}
+    configured = [group for group in groups if group.get('illustration_chapter_id') == sid]
+    if sid == 'results':
+        return [group for group in groups if not group.get('illustration_chapter_id')] + configured
     if plan.get('kind') == 'narrative_review':
-        if section.get('parent_id') == 'themes':
-            return [group for group in groups if group['id'] in section['result_group_ids']]
+        if 'result_group_ids' in section:
+            return [group for group in groups if group['id'] in section['result_group_ids']] + configured
         from app.domain.paper_materials import REVIEW_FIGURE_SECTIONS
-        if plan.get('review_figure_placement_version') == 1 and section['id'] in REVIEW_FIGURE_SECTIONS:
-            return [group for group in groups if group['id'] == section['id']]
-    return []
+        if plan.get('review_figure_placement_version') == 1 and sid in REVIEW_FIGURE_SECTIONS:
+            return [group for group in groups if group['id'] == sid] + configured
+    return configured
 
 
 def add_review_figure_references(snapshot, sections):
     from app.domain.manuscripts.illustrations import BODY_REFERENCE, reference_text
 
-    if (snapshot.get('paper_plan') or {}).get('review_figure_placement_version') != 1:
+    plan = snapshot.get('paper_plan') or {}
+    if plan.get('review_figure_placement_version') != 1 and not plan.get('sci_figures'):
         return
     language = snapshot['output_language']
     used_ids = {p['id'] for section in snapshot['sections'] for p in section['paragraphs']}
@@ -181,7 +218,7 @@ class ArticleSection(Strict):
 
 
 class ArticleOutput(Strict):
-    sections:list[ArticleSection]=Field(min_length=1,max_length=300)
+    sections:list[ArticleSection]=Field(min_length=1,max_length=MAX_SCI_SECTIONS)
 
 
 def structure(base,request):
@@ -195,20 +232,50 @@ def structure(base,request):
     if request['mode']!='full_draft' and kind!=base.get('article_type','research'):
         raise ValueError('Article type changes require an explicit full draft candidate')
     by_id={s['id']:s for s in old}
-    return [deepcopy(by_id.get(sid,dict(id=sid,paragraphs=[]))) for sid, _, _ in labels(kind, base)]
+    sections = [deepcopy(by_id.get(sid, dict(id=sid, paragraphs=[]))) for sid, _, _ in labels(kind, base)]
+    levels = template_heading_levels(kind, base)
+    for section in sections:
+        if section['id'] in levels:
+            section['level'] = levels[section['id']]
+    return sections
+
+
+def protected_section_ids(base):
+    return {'references', 'themes'} if theme_sections(base) else {'references'}
+
+
+def editable_draft_section_ids(candidate):
+    if candidate.get('thesis_context'):
+        from .school_live import WRITABLE
+
+        return [section['id'] for section in candidate['sections'] if section['purpose'] in WRITABLE and section['paragraphs']]
+    protected = protected_section_ids(candidate)
+    return [section['id'] for section in candidate['sections'] if section['id'] not in protected and section['paragraphs']]
+
+
+def writing_base_sections(base, request, revision_sections):
+    sections = structure(base, request)
+    if not scoped_draft_revision(request):
+        return sections
+    if not revision_sections or [s['id'] for s in revision_sections] != [s['id'] for s in sections]:
+        raise ValueError('Missing original draft or changed article structure')
+    return revision_sections
 
 
 def scope(base,request,sections):
     from .school_live import WRITABLE
     school=bool(base.get('thesis_context'));mode=request['mode']
-    protected={'references'}
-    if theme_sections(base):
-        protected.add('themes')
+    protected=protected_section_ids(base)
     eligible=[s['id'] for s in sections if (s.get('purpose') in WRITABLE if school else s['id'] not in protected)]
-    if mode=='full_draft':targets=eligible
+    if scoped_draft_revision(request):
+        selected_sections = set(request['target_sections'])
+        targets = [s['id'] for s in sections if s['id'] in selected_sections and s['id'] in eligible and s['paragraphs']]
+        if set(targets) != selected_sections:
+            raise ValueError('Unknown, empty or protected target section')
+    elif mode=='full_draft':targets=eligible
     else:
         if not base.get('sections'):raise ValueError('Scoped editing requires published sections')
-        if theme_sections(base) and not base.get('writing_provenance'):
+        if (base.get('paper_plan') or {}).get('kind') == 'narrative_review' and not base.get('writing_provenance'):
             raise ValueError('Produce the planned review before requesting scoped edits')
         if mode=='rewrite_section':targets=[request['target_section']]
         elif mode=='results_discussion':
@@ -233,7 +300,7 @@ def scope(base,request,sections):
     if mode=='expand_restructure' and (lineage!=set(selected) or any(not any(r['section_id']==sid for r in plan) for sid in targets)):
         raise ValueError('Explicit paragraph plan must account for every selected identity')
     return dict(version=VERSION,mode=mode,target_section_ids=targets,target_paragraph_ids=selected,
-        preserved_paragraph_ids=[pid for pid in old if mode!='full_draft' and pid not in selected],
+        preserved_paragraph_ids=[pid for pid in old if (mode!='full_draft' or scoped_draft_revision(request)) and pid not in selected],
         paragraph_plan=deepcopy(plan),base_sections_sha256=digest(sections))
 
 
@@ -246,19 +313,41 @@ def has_validation(payload):
     return bool(payload.get('validation_source_aliases'))
 
 
-def build_bundle(base,request,frozen,*,include_reported_results=True,revision_sections=None):
-    from .bundle import build_bundle as common,safe_text
+def _advice_bundle(base, request, frozen, sections, editing, revision_figures):
+    from .bundle import finish_bundle, safe_text
+
+    english = request['output_language'] == 'en'
+    headings = {sid: en if english else zh for sid, en, zh in labels(request['article_type'], base)}
+    selected = set(editing['target_section_ids'])
+    payload = dict(output_language=request['output_language'], instructions=safe_text(request['instructions']),
+                   draft_sections=[dict(heading=safe_text(headings[section['id']]),
+                                        paragraphs=[safe_text(paragraph['text']) for paragraph in section['paragraphs']],
+                                        **({'id': section['id']} if revision_figures else {}))
+                                   for section in sections if section['id'] in selected])
+    local = dict(sources={}, evidence={}, writing_scope=editing)
+    omitted = ['attachments', 'binary_images', 'local_paths', 'private_configuration', 'prior_reviews',
+               'source_catalogs', 'evidence_catalogs', 'unselected_sections']
+    return finish_bundle(payload, frozen, local, omitted, revision_sections=sections,
+                         revision_figures=revision_figures, figure_section_ids=editing['target_section_ids'])
+
+
+def build_bundle(base,request,frozen,*,include_reported_results=True,revision_sections=None,revision_figures=()):
+    from .bundle import build_bundle as common, finish_bundle, safe_text
     from .context import paragraph_sources_selected
     from .school_live import build_bundle as school_bundle
-    from .frozen import wire_parts
-    from .policy import POLICY_VERSION
     from .paper_context import add_illustration_context, add_notes, is_note, place_illustrations, review_material_ids
-    from app.core.exceptions import StorageError
     school=bool(base.get('thesis_context'))
     if (request['document_kind']=='thesis')!=school or frozen['document_kind']!=request['document_kind']:raise ValueError('Frozen document kind mismatch')
-    sections=structure(base,request);editing=scope(base,request,sections)
+    scoped = scoped_draft_revision(request)
+    if bool(revision_figures) != bool(frozen.get('scope_figure_input')) or revision_figures and (school or not scoped):
+        raise ValueError('Figure input requires a scoped SCI draft')
+    sections=writing_base_sections(base,request,revision_sections);editing=scope(base,request,sections)
+    if request.get('draft_advice') is True:
+        if school or not scoped:
+            raise ValueError('Draft advice requires a scoped SCI draft')
+        return _advice_bundle(base, request, frozen, sections, editing, revision_figures)
     seed_contract={k:deepcopy(v) for k,v in frozen.items()
-                   if k not in ('document_kind','article_scope_version','numeric_contract_version','article_instruction_revision')}
+                   if k not in ('document_kind','article_scope_version','numeric_contract_version','article_instruction_revision','response_stream','scope_figure_input')}
     seed_contract['schema_version']=3 if school else 2
     seed_request=dict(request,mode='full_draft',target_section=None,keywords=writing_keywords(base,request))
     if school:seed_contract.update(numeric_contract_version=2,school_content_version='school-live-v1')
@@ -294,12 +383,24 @@ def build_bundle(base,request,frozen,*,include_reported_results=True,revision_se
         local['writing_paragraph_aliases']={alias:pid for pid,alias in aliases.items()}
     else:
         mapping={s['id']:s['id'] for s in sections}
-        aliases={p['id']:p['id'] for s in sections for p in s['paragraphs']}
+        if scoped:
+            aliases = {p['id']: f"{s['id']}-p{i}" for s in sections if s['id'] in editing['target_section_ids']
+                       for i, p in enumerate(s['paragraphs'], 1)}
+            local['writing_paragraph_aliases'] = {alias: pid for pid, alias in aliases.items()}
+        else:
+            aliases={p['id']:p['id'] for s in sections for p in s['paragraphs']}
         add_notes(base, request, payload, local, mapping)
         place_illustrations(base, payload, mapping)
         add_illustration_context(base, payload, local)
     output_ids=[mapping[sid] for sid in editing['target_section_ids']]
-    if request.get('revision_of_request_id'):
+    if scoped:
+        payload['draft_revision_scope'] = 'selected_sections'
+        payload['original_draft'] = [dict(id=s['id'], paragraphs=[
+            dict(id=aliases[p['id']], text=safe_text(p['text']), source_aliases=p.get('suggested_source_aliases', []),
+                 evidence_aliases=p.get('suggested_evidence_aliases', [])) for p in s['paragraphs']])
+            for s in sections if s['id'] in output_ids]
+        payload['context'] = [row for row in payload['context'] if row['id'] in output_ids]
+    elif request.get('revision_of_request_id'):
         if not revision_sections or [s['id'] for s in revision_sections] != output_ids:
             raise ValueError('Missing original draft or changed article structure')
         payload['original_draft'] = revision_sections
@@ -311,7 +412,7 @@ def build_bundle(base,request,frozen,*,include_reported_results=True,revision_se
     payload['writing_scope']=wire_scope
     headings={sid:en if request['output_language']=='en' else zh for sid,en,zh in labels(request['article_type'],base)}
     payload['article_structure']=[dict(id=mapping[s['id']],heading=safe_text(s['title'] if school else headings[s['id']]),
-        **(dict(parent_id=s['parent_id'],level=s['level']) if not school and s.get('parent_id') else {}))
+        **({key: s[key] for key in ('parent_id', 'level') if key in s} if not school else {}))
         for s in sections if s['id'] in mapping and (not school or mapping[s['id']] in local['school']['writable_aliases'])]
     if school:
         # Add paragraph aliases only to eligible text already projected by school.
@@ -327,7 +428,7 @@ def build_bundle(base,request,frozen,*,include_reported_results=True,revision_se
             if old:
                 for p in context['paragraphs']:
                     original=next((v for v in old['paragraphs'] if v['text']==p['text']),None)
-                    if original:p['id']=original['id']
+                    if original:p['id']=aliases[original['id']]
     from .context import citation_prose
     citation_context={}
     for section in sections:
@@ -356,16 +457,8 @@ def build_bundle(base,request,frozen,*,include_reported_results=True,revision_se
     payload['validation_source_aliases']=validation_aliases
     payload['validation_available']=has_validation(payload)
     payload['validation_gap']=validation_gap(request['output_language'])
-    parts=wire_parts(frozen,payload);policy=ModelPolicy.model_validate(frozen['policy'])
-    wire=canonical_payload(dict(model=policy.model,background=True,store=True,service_tier='default',input=canonical_payload(payload),max_output_tokens=policy.max_output_tokens,**parts))
-    size=len(wire.encode());allowance=size+frozen['protocol_allowance']
-    if allowance>frozen['max_input_allowance']:raise StorageError('manuscript_writing_input_limit','文章完整外发包超过冻结输入上限，请减少所选材料。',422)
-    sha=hashlib.sha256(wire.encode()).hexdigest()
-    return dict(**({'revision_sections':revision_sections} if revision_sections is not None else {}),
-        execution_contract=frozen,wire_json=wire,wire_sha256=sha,bundle_sha256=sha,wire_bytes=size,
-        gateway_digest=input_digest(instructions=parts['instructions'],payload=payload),input_token_allowance=allowance,
-        reserved_micro_usd=reserve_micro_usd(policy,allowance,0),policy_json=policy.model_dump(mode='json'),
-        local_manifest=local,omitted_manifest=seed['omitted_manifest'],policy_version=POLICY_VERSION)
+    return finish_bundle(payload, frozen, local, seed['omitted_manifest'], revision_sections=revision_sections,
+                         revision_figures=revision_figures, figure_section_ids=editing['target_section_ids'])
 
 
 def output_schema(payload,*,require_paragraph=False):
@@ -416,12 +509,14 @@ def compose(output,snapshot,bundle,call_id,provenance,composition_version):
     from .numeric_contract import validate_bindings
     from .school_live import compose as school_compose,validate_preservation
     from .context import normalize_sections
+    from .frozen import wire_payload
     from app.domain.manuscripts.illustrations import check_references,rendered_groups
     from .numeric_review import numbers
     parsed=ArticleOutput.model_validate(output).model_dump(mode='json');request=snapshot['input'];base=snapshot['base_snapshot']
-    payload=json.loads(json.loads(bundle['wire_json'])['input']);local=bundle['local_manifest'];editing=local['writing_scope'];school=bool(base.get('thesis_context'))
+    payload=wire_payload(bundle['wire_json']);local=bundle['local_manifest'];editing=local['writing_scope'];school=bool(base.get('thesis_context'))
     if [s['id'] for s in parsed['sections']]!=payload['writing_scope']['output_section_ids']:raise ValueError('Wrong output section scope')
-    original=structure(base,request)
+    scoped = scoped_draft_revision(request)
+    original=writing_base_sections(base,request,bundle.get('revision_sections'))
     if digest(original)!=editing['base_sections_sha256']:raise ValueError('Frozen edit base mismatch')
     aliases=local.get('writing_paragraph_aliases',{})
     result=deepcopy(base);proposed={};seen=set()
@@ -434,12 +529,13 @@ def compose(output,snapshot,bundle,call_id,provenance,composition_version):
         for section in parsed['sections']:
             paragraphs=[]
             for p in section['paragraphs']:
+                pid = aliases.get(p['id'], p['id'])
                 if not set(p['source_aliases'])<=local['sources'].keys() or len(p['source_aliases'])!=len(set(p['source_aliases'])):raise ValueError('Unknown source alias')
                 if not set(p['evidence_aliases'])<=local['evidence'].keys() or len(p['evidence_aliases'])!=len(set(p['evidence_aliases'])):raise ValueError('Unknown evidence alias')
                 bindings=validate_bindings(p,payload)
-                issues=check_references(rendered_groups(base,[dict(id=p['id'],text=p['text'],origin='model_generated')]),request['output_language'])
-                if any(i['field']==p['id'] for i in issues):raise ValueError('Unknown figure or table')
-                paragraphs.append(dict(id=p['id'],text=p['text'],origin='model_generated',source_ids=[local['sources'][a] for a in p['source_aliases']],
+                issues=check_references(rendered_groups(base,[dict(id=pid,text=p['text'],origin='model_generated')]),request['output_language'])
+                if any(i['field']==pid for i in issues):raise ValueError('Unknown figure or table')
+                paragraphs.append(dict(id=pid,text=p['text'],origin='model_generated',source_ids=[local['sources'][a] for a in p['source_aliases']],
                     citations=[],numeric_bindings=[],suggested_source_aliases=p['source_aliases'],suggested_evidence_aliases=p['evidence_aliases'],
                     study_numeric_bindings=bindings['study'],context_numeric_bindings=bindings['context'],literature_numeric_bindings=bindings['literature'],verification_status='pending'))
             proposed[section['id']]=paragraphs
@@ -486,7 +582,7 @@ def compose(output,snapshot,bundle,call_id,provenance,composition_version):
         final.append(s)
     result['sections']=final
     if request['mode'] == 'full_draft':
-        add_review_figure_references(result, final)
+        add_review_figure_references(result, [s for s in final if s['id'] in proposed] if scoped else final)
     all_ids=[p['id'] for s in final for p in s['paragraphs']]
     if len(all_ids)!=len(set(all_ids)):raise ValueError('Duplicate paragraph identity across candidate')
     if not school:
@@ -505,14 +601,17 @@ def compose(output,snapshot,bundle,call_id,provenance,composition_version):
         validate_preservation(result,base,bundle);result['school_content_report']=school_content_report(result)
     else:
         # A legacy journal display mapping cannot relabel a different structure.
-        if [s['id'] for s in original]!=list(STRUCTURES['research']):result.pop('journal_display_context',None)
+        research_order = [sid for sid, _, _ in labels('research', base)]
+        if [s['id'] for s in original] != research_order:
+            result.pop('journal_display_context', None)
         from .live_notice import update_notice
     enforce_science(result,payload,seen)
     if request.get('revision_of_request_id'):
         def section_text(sections):
             return {s['id']: ' '.join(' '.join(p['text'] for p in s['paragraphs']).split())
                     for s in sections if s['paragraphs'] and s['id'] != 'references'}
-        if section_text(result['sections']) == section_text(payload['original_draft']):
+        revised_sections = [s for s in final if s['id'] in proposed] if scoped else final
+        if section_text(revised_sections) == section_text(payload['original_draft']):
             raise ValueError('Revision text is unchanged')
     if request['article_type']=='brief' and not request['brief_limits']:
         result['issues'].append(dict(id='brief_limits',kind='missing',field='brief_limits',message='Brief word and figure limits are unconfirmed; target compliance is not established.',values=[]))

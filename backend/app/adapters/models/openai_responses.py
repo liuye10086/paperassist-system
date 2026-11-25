@@ -5,7 +5,7 @@ import re
 from typing import TYPE_CHECKING
 from weakref import WeakKeyDictionary
 
-from openai import APIConnectionError, APIStatusError, DefaultHttpxClient, OpenAI
+from openai import APIConnectionError, APIError, APIStatusError, DefaultHttpxClient, OpenAI, Stream
 
 from app.core.safe_logging import configure_safe_logging
 
@@ -125,6 +125,8 @@ class OpenAIResponsesProvider:
         """Transmit the canonical body verbatim; SDK rebuilding cannot change its bytes."""
         from app.domain.manuscript_writing.frozen import contract,validate_wire
         try:
+            if isinstance(execution_contract, dict) and execution_contract.get('response_stream') is True:
+                raise ValueError('Streaming requires the frozen event transport.')
             frozen=validate_wire(wire_json,execution_contract if execution_contract is not None else contract())
             from openai.types.responses import Response
             response=self.client.post('/responses',cast_to=Response,content=wire_json.encode('utf-8'),options={
@@ -134,6 +136,68 @@ class OpenAIResponsesProvider:
             raise ModelProviderError('model_input_invalid') from None
         except (APIConnectionError, APIStatusError) as exc:
             raise ModelProviderError(request_id=getattr(exc,'request_id',None),status_code=getattr(exc,'status_code',None)) from None
+
+    def create_frozen_events(self, *, wire_json: str, execution_contract: dict):
+        """Stream the exact approved POST body through the official SDK."""
+        from openai.types.responses import Response, ResponseStreamEvent
+        from app.domain.manuscript_writing.frozen import validate_wire
+
+        if not isinstance(execution_contract, dict) or execution_contract.get('response_stream') is not True:
+            raise ModelProviderError('model_input_invalid')
+        try:
+            policy = validate_wire(wire_json, execution_contract)
+        except (KeyError, ValueError, TypeError):
+            raise ModelProviderError('model_input_invalid') from None
+        yield from self._response_events(
+            self.client.post, '/responses', cast_to=Response, content=wire_json.encode('utf-8'),
+            options={'headers': {'Content-Type': 'application/json'}, 'timeout': policy.timeout_seconds},
+            stream=True, stream_cls=Stream[ResponseStreamEvent],
+        )
+
+    def retrieve_events(self, response_id: str, *, policy: 'ModelPolicy', starting_after: int | None):
+        """Resume an existing response from its last persisted event cursor."""
+        if policy.tools:
+            raise ModelProviderError('model_tools_unsupported')
+        if not isinstance(response_id, str) or not RESPONSE_ID.fullmatch(response_id):
+            raise ModelProviderError('model_response_invalid')
+        if starting_after is not None and (type(starting_after) is not int or starting_after < 0):
+            raise ModelProviderError('model_input_invalid')
+        options = {'starting_after': starting_after} if starting_after is not None else {}
+        yield from self._response_events(self.client.responses.retrieve, response_id,
+                                         stream=True, timeout=policy.timeout_seconds, **options)
+
+    def _response_events(self, open_stream, *args, **kwargs):
+        from openai.types.responses import Response
+
+        request_id = None
+        receipt_events = {
+            'response.created', 'response.completed', 'response.failed', 'response.incomplete', 'response.cancelled',
+        }
+        try:
+            with open_stream(*args, **kwargs) as stream:
+                request_id = safe_request_id(stream.response.headers.get('x-request-id'))
+                for event in stream:
+                    kind = getattr(event, 'type', None)
+                    if kind in receipt_events:
+                        response = getattr(event, 'response', None)
+                        if not isinstance(response, Response):
+                            raise ModelProviderError('model_response_invalid', request_id=request_id)
+                        yield 'receipt', self._receipt(response, request_id=request_id)
+                    elif kind == 'response.output_text.delta':
+                        event_data = {key: getattr(event, key, None) for key in
+                                      ('sequence_number', 'item_id', 'output_index', 'content_index', 'delta')}
+                        if (not all(type(event_data[key]) is int and event_data[key] >= 0 for key in
+                                    ('sequence_number', 'output_index', 'content_index'))
+                                or not safe_request_id(event_data['item_id']) or not isinstance(event_data['delta'], str)):
+                            raise ModelProviderError('model_response_invalid', request_id=request_id)
+                        yield 'delta', event_data
+                    elif kind == 'error':
+                        raise ModelProviderError(request_id=request_id)
+        except APIError as exc:
+            raise ModelProviderError(request_id=safe_request_id(getattr(exc, 'request_id', None)) or request_id,
+                                     status_code=getattr(exc, 'status_code', None)) from None
+        except (TypeError, ValueError):
+            raise ModelProviderError('model_response_invalid', request_id=request_id) from None
 
     def retrieve(self, response_id: str, *, policy: 'ModelPolicy') -> dict:
         if policy.tools:
@@ -147,13 +211,13 @@ class OpenAIResponsesProvider:
                                      status_code=getattr(exc, 'status_code', None)) from None
 
     @staticmethod
-    def _receipt(response) -> dict:
+    def _receipt(response, *, request_id=None) -> dict:
         data = response.model_dump(mode='json')
         # SDK defaults are not supplier evidence: preserve omitted usage fields
         # separately from explicitly returned nulls for accounting validation.
         usage = response.usage.model_dump(mode='json', exclude_unset=True) if response.usage is not None else None
         # SDK model_dump omits this dynamic attribute; the header is the evidence.
-        request_id = safe_request_id(getattr(response, '_request_id', None))
+        request_id = safe_request_id(request_id) or safe_request_id(getattr(response, '_request_id', None))
         response_id = data.get('id')
         if not isinstance(response_id, str) or not RESPONSE_ID.fullmatch(response_id):
             raise ModelProviderError('model_response_invalid', request_id=request_id)

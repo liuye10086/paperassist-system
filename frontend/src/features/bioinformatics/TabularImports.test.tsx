@@ -2,18 +2,18 @@ import {afterEach, expect, it, vi} from 'vitest'
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react'
 import {apiFetch} from '../../shared/api/client'
 import BioImports from './BioImports'
-import TabularImportFields,{BULK_TABULAR_LIMITS,newTabularDraft,tabularImportBody} from './TabularImportFields'
+import TabularImportFields,{BULK_TABULAR_LIMITS,newTabularDraft,prepareTabularImport} from './TabularImportFields'
 
 vi.mock('../../shared/api/client', () => ({apiFetch:vi.fn(), getApiUserId:()=>'owner1', onApiSessionChanged:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks();sessionStorage.clear()})
 it('builds a complete Bulk mapping request at the B01 512-sample limit',()=>{
  const draft=newTabularDraft();draft.files.quantitative_matrix='matrix';draft.files.sample_metadata='samples';draft.samples=Array.from({length:BULK_TABULAR_LIMITS.maxSamples},(_,i)=>`S${i+1}`).join('\n');draft.scale.upstream_method='featureCounts raw integer counts'
- const body=tabularImportBody(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'}],'Bulk counts',null)
+ const {body}=prepareTabularImport(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'}],'Bulk counts',null)
  expect(body).toMatchObject({file_ids:['matrix','samples'],sample_metadata_mapping:{sample_id:'sample_id',condition:'condition',biological_unit_id:'biological_unit_id'},scale:{kind:'raw_counts',input_origin:'bulk_rna'}});expect(body?.sample_columns).toHaveLength(BULK_TABULAR_LIMITS.maxSamples);expect(body?.sample_columns.slice(0,2)).toEqual(['S1','S2'])
  draft.qualityReports=['qc','qc2']
- expect(tabularImportBody(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'},{id:'qc2',filename:'other-qc.json',file_type:'bio_component'}],'Bulk counts',null)?.quality_reports)
+ expect(prepareTabularImport(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'},{id:'qc2',filename:'other-qc.json',file_type:'bio_component'}],'Bulk counts',null).body?.quality_reports)
   .toEqual(['qc','qc2'].map(file_id=>({file_id,source:'user_provided',report_type:'upstream_quality_report'})))
- draft.samples+='\nS513';expect(tabularImportBody(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'}],'Bulk counts',null)).toBeNull()
+ draft.samples+='\nS513';expect(prepareTabularImport(draft,[{id:'matrix',filename:'counts.csv',file_type:'bio_component'},{id:'samples',filename:'samples.tsv',file_type:'bio_component'},{id:'qc',filename:'multiqc.html',file_type:'bio_component'}],'Bulk counts',null).body).toBeNull()
 })
 const files = [
  {id:'matrix',filename:'measured.xlsx',file_type:'bio_component'},
@@ -27,6 +27,44 @@ function mockRequests(failPost=false) {
   return Response.json(String(url).endsWith('/files')?files:{items:[],total:0})
  })
 }
+
+it('opens the analyst Bulk import form from a saved dataset tab and explains missing required settings', async () => {
+ const key='paperassist.research-draft.v1:owner1:p1:bio-import:bulk-workflow'
+ const draft=newTabularDraft()
+ draft.files.quantitative_matrix='matrix'
+ draft.files.sample_metadata='samples'
+ draft.sheets.quantitative_matrix='Counts'
+ draft.metadataMapping.pair_id='pair_id'
+ sessionStorage.setItem(key+':tabular',JSON.stringify(draft))
+ sessionStorage.setItem(key+':name',JSON.stringify('Airway counts'))
+ sessionStorage.setItem(key+':view',JSON.stringify('datasets'))
+ mockRequests()
+
+ const navigation={view:'bio-datasets',fileId:'',bulkView:'data',intent:'bulk_import',entry:{
+  requirementVersionId:'r1',scopeItemId:'customer.type.bulk',
+ }} as const
+ const props={projectId:'p1',analysisOnly:true,sectioned:true,qualityMode:false,navigation,onNavigate:vi.fn()}
+ const {rerender}=render(<BioImports {...props} active/>)
+ expect(await screen.findByRole('textbox',{name:'数据集名称'})).toHaveProperty('value','Airway counts')
+ expect(screen.getByRole('textbox',{name:'pair_id（可选）'})).toHaveProperty('value','pair_id')
+ expect(screen.queryByRole('combobox',{name:'特征注释原件（可选）'})).toBeNull()
+ const submit=screen.getByRole('button',{name:'开始定量矩阵核对'})
+ expect(await screen.findByText('请填写样本列名，每行一个。')).toBeTruthy()
+ expect(submit).toHaveProperty('disabled',true)
+ fireEvent.change(screen.getByRole('textbox',{name:/样本列名/}),{target:{value:'S1\nS2'}})
+ expect(screen.getByText('请填写上游定量与处理方法。')).toBeTruthy()
+ fireEvent.change(screen.getByRole('textbox',{name:'上游定量与处理方法'}),{target:{value:'Source counts from the experiment'}})
+ expect(submit).toHaveProperty('disabled',false)
+
+ fireEvent.click(screen.getByRole('button',{name:'补充设置'}))
+ expect(screen.getByRole('combobox',{name:'特征注释原件（可选）'})).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'已发布数据集'}))
+ expect(screen.queryByRole('textbox',{name:'数据集名称'})).toBeNull()
+ rerender(<BioImports {...props} active={false}/>)
+ rerender(<BioImports {...props} active/>)
+ expect(screen.getByRole('textbox',{name:'数据集名称'})).toHaveProperty('value','Airway counts')
+ expect(vi.mocked(apiFetch).mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+})
 
 it('restores a pre-Bulk tabular draft and submits its saved file and sample choices',async()=>{
  mockRequests()

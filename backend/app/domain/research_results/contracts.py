@@ -197,6 +197,9 @@ class ResearchFigurePanel(StrictModel):
     note: ShortText = ''
 
 
+MAX_PAPER_FIGURE_PANELS = 10
+
+
 class ResearchFigureRequest(StrictModel):
     schema_version: Literal[1] = 1
     root_id: Identifier | None = None
@@ -222,7 +225,7 @@ class ResearchFigureRequest(StrictModel):
         if (self.root_id is None) != (self.expected_revision==0):
             raise ValueError('Figure root requires an expected revision')
         if (self.mode=='reuse' and len(self.panels)!=1) or (self.mode=='composite' and len(self.panels)<2):
-            raise ValueError('Reuse needs one panel; composite needs 2 to 6 panels')
+            raise ValueError('Reuse needs one panel; composite needs at least two panels')
         labels=[p.label for p in self.panels if p.label]
         if len(labels)!=len(set(labels)) or len(self.formats)!=len(set(self.formats)):
             raise ValueError('Duplicate panel labels or formats')
@@ -233,8 +236,13 @@ class ResearchFigureRequest(StrictModel):
         return self
 
 
+class PaperFigureRequest(ResearchFigureRequest):
+    panels: list[ResearchFigurePanel] = Field(min_length=1, max_length=MAX_PAPER_FIGURE_PANELS)
+
+
 class FrozenResearchFigureRequest(ResearchFigureRequest):
     """Read fixed historical configurations; never an HTTP creation schema."""
+    panels: list[ResearchFigurePanel] = Field(min_length=1, max_length=MAX_PAPER_FIGURE_PANELS)
     formats: list[Literal['png','tiff','pdf','svg']] = Field(default_factory=lambda:['png','tiff'],min_length=1,max_length=4)
 
 

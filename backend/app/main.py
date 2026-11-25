@@ -249,6 +249,9 @@ app.include_router(admin_configurations_router)
 
 from app.api.research_results import router as research_results_router
 app.include_router(research_results_router)
+from app.api.sci_figures import router as sci_figures_router, thesis_router as thesis_figures_router
+app.include_router(sci_figures_router)
+app.include_router(thesis_figures_router)
 from app.api.reader_reports import router as reader_reports_router
 app.include_router(reader_reports_router)
 

@@ -1,10 +1,10 @@
-import { Fragment, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useI18n } from '../../shared/i18n'
-import { isSchoolContentsTitle } from '../manuscripts/paperDraftMaterials'
+import { inferSchoolChapterPurposes } from '../manuscripts/paperDraftMaterials'
+import { isSchoolWritingPurpose, purposeLabels, schoolWritingPurposes } from '../manuscripts/thesisTypes'
 import type { Chapter } from '../school-templates/contracts'
-import { thesisSectionLabels, type BoundThesisTemplate, type ThesisSection, type ThesisSectionPurpose } from './thesisProjectRequirements'
-
-const purposes: ThesisSectionPurpose[] = ['materials_and_methods', 'results']
+import type { BoundThesisTemplate, ThesisSection, ThesisSectionPurpose } from './thesisProjectRequirements'
+import './thesisChapterRequirements.css'
 
 function chapterOptions(chapters: Chapter[], duplicateLabel: (title: string, number: number) => string) {
   const counts = new Map<string, number>()
@@ -18,49 +18,73 @@ export default function ThesisChapterRequirements({ template, sections, onChange
   template: BoundThesisTemplate; sections: ThesisSection[]; onChange?: (sections: ThesisSection[]) => void; disabled?: boolean
 }) {
   const { t } = useI18n()
+  const [purposeChoices, setPurposeChoices] = useState<Record<string, ThesisSectionPurpose>>({})
+  const saved = new Map(sections.map(section => [section.chapter_id, section]))
+  const purposes = inferSchoolChapterPurposes(template.chapters, {
+    saved:new Map([...Object.entries(purposeChoices), ...sections.map(section => [section.chapter_id, section.purpose] as const)]),
+    protectedPurposes:template.protected_chapter_purposes,
+    protectOutline:true,
+  })
   const chapters = chapterOptions(template.chapters, (title, number) => t('{title}（模板第 {number} 项）', { title, number }))
-  const selected = new Map(sections.map(section => [section.chapter_id, section]))
-  const protectedChapter = (chapter:Chapter) => !!template.protected_chapter_purposes?.[chapter.id] || isSchoolContentsTitle(chapter.title)
-  const available = chapters.filter(chapter => !selected.has(chapter.id) && !protectedChapter(chapter))
-  return <div className="thesis-chapter-groups">
-    {purposes.map(purpose => {
-      const items = chapters.flatMap(chapter => {
-        const section = selected.get(chapter.id)
-        return section?.purpose === purpose ? [{ ...chapter, content: section.content }] : []
-      })
-      const title = t(thesisSectionLabels[purpose])
-      if (!onChange) return <section key={purpose} className="thesis-section-summary">
-        <h4>{title}</h4>
-        {items.length ? <dl className="sci-settings-summary">{items.map(item =>
-          <Fragment key={item.id}><dt>{item.label}</dt><dd>{item.content}
-            {protectedChapter(item) && <p className="muted">{t('学校模板已固定此章用途，原需求仍可查看。')}</p>}
-          </dd></Fragment>)}</dl> : <p className="muted">{t('待填写')}</p>}
-      </section>
-      return <fieldset key={purpose} className="thesis-chapter-group" disabled={disabled}>
-        <legend>{title}</legend>
-        {items.map(item => <div key={item.id} className="thesis-section-row">
-          <label>{item.label}<textarea rows={3} required maxLength={20000} value={item.content} readOnly={protectedChapter(item)}
-            onChange={event => onChange(sections.map(section => section.chapter_id === item.id ? { ...section, content: event.target.value } : section))} /></label>
-          {protectedChapter(item) && <p className="muted">{t('学校模板已固定此章用途，原需求仍可查看。')}</p>}
-          <button type="button" className="button-quiet" aria-label={t('移除章节 {title}', { title: item.label })}
-            onClick={() => onChange(sections.filter(section => section.chapter_id !== item.id))}>{t('移除')}</button>
-        </div>)}
-        <AddChapter choices={available} onAdd={chapter_id => onChange([...sections, { chapter_id, purpose, content: '' }])} />
-      </fieldset>
-    })}
-  </div>
-}
+    .map((chapter, index) => ({...chapter, ...purposes[index], content:saved.get(chapter.id)?.content ?? ''}))
+  const defaultChapter = chapters.find(chapter => !chapter.protected && chapter.content.trim()) ??
+    chapters.find(chapter => !chapter.protected) ?? chapters[0]
+  const [selectedId, setSelectedId] = useState(defaultChapter?.id)
+  const selected = chapters.find(chapter => chapter.id === selectedId) ?? defaultChapter
+  const outline = useRef<HTMLElement>(null)
+  const selectedButton = useRef<HTMLButtonElement>(null)
+  const headingId = useId()
+  useEffect(() => {
+    const nav = outline.current, button = selectedButton.current
+    if (!nav || !button) return
+    const viewport = nav.getBoundingClientRect(), item = button.getBoundingClientRect()
+    if (item.top < viewport.top) nav.scrollTop += item.top - viewport.top
+    else if (item.bottom > viewport.bottom) nav.scrollTop += item.bottom - viewport.bottom
+  }, [selected?.id])
+  if (!selected) return null
 
-function AddChapter({ choices, onAdd }: { choices: { id: string; label: string }[]; onAdd: (id: string) => void }) {
-  const { t } = useI18n()
-  const [selected, setSelected] = useState('')
-  const value = choices.some(choice => choice.id === selected) ? selected : ''
-  if (!choices.length) return null
-  return <div className="sci-inline-controls thesis-chapter-controls">
-    <label>{t('模板章节')}<select value={value} onChange={event => setSelected(event.target.value)}>
-      <option value="">{t('请选择模板章节')}</option>
-      {choices.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.label}</option>)}
-    </select></label>
-    <button type="button" disabled={!value} onClick={() => { onAdd(value); setSelected('') }}>{t('添加章节')}</button>
+  const {id, title, content, protected:protectedChapter} = selected
+  const purpose = isSchoolWritingPurpose(selected.purpose) ? selected.purpose : undefined
+  const writable = !!onChange && !protectedChapter
+
+  function update(content: string, purpose: ThesisSectionPurpose) {
+    if (!onChange || protectedChapter || disabled) return
+    if (!content) {
+      setPurposeChoices(choices => ({...choices, [id]:purpose}))
+      if (saved.has(id)) onChange(sections.filter(section => section.chapter_id !== id))
+      return
+    }
+    const section = {chapter_id:id, purpose, content}
+    onChange(saved.has(id) ? sections.map(item => item.chapter_id === id ? section : item) : [...sections, section])
+  }
+
+  return <div className="thesis-chapter-editor">
+    <nav className="thesis-chapter-outline" aria-label={t('模板目录')} ref={outline}>
+      <ol>{chapters.map(chapter => <li key={chapter.id}>
+        <button type="button" className="button-quiet" aria-current={chapter.id === id ? 'true' : undefined}
+          ref={chapter.id === id ? selectedButton : undefined}
+          style={{paddingInlineStart:`${.65 + (chapter.level - 1) * .55}rem`}}
+          onClick={() => setSelectedId(chapter.id)}>{chapter.label}</button>
+      </li>)}</ol>
+    </nav>
+    <section className="thesis-chapter-content" aria-labelledby={headingId}>
+      <h3 id={headingId}>{title}</h3>
+      {writable && <label>{t('章节用途')}
+        <select value={purpose ?? ''} disabled={disabled} onChange={event => {
+          const next = event.target.value
+          if (!isSchoolWritingPurpose(next)) return
+          if (content) update(content, next)
+          else setPurposeChoices(choices => ({...choices, [id]:next}))
+        }}>
+          <option value="" disabled>{t('选择章节用途')}</option>
+          {schoolWritingPurposes.map(value => <option key={value} value={value}>{t(purposeLabels[value])}</option>)}
+        </select>
+      </label>}
+      <label>{t('章节内容')}
+        <textarea rows={9} maxLength={20000} value={content} readOnly={!writable}
+          disabled={writable && (disabled || !purpose)} onChange={event => { if (purpose) update(event.target.value, purpose) }}/>
+      </label>
+      {protectedChapter && <p className="muted">{t('学校模板已固定此章用途，原需求仍可查看。')}</p>}
+    </section>
   </div>
 }

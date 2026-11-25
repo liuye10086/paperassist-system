@@ -1,6 +1,7 @@
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import {afterEach,expect,it,vi} from 'vitest'
 import InsightPlanEditor from './InsightPlanEditor'
+import BioInsightsWorkspace from './BioInsightsWorkspace'
 import {apiFetch} from '../../shared/api/client'
 import {defaultBulkConfig} from './quantitative'
 import type {Plan,PlanBody,Design,Source} from './contracts'
@@ -33,6 +34,57 @@ it('adopts raw counts when opening a new plan from a fixed Bulk result',async()=
  fireEvent.click(screen.getByRole('button',{name:'配置分析'}))
  expect(screen.getByLabelText('定量统计路径')).toHaveProperty('value','bulk_counts')
  expect(screen.getByLabelText('比较数值层')).toHaveProperty('value','raw_counts')
+})
+
+it('shows only the practical analyst Bulk inputs and submits an exact paired design for review',async()=>{
+ const observations=[
+  {sample_id:'T1',condition:'treated',retained:true},
+  {sample_id:'T2',condition:'treated',retained:false},
+  {sample_id:'C1',condition:'control',retained:true},
+ ]
+ vi.mocked(apiFetch).mockImplementation(async(url,init)=>{
+  if(init?.method==='POST')return Response.json(review)
+  if(String(url).includes('/observations?'))return Response.json({items:observations,total:observations.length,observation_level:'sample',
+   scale:{namespace:'unknown',reference_version:'unknown',species_taxon_id:9606}})
+  return Response.json({items:[source],total:1})
+ })
+ render(<BioInsightsWorkspace projectId="p" analysisOnly active navigation={{view:'bio-insights',fileId:'',processedId:'fixed'}} onNavigate={vi.fn()}/>)
+ const adopt=screen.getByRole('button',{name:'采用入口的固定处理版本'})
+ await waitFor(()=>expect(adopt).toHaveProperty('disabled',false))
+ fireEvent.click(adopt)
+ fireEvent.click(screen.getByRole('button',{name:'配置分析'}))
+
+ for(const name of ['新计划类型','比较数据类型','定量统计路径','统计方法','比较数值层','重复单位']){
+  expect(screen.queryByRole('combobox',{name})).toBeNull()
+ }
+ expect(screen.queryByRole('spinbutton',{name:'总 counts 预过滤门槛'})).toBeNull()
+ fireEvent.change(screen.getByRole('combobox',{name:'样本比较设计'}),{target:{value:'paired'}})
+ expect(screen.getByRole('combobox',{name:'固定配对字段'})).toHaveProperty('value','pair_id')
+ fireEvent.click(screen.getByRole('button',{name:'读取固定样本'}))
+ fireEvent.change(await screen.findByRole('combobox',{name:'分子组（比较组）'}),{target:{value:'treated'}})
+ fireEvent.change(screen.getByRole('combobox',{name:'分母组（参照组）'}),{target:{value:'control'}})
+ fireEvent.change(screen.getByRole('textbox',{name:'样本设计与重复依据'}),{target:{value:'Same donors, paired by pair_id'}})
+ fireEvent.click(screen.getByRole('checkbox',{name:'已核对分组和生物学重复依据'}))
+ fireEvent.click(screen.getByRole('button',{name:'补充设置'}))
+ expect(screen.getByRole('spinbutton',{name:'总 counts 预过滤门槛'})).toHaveProperty('value','10')
+ fireEvent.click(screen.getByRole('button',{name:'分析参数'}))
+ expect(screen.getByRole('combobox',{name:'分子组（比较组）'})).toHaveProperty('value','treated')
+ fireEvent.click(screen.getByRole('button',{name:'检查与运行'}))
+ fireEvent.click(screen.getByRole('button',{name:'预检当前设计'}))
+ await screen.findByRole('region',{name:'Bulk 模型确认摘要'})
+ expect(posts()).toHaveLength(1)
+ expect(JSON.parse(String(posts()[0][1]?.body))).toMatchObject({
+  sources:[{source_id:'fixed',role:'processed'}],
+  config:{
+   design:'paired',pairing_field:'pair_id',mode:'bulk_counts',method:'deseq2_wald',analysis_layer:'raw_counts',
+   namespace:'unknown',reference_version:'unknown',species_taxon_id:9606,
+   independence_confirmed:true,independence_basis:'Same donors, paired by pair_id',design_basis:'Same donors, paired by pair_id',
+   contrasts:[{groups:[
+    {label:'treated',sample_keys:[{processed_version_id:'fixed',sample_id:'T1'}]},
+    {label:'control',sample_keys:[{processed_version_id:'fixed',sample_id:'C1'}]},
+   ]}],
+  },
+ })
 })
 
 it('requires preview and confirmation separately, then invalidates confirmation when the direction changes',async()=>{

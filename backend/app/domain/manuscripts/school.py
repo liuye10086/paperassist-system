@@ -1,8 +1,10 @@
 """Adapt confirmed school chapters to the common frozen manuscript, never its facts."""
 from copy import deepcopy
+from typing import Literal, get_args
 
-PURPOSES = ('abstract', 'introduction', 'materials_and_methods', 'results', 'discussion',
-            'conclusion', 'references', 'acknowledgements', 'manual', 'other')
+SchoolWritablePurpose = Literal['abstract', 'introduction', 'materials_and_methods', 'results', 'discussion', 'conclusion']
+WRITABLE_PURPOSES = get_args(SchoolWritablePurpose)
+PURPOSES = (*WRITABLE_PURPOSES, 'references', 'acknowledgements', 'manual', 'other')
 CHAPTER_FIELDS = ('id', 'title', 'level', 'purpose', 'output_language', 'result_group_ids')
 RULES_VERSION = 'school-content-v1'
 
@@ -64,8 +66,8 @@ def seed_school_snapshot(snapshot, context):
     used_literature = False
     literature = literature_paragraphs(snapshot)
     paper_plan = snapshot.get('paper_plan')
-    planned_methods = {section['chapter_id']: section for section in (paper_plan or {}).get('sections', [])
-                       if section['purpose'] == 'materials_and_methods'}
+    planned_prose = {section['chapter_id']: section for section in (paper_plan or {}).get('sections', [])
+                     if section['purpose'] in WRITABLE_PURPOSES and section['purpose'] != 'results'}
     for chapter in chapters:
         section = deepcopy(chapter)
         paragraphs = []
@@ -74,8 +76,9 @@ def seed_school_snapshot(snapshot, context):
             # Literature is a reviewed finding, never an actual study method.
             paragraphs = [deepcopy(p) for p in snapshot['methods'] if p.get('origin') != 'literature']
             used_methods = True
-        if chapter['id'] in planned_methods:
-            paragraphs.insert(0, finding_paragraph(planned_methods[chapter['id']]))
+        planned = planned_prose.get(chapter['id'])
+        if planned is not None and planned['purpose'] == role:
+            paragraphs.insert(0, finding_paragraph(planned))
         if role in ('introduction', 'discussion', 'other') and not used_literature and literature:
             paragraphs.extend(deepcopy(literature))
             used_literature = True

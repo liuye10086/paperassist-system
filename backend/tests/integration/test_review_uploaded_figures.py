@@ -1,3 +1,4 @@
+import base64
 from io import BytesIO
 import json
 
@@ -10,6 +11,8 @@ import pytest
 from app.core.exceptions import StorageError
 from app.db.database import alembic_config, database_connection, migration_connection
 from app.domain.manuscript_writing.bundle import safe_text
+from app.domain.manuscript_writing.execution import run_manuscript_writing_task
+from app.domain.manuscript_writing.frozen import wire_payload
 from app.domain.tasks.file_parse_execution import run_parse_file_task
 from app.main import app
 from tests.api.test_customer_project_types import SCI_SETTINGS, create, project_body, project_path
@@ -17,6 +20,7 @@ from tests.api.test_customer_sci_workflow import article_request
 from tests.api.test_customer_workspace import sign_in
 from tests.api.test_file_batches import register
 from tests.api.test_manuscripts import body
+from tests.integration.test_customer_sci_draft_revision import ChatStreamFixture, queue_write
 from tests.integration.test_customer_sci_to_word import (
     SciFixtureProvider, create_fact, request, selected_pubmed_reference, submit_candidate,
 )
@@ -34,6 +38,15 @@ def image_upload(client, project, name, image_format):
             raise StorageError('parse_environment_unavailable', 'No OCR in this fixture.', 409)
         assert run_parse_file_task(task['id'], task['revision'], parser=offline_ocr)['status'] == 'failed'
     return uploaded['file_id'], raw
+
+
+def assert_visual_input(part, media_type, original):
+    prefix = f'data:{media_type};base64,'
+    assert part['type'] == 'input_image' and part['detail'] == 'high' and part['image_url'].startswith(prefix)
+    raster = base64.b64decode(part['image_url'][len(prefix):], validate=True)
+    with Image.open(BytesIO(raster)) as received, Image.open(BytesIO(original)) as expected:
+        assert received.format == expected.format and received.size == expected.size
+        assert all(abs(actual - source) <= 3 for actual, source in zip(received.getpixel((0, 0)), expected.getpixel((0, 0))))
 
 
 def test_review_freezes_auto_and_specified_figures_and_exports_each_in_its_section():
@@ -65,9 +78,11 @@ def test_review_freezes_auto_and_specified_figures_and_exports_each_in_its_secti
         root, base = create_fact(client, project, body(title=plan['title'], methods={}, paper_plan_token=plan['token'],
                                                       citation_draft=citation))
         evidence = base['citation_snapshot']['paragraphs'][0]['fragments'][0]['bindings'][0]['evidence'][0]
-        bundle = request(client, 'POST', root + '/writing-previews', status=201, key='preview', json=article_request(
+        selection = article_request(
             'narrative_review', document_context_version='selected-text-v1',
-            selected_evidence_ids=[evidence['id']], selected_source_ids=[png, jpg, tif]))
+            selected_evidence_ids=[evidence['id']], selected_source_ids=[png, jpg, tif])
+        previews = root + '/writing-previews'
+        bundle = request(client, 'POST', previews, status=201, key='preview', json=selection)
         wire = json.loads(json.loads(bundle['wire_json'])['input'])
         assert [(f['number'], f['section_id']) for f in wire['illustrations']] == [
             (1, 'introduction'), (2, theme), (3, 'conclusion')]
@@ -79,7 +94,7 @@ def test_review_freezes_auto_and_specified_figures_and_exports_each_in_its_secti
         sections[theme] = dict(text=evidence['quote'], evidence_aliases=['e1'])
         # The provider may reuse a fact-draft paragraph identity while replacing its whole text.
         sections['conclusion']['id'] = 'review-illustrations:conclusion'
-        reader, _ = submit_candidate(client, project, root, bundle, SciFixtureProvider(sections))
+        reader, original = submit_candidate(client, project, root, bundle, SciFixtureProvider(sections))
         rendered = request(client, 'GET', reader + '?revision=1')['draft']
         figure_ids = []
         for section in rendered['sections']:
@@ -98,6 +113,57 @@ def test_review_freezes_auto_and_specified_figures_and_exports_each_in_its_secti
         document = Document(BytesIO(word.content))
         assert len(document.inline_shapes) == 3
         assert caption in [p.text for p in document.paragraphs]
+
+        revision = selection | dict(revision_of_request_id=reader.split('/')[-2], target_sections=['introduction'],
+                                    instructions='Clarify what Figure 1 illustrates.')
+        revised_bundle = request(client, 'POST', previews, status=201, key='revise-with-image', json=revision)
+        assert request(client, 'POST', previews, key='revise-with-image', json=revision) == revised_bundle
+        assert revised_bundle['execution_contract']['scope_figure_input'] is True
+        [message] = json.loads(revised_bundle['wire_json'])['input']
+        text, visual = message['content']
+        assert message['role'] == 'user' and text['type'] == 'input_text'
+        assert_visual_input(visual, 'image/jpeg', jpg_bytes)
+        payload = wire_payload(revised_bundle['wire_json'])
+        assert [s['id'] for s in payload['original_draft']] == ['introduction']
+        assert [item['number'] for item in payload['illustrations']] == [1, 2, 3]
+        assert payload['revision_figure_context'] == [
+            dict(number=1, section_ids=['introduction'], title='Review illustration', caption=caption),
+        ]
+        revised_text = 'Figure 1 illustrates the scope of this review.'
+        task = queue_write(client, project, root, revised_bundle, 'revise-with-image')
+        provider = ChatStreamFixture(observe=lambda: None, prefix='Figure 1 illustrates',
+                                     paragraphs={'introduction': {'text': revised_text}})
+        finished = run_manuscript_writing_task(task['id'], task['revision'], provider=provider)
+        assert finished['status'] == 'succeeded', finished
+        assert provider.posts == [revised_bundle['wire_json']]
+        revised_path = root + '/writing-requests/' + task['id']
+        revised = request(client, 'GET', revised_path)
+        assert [s for s in revised['candidate']['sections'] if s['id'] != 'introduction'] == [
+            s for s in original['sections'] if s['id'] != 'introduction']
+        changes = request(client, 'GET', revised_path + '/draft-reader?revision=1')['changes']
+        assert [(change['section_id'], change['after']) for change in changes] == [('introduction', [revised_text])]
+
+        advice = revision | dict(revision_of_request_id=task['id'], target_sections=['conclusion'],
+                                 instructions='What could make Figure 3 more useful here?', draft_advice=True)
+        advice_bundle = request(client, 'POST', previews, status=201, key='advice-with-image', json=advice)
+        [message] = json.loads(advice_bundle['wire_json'])['input']
+        _, visual = message['content']
+        assert_visual_input(visual, 'image/png', client.get(reader + '/figures/3?revision=1').content)
+        assert [row['number'] for row in wire_payload(advice_bundle['wire_json'])['revision_figure_context']] == [3]
+        advice_task = queue_write(client, project, root, advice_bundle, 'advice-with-image')
+        advice_text = 'Explain how Figure 3 relates to the conclusion.'
+        provider = ChatStreamFixture(observe=lambda: None, prefix='Explain how Figure 3', advice=advice_text)
+        finished = run_manuscript_writing_task(advice_task['id'], advice_task['revision'], provider=provider)
+        assert finished['status'] == 'succeeded', finished
+        assert provider.posts == [advice_bundle['wire_json']]
+        advice_view = request(client, 'GET', root + '/writing-requests/' + advice_task['id'] + '/draft-reader?revision=1')
+        assert advice_view['advice'] == advice_text and advice_view['draft'] is None
+
+        text_bundle = request(client, 'POST', previews, status=201, key='advice-text-only',
+                              json=advice | dict(target_sections=['discussion'], instructions='Explain the discussion.'))
+        assert isinstance(json.loads(text_bundle['wire_json'])['input'], str)
+        assert 'revision_figure_context' not in wire_payload(text_bundle['wire_json'])
+
         request(client, 'PUT', notes + '/' + tif, json=dict(expected_revision=1, file_id=tif, target_id=None, result=''))
         current = request(client, 'GET', project + '/manuscripts/candidates')['paper_plan']
         assert current['token'] != plan['token']

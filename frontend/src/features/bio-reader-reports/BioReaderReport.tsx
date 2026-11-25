@@ -182,6 +182,7 @@ export function FixedBioReaderReport({projectId,context,active=true,location,del
   reportReturn})
  return <section className="research-detail-block" aria-label={t('已固定的报告选材')}>
   <h4>{report.title}</h4>
+  {context.workbook_limited&&<p className="muted">{t('Word 可单独下载。大表可在原分析结果中按需下载。')}</p>}
   {!standalone&&<a href={bioReportLink(projectId,context.id,location)}>{t('打开固定报告选材')}</a>}
   {history.error&&<p role="alert">{t(history.error)}</p>}
   {history.loading&&<p role="status">{t(RESEARCH_LOADING_MESSAGE)}</p>}

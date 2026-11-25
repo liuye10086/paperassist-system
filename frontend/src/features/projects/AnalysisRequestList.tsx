@@ -1,4 +1,5 @@
 import SingleCellExecutionGuide from './SingleCellExecutionGuide'
+import {bulkRoute} from '../bio-insights/bulkWorkflow'
 import {getApiUserId} from '../../shared/api/client'
 import useResearchDraft from '../research-results/useResearchDraft'
 import {useI18n} from '../../shared/i18n'
@@ -7,7 +8,12 @@ import type {Version} from '../research-intake/contracts'
 import type {AnalysisNavigation} from './analysisViews'
 import {analysisScopes,entryMethods,entrySources,rnaRequestGroups,scopeKind,sourceNavigation,type AnalysisScope,type EntryMethod,type EntrySource,type EntryImport} from './analysisEntryState'
 
-type Props={guidedSingleCell?:boolean;projectId?:string;focused?:boolean;version:Version;files:ProjectFile[];filesLoading?:boolean;filesError?:string;imports?:EntryImport[];importsUnknown?:boolean;onNavigate:(next:AnalysisNavigation)=>void;onFile?:(id:string)=>void;onRequirements?:(panel?:'materials')=>void;onUpload?:()=>void;onReloadFiles?:()=>void;onDeliveries?:()=>void;scopeId?:string;assigned?:boolean}
+type Props={guidedRna?:boolean;projectId?:string;focused?:boolean;version:Version;files:ProjectFile[];filesLoading?:boolean;filesError?:string;imports?:EntryImport[];importsUnknown?:boolean;onNavigate:(next:AnalysisNavigation)=>void;onFile?:(id:string)=>void;onRequirements?:(panel?:'materials')=>void;onUpload?:()=>void;onReloadFiles?:()=>void;onDeliveries?:()=>void;scopeId?:string;assigned?:boolean}
+const bulkSteps=[
+ ['导入计数矩阵与样本表','核对矩阵列与样本编号，发布数据集。'],
+ ['运行样本质控','检查文库大小、样本分布和 PCA。'],
+ ['配置差异分析','选择比较方向和配对方式，核对模型后运行。'],
+] as const
 const compatible=(source:EntrySource,method:EntryMethod)=>method.source==='table'?source.kind==='table':method.source==='bio'?['bio-original','bio-version'].includes(source.kind):false
 export default function AnalysisRequestList(props:Props){
  return <RequestList key={`${getApiUserId()}:${props.projectId??props.version.project_id??'unscoped'}:${props.version.id}:${props.scopeId??'all'}`} {...props}/>
@@ -23,14 +29,19 @@ function RequestList(props:Props){
   props.onNavigate({...navigation,entry:{requirementVersionId:props.version.id,scopeItemId:scope.id}})
  }
  return <section className="analysis-request-list" aria-label={t('本次分析清单')}>
-  {!props.guidedSingleCell&&<header><h3>{t('本次分析清单')}</h3><span>{t(props.assigned?'已提交需求':'已保存需求')}</span>{props.onRequirements&&<button type="button" className="button-quiet" onClick={()=>props.onRequirements?.()}>{t(props.assigned?'查看已提交需求':'调整分析需求')}</button>}{props.onReloadFiles&&<button type="button" className="button-quiet" onClick={props.onReloadFiles}>{t('重新读取材料')}</button>}</header>}
+  {!props.guidedRna&&<header><h3>{t('本次分析清单')}</h3><span>{t(props.assigned?'已提交需求':'已保存需求')}</span>{props.onRequirements&&<button type="button" className="button-quiet" onClick={()=>props.onRequirements?.()}>{t(props.assigned?'查看已提交需求':'调整分析需求')}</button>}{props.onReloadFiles&&<button type="button" className="button-quiet" onClick={props.onReloadFiles}>{t('重新读取材料')}</button>}</header>}
   {!!scopes.length&&<p className="muted">{t('选择本次要执行的任务，核对来源后进入配置。')}</p>}
   {props.filesLoading&&<p role="status">{t('正在核对材料状态……')}</p>}
   {props.filesError&&<p role="alert">{t('材料读取失败，请重试。')} {props.onReloadFiles&&<button type="button" onClick={props.onReloadFiles}>{t('重新读取材料')}</button>}</p>}
   {!scopes.length&&!rna.length&&!delivery&&<p>{t(props.scopeId?'该需求版本中没有此分析条目，请重新选择。':'还没有勾选分析项目。你也可以直接从下方的数据类型开始。')}</p>}
   {!!rna.length&&<div className="analysis-assay-grid">{rna.map(group=>{const {assay,title,primary,choices}=group
-    if(props.guidedSingleCell&&assay==='single_cell'&&!props.scopeId)return <SingleCellExecutionGuide key={assay} group={group} files={props.files} imports={props.imports??[]}
+    if(props.guidedRna&&assay==='single_cell'&&!props.scopeId)return <SingleCellExecutionGuide key={assay} group={group} files={props.files} imports={props.imports??[]}
       checking={Boolean(props.filesLoading||props.filesError||props.importsUnknown)} open={openScope}/>
+    if(props.guidedRna&&assay==='bulk'&&!props.scopeId)return <article key={assay} className="rna-execution-guide" aria-label={t(title)}>
+      <h3>{t('Bulk RNA-seq 分析流程')}</h3>
+      <ol>{bulkSteps.map(([label,help])=><li key={label}><div><h4>{t(label)}</h4><p>{t(help)}</p></div></li>)}</ol>
+      <button type="button" className="button-primary" onClick={()=>openScope(group.parent,bulkRoute('data'))}>{t('进入 Bulk RNA-seq 工作流')}</button>
+    </article>
     return <article key={assay} className="analysis-request-row analysis-assay-card" aria-label={t(title)}>
     <header><h4>{t(title)}</h4></header>
     {!!primary.length&&<div className="intake-actions">{primary.map(({scope,label,navigation},index)=><button key={label} type="button" className={index===0?'button-primary':undefined} onClick={()=>openScope(scope,navigation)}>{t(label)}</button>)}</div>}

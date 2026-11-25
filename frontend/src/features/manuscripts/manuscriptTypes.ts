@@ -1,7 +1,7 @@
 import {validPresentationExport,type PresentationExport} from './presentationTypes'
-import {articleHeading,articleStructures,narrativeSectionOrder,type ArticleType} from './articleStructure'
+import {articleHeading,articleStructures,narrativeSectionOrder,templateSectionHeading,validSciTemplate,type ArticleType,type SciTemplate} from './articleStructure'
 import {validSchoolExportResult,type SchoolExportOptions,type SchoolExportResult} from './schoolExportTypes'
-import {validThesisInput,validReadiness,validSchoolContext,validSchoolReport,type ThesisInput,type ThesisReadiness,type ThesisContext,type SchoolReport,type SchoolChapter} from './thesisTypes'
+import {isSchoolWritingPurpose,validThesisInput,validReadiness,validSchoolContext,validSchoolReport,type ThesisInput,type ThesisReadiness,type ThesisContext,type SchoolReport,type SchoolChapter,type SchoolWritingPurpose} from './thesisTypes'
 import {validFrozenReview,type FrozenReview} from './reviewTypes'
 import type { Locale } from '../../shared/i18n'
 export const methodFields = ['research_question','purpose','hypothesis','study_design','population','samples','groups','materials','procedures','conditions','statistical_methods','ethics'] as const
@@ -12,9 +12,13 @@ export type SourceRole = keyof typeof roleLabels
 export type SourceKind = 'original'|'document_version'|'ocr_review_version'|'external_evidence_version'|'analysis_run'|'figure'|'figure_language_version'|'analysis_report'|'collection_report'
 export type SourceSelection={kind:SourceKind;id:string;file_id:string;role:SourceRole}
 export type SourceCandidate=Omit<SourceSelection,'role'>&{label:string;version:number|null;allowed_roles:SourceRole[];download_url:string|null}
-export type PaperPlanSection={id:string;label:string;text:string;group_title?:string;chapter_id?:string;purpose?:'materials_and_methods'|'results'}
+export type PaperPlanSection={id:string;label:string;text:string;group_title?:string;chapter_id?:string;purpose?:SchoolWritingPurpose}
 export type PaperPlanMaterial={section_id:string;chapter_id?:string;filename:string;kind:'figure'|'table';result:string;selection:SourceSelection;worksheet_names?:string[]}
-export type PaperPlan={kind:'research'|'narrative_review'|'thesis';title:string;keywords:string[];sections:PaperPlanSection[];materials:PaperPlanMaterial[]}
+export type SciPlanFigure={figure_id:string;chapter_id:string;chapter_label:string;title:string;caption:string}
+type ThesisPlanFigure=SciPlanFigure&{panel_file_ids?:string[]}
+export type PaperPlan={kind:'research'|'narrative_review'|'thesis';title:string;keywords:string[];sections:PaperPlanSection[];materials:PaperPlanMaterial[];
+ sci_template?:SciTemplate;combine_review_topics?:true;sci_figures?:SciPlanFigure[];sci_figures_need_configuration?:boolean;
+ thesis_figures?:ThesisPlanFigure[];thesis_figures_need_configuration?:boolean}
 export type PaperPlanCandidate=PaperPlan&{token:string;omitted_count:number}
 export type Candidates={project_type?:'sci'|'thesis';thesis?:ThesisReadiness|null;paper_plan?:PaperPlanCandidate;items:SourceCandidate[];citation_drafts:{id:string;revision:number;title:string;usable:boolean}[];methods_fields:MethodField[]}
 export type ResultsGroup={id:string;title:string;analysis_run_ids:string[];figure_ids:string[]}
@@ -61,8 +65,21 @@ export function isNativeReviewFigure(section:unknown, kind:unknown, source:Sourc
  return kind==='figure'&&source.kind==='original'&&source.role==='image_observation'&&
    (section==='introduction'||section==='discussion'||section==='conclusion')
 }
+function validPlanFigures(value:unknown, thesis:boolean){
+ return Array.isArray(value)&&value.every(figure=>record(figure)&&id(figure.figure_id)&&
+   (thesis?text(figure.chapter_id)&&!!figure.chapter_id.trim():id(figure.chapter_id))&&
+   text(figure.chapter_label)&&!!figure.chapter_label.trim()&&text(figure.title)&&!!figure.title.trim()&&text(figure.caption)&&
+   (!thesis||figure.panel_file_ids===undefined||Array.isArray(figure.panel_file_ids)&&figure.panel_file_ids.every(id)))&&
+   new Set(value.map(figure=>figure.figure_id)).size===value.length
+}
 function validPaperPlan(v:unknown):v is PaperPlan {
- if(!record(v)||!['research','narrative_review','thesis'].includes(String(v.kind))||!text(v.title)||!v.title.trim()||!strings(v.keywords)||!Array.isArray(v.sections)||!v.sections.every(s=>record(s)&&id(s.id)&&text(s.label)&&!!s.label.trim()&&text(s.text)&&(s.group_title===undefined||text(s.group_title))&&(v.kind==='thesis'?text(s.chapter_id)&&s.chapter_id.length>0&&['materials_and_methods','results'].includes(String(s.purpose)):s.chapter_id===undefined&&s.purpose===undefined)))return false
+ if(!record(v)||!['research','narrative_review','thesis'].includes(String(v.kind))||!text(v.title)||!v.title.trim()||!strings(v.keywords)||!Array.isArray(v.sections)||!v.sections.every(s=>record(s)&&id(s.id)&&text(s.label)&&!!s.label.trim()&&text(s.text)&&(s.group_title===undefined||text(s.group_title))&&(v.kind==='thesis'?text(s.chapter_id)&&s.chapter_id.length>0&&isSchoolWritingPurpose(s.purpose):s.chapter_id===undefined&&s.purpose===undefined)))return false
+ if(v.sci_template!==undefined&&(!validSciTemplate(v.sci_template)||v.sci_template.article_type!==v.kind))return false
+ if(v.combine_review_topics!==undefined&&(v.combine_review_topics!==true||v.kind!=='narrative_review'||!v.sci_template))return false
+ if(v.sci_figures_need_configuration!==undefined&&(v.kind==='thesis'||typeof v.sci_figures_need_configuration!=='boolean'))return false
+ if(v.sci_figures!==undefined&&(v.kind==='thesis'||!validPlanFigures(v.sci_figures,false)))return false
+ if(v.thesis_figures_need_configuration!==undefined&&(v.kind!=='thesis'||typeof v.thesis_figures_need_configuration!=='boolean'))return false
+ if(v.thesis_figures!==undefined&&(v.kind!=='thesis'||!validPlanFigures(v.thesis_figures,true)))return false
  const sectionIds=new Set(v.sections.map(s=>s.id))
  const figureChapters=new Map<string,string>()
  if(v.figure_chapters!==undefined){
@@ -87,16 +104,18 @@ export function validCandidates(v:unknown,projectId:string):v is Candidates{retu
 export function validInput(v:unknown):v is ManuscriptInput{return record(v)&&(v.paper_plan_token===undefined||planToken(v.paper_plan_token))&&(v.analysis_handoff_run_ids===undefined||strings(v.analysis_handoff_run_ids)&&v.analysis_handoff_run_ids.every(id=>Array.isArray(v.sources)&&v.sources.some(s=>record(s)&&s.kind==='analysis_run'&&s.id===id)))&&(v.thesis===undefined||validThesisInput(v.thesis))&&text(v.title)&&v.title.trim().length>0&&v.title.length<=200&&language(v.output_language)&&integer(v.expected_revision)&&Array.isArray(v.sources)&&v.sources.length<=50&&v.sources.every(selection)&&record(v.methods)&&methodFields.every(k=>text((v.methods as Record<string,unknown>)[k]))&&record(v.method_source_ids)&&Object.entries(v.method_source_ids).every(([k,ids])=>methodFields.includes(k as MethodField)&&strings(ids))&&Array.isArray(v.method_conflicts)&&v.method_conflicts.every(c=>record(c)&&methodFields.includes(c.field as MethodField)&&strings(c.values)&&c.values.length>=2&&text(c.note))&&Array.isArray(v.results_groups)&&v.results_groups.length<=20&&v.results_groups.every(g=>record(g)&&id(g.id)&&text(g.title)&&strings(g.analysis_run_ids)&&strings(g.figure_ids))&&new Set(v.results_groups.map(g=>(g as ResultsGroup).id)).size===v.results_groups.length&&Array.isArray(v.figure_notes)&&v.figure_notes.every(n=>record(n)&&text(n.figure_id)&&n.figure_id.length>0&&text(n.caption)&&Array.isArray(n.panels)&&n.panels.every(p=>record(p)&&text(p.label)&&text(p.description)))&&(v.citation_draft===null||record(v.citation_draft)&&id(v.citation_draft.id)&&integer(v.citation_draft.revision,1))}
 function liveNumber(v:unknown){return record(v)&&integer(v.occurrence)&&text(v.value)&&!!v.value&&(v.kind==='study'||v.kind==='context'?text(v.source_alias)&&!!v.source_alias&&text(v.fact_path)&&!!v.fact_path&&(v.evidence_id===null||v.evidence_id===undefined):v.kind==='literature'&&id(v.evidence_id)&&(v.source_alias===null||v.source_alias===undefined)&&(v.fact_path===null||v.fact_path===undefined))}
 function paragraph(v:unknown,live=false):v is Paragraph{return record(v)&&(v.numeric_bindings===undefined||Array.isArray(v.numeric_bindings)&&v.numeric_bindings.every(b=>live&&liveNumber(b)||record(b)&&Object.keys(b).length===2&&text(b.value)&&b.value.length>0&&(text(b.source_id)&&b.source_id.length>0&&!('fact_id'in b)||text(b.fact_id)&&b.fact_id.length>0&&!('source_id'in b))))&&(v.suggested_evidence_aliases===undefined||strings(v.suggested_evidence_aliases))&&text(v.id)&&v.id.length>0&&text(v.text)&&['user_provided','computed_result','literature','image_observation','model_generated'].includes(String(v.origin))&&strings(v.source_ids)&&Array.isArray(v.citations)&&v.citations.every(n=>integer(n,1)||record(n)&&id(n.project_reference_id)&&id(n.reference_id)&&id(n.review_id)&&id(n.metadata_version_id))&&(v.cross_references===undefined||Array.isArray(v.cross_references)&&v.cross_references.every(r=>record(r)&&['figure','table'].includes(String(r.kind))&&text(r.target_id)&&r.target_id.length>0&&integer(r.number,1)&&(r.panel_label===null||r.kind==='figure'&&text(r.panel_label)&&/^[A-Z]$/.test(r.panel_label))))}
-export function validJournalDisplayContext(v:unknown,narrativeLanguage?:Locale,themes:readonly PaperPlanSection[]=[]):v is JournalDisplayContext{
+export function validJournalDisplayContext(v:unknown,narrativeLanguage?:Locale,themes:readonly PaperPlanSection[]=[],template?:SciTemplate):v is JournalDisplayContext{
  if(!record(v)||v.version!=='journal_display_v1'||!record(v.names)||!Array.isArray(v.order)||v.order[0]!=='title'||!record(v.styles))return false
  const {names,order}=v
- const ids=narrativeLanguage?narrativeSectionOrder(themes.map(section=>section.id)):sectionIds
+ const templateOrder=template?.sections.map(section=>section.id)
+ const ids=narrativeLanguage?narrativeSectionOrder(themes.map(section=>section.id),templateOrder):templateOrder??sectionIds
  if(Object.keys(names).length!==ids.length||(!themes.length&&new Set(Object.values(names)).size!==ids.length)||order.length!==ids.length)return false
  if(!ids.every(id=>text(names[id])&&String(names[id]).trim()&&order.filter(value=>value===id).length===1))return false
  const frontiers=v.frontiers_review
  if(frontiers!==undefined&&(!record(frontiers)||narrativeLanguage!=='en'||Object.keys(frontiers).length===0||!Object.entries(frontiers).every(([key,value])=>key==='reference_texts'?strings(value)&&value.length>0:['headings','single_spacing','page_line_numbers','submission_layout'].includes(key)&&value===true)))return false
  const renamed:Record<string,string>=record(frontiers)&&frontiers.headings===true?{introduction:'Introduction',discussion:'Discussion'}:{}
- if(narrativeLanguage&&!ids.every((id,index)=>order[index]===id&&names[id]===(themes.find(section=>section.id===id)?.label??renamed[id]??articleHeading('narrative_review',id,narrativeLanguage))))return false
+ if(narrativeLanguage&&!ids.every((id,index)=>order[index]===id&&names[id]===(themes.find(section=>section.id===id)?.label??renamed[id]??
+  templateSectionHeading(template,id,narrativeLanguage)??articleHeading('narrative_review',id,narrativeLanguage))))return false
  return Object.entries(v.styles).every(([k,n])=>/^(heading|body)_(font_size_pt|line_spacing|space_before_pt|space_after_pt)$/.test(k)&&typeof n==='number'&&Number.isFinite(n)&&n>=(k.endsWith('font_size_pt')?8:k.endsWith('line_spacing')?1:0)&&n<=(k.endsWith('font_size_pt')?36:k.endsWith('line_spacing')?3:72))
 }
 function userReturnProvenance(v:unknown):v is UserReturnProvenance{return record(v)&&v.schema_version===1&&['return_id','previous_round_id','base_version_id'].every(k=>id(v[k]))&&(v.revision_id===null||id(v.revision_id))&&['input_sha256','preview_sha256'].every(k=>text(v[k])&&/^[a-f0-9]{64}$/.test(v[k] as string))&&record(v.source)&&Array.isArray(v.mappings)&&v.mappings.every(m=>record(m)&&id(m.input_section_id)&&id(m.chapter_id))}
@@ -105,12 +124,17 @@ function validArticleSections(v:Record<string,unknown>){
  const kind=v.article_type
  if(kind!==undefined&&(typeof kind!=='string'||!Object.hasOwn(articleStructures,kind)||v.article_structure_version!=='article-scope-v1'))return false
  if(kind===undefined&&v.article_structure_version!==undefined)return false
- const themes=kind==='narrative_review'&&validPaperPlan(v.paper_plan)&&v.paper_plan.kind==='narrative_review'?v.paper_plan.sections:[]
- const ids=kind==='narrative_review'?narrativeSectionOrder(themes.map(section=>section.id)):kind===undefined?sectionIds:articleStructures[kind as ArticleType]
+ const plan=validPaperPlan(v.paper_plan)?v.paper_plan:undefined
+ const themes=kind==='narrative_review'&&plan?.kind==='narrative_review'&&!plan.combine_review_topics?plan.sections:[]
+ const template=plan?.sci_template?.article_type===kind?plan?.sci_template:undefined
+ const order=template?.sections.map(section=>section.id)
+ const ids=kind==='narrative_review'?narrativeSectionOrder(themes.map(section=>section.id),order):kind===undefined?sectionIds:order??articleStructures[kind as ArticleType]
  return Array.isArray(v.sections)&&v.sections.length===ids.length&&v.sections.every((s,i)=>{
   if(!record(s)||s.id!==ids[i])return false
   const theme=themes.find(section=>section.id===s.id)
-  return !theme||s.title===theme.label&&s.level===2&&s.parent_id==='themes'&&Array.isArray(s.result_group_ids)&&s.result_group_ids.length===1&&s.result_group_ids[0]===theme.id
+  const expectedLevel=theme?2:template?.sections.find(section=>section.id===s.id)?.level
+  if(expectedLevel!==undefined&&s.level!==expectedLevel)return false
+  return !theme||s.title===theme.label&&s.parent_id==='themes'&&Array.isArray(s.result_group_ids)&&s.result_group_ids.length===1&&s.result_group_ids[0]===theme.id
  })
 }
 function validSnapshotDisplay(snapshot:Record<string,unknown>) {
@@ -119,11 +143,17 @@ function validSnapshotDisplay(snapshot:Record<string,unknown>) {
  if(snapshot.thesis_context!==undefined||!Array.isArray(snapshot.sections))return false
  if(snapshot.article_type==='narrative_review'){
   const review=snapshot.writing_provenance
+  const plan=validPaperPlan(snapshot.paper_plan)&&snapshot.paper_plan.kind==='narrative_review'?snapshot.paper_plan:undefined
+  const themes=plan?.combine_review_topics?[]:plan?.sections
   return record(review)&&review.schema_version===2&&review.verification_status==='scientific_and_language_reviewed'&&
-    language(snapshot.output_language)&&validJournalDisplayContext(display,snapshot.output_language,validPaperPlan(snapshot.paper_plan)&&snapshot.paper_plan.kind==='narrative_review'?snapshot.paper_plan.sections:[])&&
+    language(snapshot.output_language)&&validJournalDisplayContext(display,snapshot.output_language,themes,plan?.sci_template)&&
     (!display.frontiers_review?.reference_texts||Array.isArray(snapshot.references)&&display.frontiers_review.reference_texts.length===snapshot.references.length)
  }
- return (snapshot.article_type===undefined||snapshot.article_type==='research')&&snapshot.sections.length===sectionIds.length&&validJournalDisplayContext(display)
+ const plan=validPaperPlan(snapshot.paper_plan)?snapshot.paper_plan:undefined
+ const template=snapshot.article_type==='research'?plan?.sci_template:undefined
+ return (snapshot.article_type===undefined||snapshot.article_type==='research')&&
+   snapshot.sections.length===(template?.sections.length??sectionIds.length)&&
+   validJournalDisplayContext(display,undefined,[],template)
 }
 function retainsSchoolWritingContext(snapshot:Record<string,unknown>){
  const change=snapshot.school_change_provenance,context=snapshot.thesis_context

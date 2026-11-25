@@ -1,7 +1,8 @@
 import {plannedThesisInput, supplementaryInput} from './paperPlan'
 import {defaultPaperFiles} from './preparePaperDraft'
 import {sourceKey, type Candidates, type ManuscriptInput, type SourceSelection} from './manuscriptTypes'
-import type {SchoolPurpose, ThesisInput} from './thesisTypes'
+import {isSchoolWritingPurpose, type SchoolPurpose, type ThesisInput} from './thesisTypes'
+import type {Chapter} from '../school-templates/contracts'
 
 export type MaterialChoices = {
   omittedFiles: string[]; resultText?: string; resultSource?: string
@@ -17,8 +18,11 @@ const chapterNames: Record<string, SchoolPurpose> = {
   acknowledgments: 'acknowledgements', 研究背景: 'introduction', background: 'introduction',
   实验方法: 'materials_and_methods', 方法: 'materials_and_methods', methods: 'materials_and_methods',
   实验结果: 'results', conclusions: 'conclusion', 文献目录: 'references', bibliography: 'references',
-  目录: 'manual', 'table of contents': 'manual', 封面: 'manual', cover: 'manual',
-  原创性声明: 'manual', 学位论文原创性声明: 'manual', 学位论文使用授权声明: 'manual',
+  封面: 'manual', cover: 'manual', 扉页:'manual', 题名页:'manual', 'title page':'manual',
+  图目录:'manual', 表目录:'manual', 图表目录:'manual', 插图目录:'manual', 附表目录:'manual',
+  'list of figures':'manual', 'list of tables':'manual', 缩略语表:'manual', 'list of abbreviations':'manual',
+  原创性声明:'manual', 独创性声明:'manual', 学位论文原创性声明:'manual', 学位论文使用授权声明:'manual',
+  学位论文使用授权书:'manual', 'declaration of originality':'manual', 'copyright declaration':'manual',
   'english abstract':'abstract','chinese abstract':'abstract', 内容摘要:'abstract',
   前言:'introduction', 文献综述:'introduction', 研究现状:'introduction', 国内外研究现状:'introduction',
   'literature review':'introduction', 'related work':'introduction',
@@ -31,7 +35,7 @@ const chapterNames: Record<string, SchoolPurpose> = {
   附录:'manual', appendix:'manual', appendices:'manual', 个人简历:'manual', 声明:'manual',
 }
 
-const contentsTitles = new Set(['目录','contents','table of contents'])
+const contentsTitles = new Set(['目录','目次','contents','table of contents'])
 function chapterTitle(title:string) {
   return title.normalize('NFKC').toLowerCase().trim()
     .replace(/^(?:第[一二三四五六七八九十百零\d]+[章节]|chapter\s+(?:\d+|[ivxlcdm]+)\b|\d+(?:\.\d+)*(?=[\s.、:\p{Script=Han}]))[\s.、:：-]*/iu, '')
@@ -39,7 +43,33 @@ function chapterTitle(title:string) {
     .replace(/\s*\((?:根据实际情况填写|按实际情况填写)\)$/, '').trim()
 }
 
-export const isSchoolContentsTitle = (title:string) => contentsTitles.has(chapterTitle(title))
+export function inferSchoolChapterPurposes(chapters: readonly Chapter[], {saved, protectedPurposes, choose, protectOutline = false}: {
+  saved?: ReadonlyMap<string, SchoolPurpose>
+  protectedPurposes?: Readonly<Partial<Record<string, SchoolPurpose>>>
+  choose?: (chapterId: string) => SchoolPurpose | undefined
+  protectOutline?: boolean
+} = {}) {
+  const ancestors: {level: number; purpose?: SchoolPurpose; protected: boolean}[] = []
+  return chapters.map(({id, title, level}) => {
+    const name = chapterTitle(title)
+    while (ancestors.length && ancestors[ancestors.length - 1].level >= level) ancestors.pop()
+    const parent = ancestors.at(-1)
+    const inherited = parent?.purpose === 'references' ? 'manual' : parent?.purpose
+    const contents = contentsTitles.has(name)
+    const named = Object.hasOwn(chapterNames,name) ? chapterNames[name] : undefined
+    // The editor protects template-owned headings. Writing keeps historical saved purposes.
+    const namedProtection = named && !isSchoolWritingPurpose(named) ? named : undefined
+    const inheritedProtection = parent?.protected ? inherited : undefined
+    const outlinePurpose = protectOutline ? namedProtection ?? inheritedProtection : undefined
+    const locked = contents ? 'manual' : protectedPurposes?.[id] ?? outlinePurpose
+    const fixed = locked ?? saved?.get(id) ?? named
+    const needsChoice = !fixed && !parent
+    const purpose = fixed ?? (needsChoice ? choose?.(id) : inherited)
+    const protectedChapter = locked !== undefined
+    ancestors.push({level, purpose, protected:protectedChapter})
+    return {name, purpose, needsChoice, protected:protectedChapter}
+  })
+}
 
 function schoolInput(candidates: Candidates, base: ManuscriptInput, choices: MaterialChoices) {
   const school = candidates.thesis
@@ -47,28 +77,24 @@ function schoolInput(candidates: Candidates, base: ManuscriptInput, choices: Mat
   const plan = candidates.paper_plan ?? {kind: 'thesis' as const, title: '', keywords: [], materials: [], sections: []}
   const planned = plannedThesisInput(plan, school, base.thesis)
   if (!planned) return
-  const ancestors: {level:number; purpose:SchoolPurpose}[] = []
   const questions = new Set<string>()
-  const titles = school.chapters.map(chapter => chapterTitle(chapter.title))
+  const defaults = inferSchoolChapterPurposes(school.chapters, {
+    saved:new Map(planned.chapter_mappings.filter(mapping => mapping.purpose).map(mapping => [mapping.chapter_id, mapping.purpose])),
+    protectedPurposes:school.protected_chapter_purposes,
+    choose:id => choices.chapterPurposes[school.confirmation_id + '/' + id],
+  })
+  const titles = defaults.map(chapter => chapter.name)
   const pairedAbstracts = titles.includes('abstract') && titles.some(t => ['中文摘要','摘要','内容摘要'].includes(t))
   const mappings:ThesisInput['chapter_mappings'] = planned.chapter_mappings.map((mapping, index) => {
-    const chapter = school.chapters[index]
-    const title = titles[index]
-    while (ancestors.length && ancestors[ancestors.length - 1].level >= chapter.level) ancestors.pop()
-    const parent = ancestors.at(-1)
-    const key = school.confirmation_id + '/' + mapping.chapter_id
-    const fixed = contentsTitles.has(title) ? 'manual' : mapping.purpose || (Object.hasOwn(chapterNames,title) && chapterNames[title])
-    const inherited = parent?.purpose === 'references' ? 'manual' : parent?.purpose
-    const needsChoice = !fixed && !parent
+    const {name:title, purpose:inferred, needsChoice} = defaults[index]
     if (needsChoice) questions.add(mapping.chapter_id)
-    const purpose = fixed || (needsChoice && choices.chapterPurposes[key]) || inherited || mapping.purpose
-    ancestors.push({level:chapter.level, purpose})
+    const purpose = inferred ?? mapping.purpose
     const previous = base.thesis?.confirmation_id === school.confirmation_id &&
       base.thesis.chapter_mappings.find(item => item.chapter_id === mapping.chapter_id)
     const abstractLanguage = title === '英文摘要' || title === 'english abstract' || pairedAbstracts && title === 'abstract' ? 'en' :
       ['中文摘要','chinese abstract'].includes(title) || pairedAbstracts && ['摘要','内容摘要'].includes(title) ? 'zh-CN' : null
     const language = !previous && purpose === 'abstract' && abstractLanguage || mapping.output_language
-    return {...mapping, purpose, output_language:language}
+    return {...mapping, purpose, output_language:language, result_group_ids:purpose === 'results' ? mapping.result_group_ids : []}
   })
   return {input:{...planned, chapter_mappings:mappings}, questions}
 }
@@ -76,7 +102,9 @@ function schoolInput(candidates: Candidates, base: ManuscriptInput, choices: Mat
 export function paperDraftMaterials(candidates: Candidates, base: ManuscriptInput, choices: MaterialChoices, revision: number, review = false) {
   const plan = candidates.paper_plan
   const excluded = new Set([...(candidates.thesis?.template_source_file_ids ?? []), ...(plan?.materials.map(m => m.selection.file_id) ?? [])])
-  const carried = supplementaryInput(base, excluded, id => new Set([id]))
+  const panelFiles = new Set(plan?.thesis_figures?.flatMap(figure => figure.panel_file_ids ?? []))
+  const repeatedImages = base.sources.filter(s => s.kind === 'original' && s.role === 'image_observation' && panelFiles.has(s.file_id))
+  const carried = supplementaryInput(base, new Set([...excluded, ...repeatedImages.map(source => source.file_id)]), id => new Set([id]))
   const readable = new Map(defaultPaperFiles(candidates.items, excluded).map(item => [item.file_id, item]))
   // A Word or workbook can finish parsing after the user saved its original as a source.
   const upgrades = new Map<string, string>()
@@ -87,10 +115,11 @@ export function paperDraftMaterials(candidates: Candidates, base: ManuscriptInpu
     return {...s, kind: copy.kind, id: copy.id}
   })
   const upgrade = (id: string) => upgrades.get(id) ?? id
-  const manual = {...carried, sources: restored,
+  const repeatedImageIds = new Set(repeatedImages.map(source => source.id))
+  const manual = {...carried, sources: restored, figure_notes: carried.figure_notes.filter(note => !repeatedImageIds.has(note.figure_id)),
     method_source_ids: Object.fromEntries(Object.entries(carried.method_source_ids).map(([field, ids]) => [field, ids?.map(upgrade)]))}
   const already = new Set(manual.sources.map(source => source.file_id))
-  const options = defaultPaperFiles(candidates.items, new Set([...excluded, ...already]))
+  const options = defaultPaperFiles(candidates.items, new Set([...excluded, ...already, ...panelFiles]))
     .filter(s => !review || s.kind !== 'original' || !s.allowed_roles.includes('image_observation'))
   const added: SourceSelection[] = options.filter(source => !choices.omittedFiles.includes(source.file_id)).map(source => ({
     kind: source.kind, id: source.id, file_id: source.file_id,

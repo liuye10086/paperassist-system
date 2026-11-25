@@ -30,7 +30,7 @@ const comparison = {
   members:[{id:'table', key:'comparison_results', format:'tsv', role:'table', sha256:sha, size_bytes:17, download_url:'/full-table.tsv'}],
 }
 const writeCalls = () => vi.mocked(apiFetch).mock.calls.filter(([,init]) => init?.method === 'POST')
-function mockBulkResult(result = comparison) {
+function mockBulkResult(result = comparison, available = [primary, reverse]) {
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
     const path = String(url)
     if (init?.method === 'POST') {
@@ -45,7 +45,7 @@ function mockBulkResult(result = comparison) {
       const contrast = query.get('contrast_id') === 'reverse' ? reverse : primary
       const items = query.get('subset') === 'down' ? [] : query.get('subset') === 'all' ? allRows : [row]
       return Response.json({
-        contrast_id:contrast.contrast_id, contrasts:[primary, reverse], columns, items, total:3, matched_total:items.length, page:1, page_size:50, sha256:sha,
+        contrast_id:contrast.contrast_id, contrasts:available, columns, items, total:3, matched_total:items.length, page:1, page_size:50, sha256:sha,
         feature_matches:query.get('search') === 'ENS0001' ? [row, {...row, contrast_id:'reverse', effect_value:'-2'}] : [],
       })
     }
@@ -55,6 +55,39 @@ function mockBulkResult(result = comparison) {
   })
 }
 const openResult = () => render(<BioInsightsWorkspace projectId="p1" active navigation={{view:'bio-insight-result',fileId:'',resultVersionId:'fixed'}} onNavigate={vi.fn()}/>)
+
+it('opens a focused analyst result with search, separate plot tools, and the complete downloads',async()=>{
+  mockBulkResult(comparison,[primary])
+  const navigate=vi.fn()
+  render(<BioInsightsWorkspace projectId="p1" analysisOnly active navigation={{view:'bio-insight-result',fileId:'',resultVersionId:'fixed'}} onNavigate={navigate}/>)
+  const table=await screen.findByRole('table',{name:'Bulk 比较结果'})
+  expect(within(table).getByText('0')).toBeTruthy()
+  expect(within(table).queryByRole('columnheader',{name:'contrast_id'})).toBeNull()
+  expect(screen.getByRole('heading',{name:'差异表达结果'})).toBeTruthy()
+  expect(screen.queryByRole('heading',{name:'固定分析结果详情'})).toBeNull()
+  expect(screen.queryByRole('navigation',{name:'分析工作视图'})).toBeNull()
+  expect(screen.queryByRole('combobox',{name:'固定比较'})).toBeNull()
+  expect(screen.queryByRole('spinbutton',{name:'q 阈值'})).toBeNull()
+  expect(screen.queryByRole('button',{name:'按当前筛选绘图'})).toBeNull()
+
+  fireEvent.click(screen.getByRole('button',{name:'筛选设置'}))
+  fireEvent.change(screen.getByRole('spinbutton',{name:'q 阈值'}),{target:{value:'0.02'}})
+  fireEvent.click(screen.getByRole('button',{name:'应用筛选'}))
+  await screen.findByRole('table',{name:'Bulk 比较结果'})
+  expect(vi.mocked(apiFetch).mock.calls.some(([url])=>String(url).includes('q_threshold=0.02'))).toBe(true)
+  fireEvent.click(screen.getByRole('button',{name:'绘图与分析'}))
+  fireEvent.click(screen.getByRole('button',{name:'按当前筛选绘图'}))
+  await screen.findByRole('heading',{name:'Bulk 火山图'})
+  fireEvent.click(screen.getByRole('button',{name:'返回差异结果'}))
+  expect(screen.getByRole('button',{name:'按当前筛选绘图'})).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('button',{name:'方法与下载'}))
+  expect(screen.getByRole('link',{name:'差异比较结果.tsv'}).getAttribute('href')).toBe('/full-table.tsv')
+  expect(screen.getByRole('button',{name:'完整结果表预览'})).toBeTruthy()
+  fireEvent.click(screen.getByRole('button',{name:'准备交付'}))
+  expect(navigate).toHaveBeenLastCalledWith({view:'bulk-workflow',bulkView:'delivery',fileId:'',resultVersionId:'fixed'})
+  expect(writeCalls()).toHaveLength(0)
+})
 
 it('reads the default contrast, preserves raw zero and NA, and searches exact stable IDs across comparisons with GET', async () => {
   mockBulkResult()

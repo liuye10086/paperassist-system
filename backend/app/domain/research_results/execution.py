@@ -361,7 +361,20 @@ def recovery_actions(db,task):
 def retry_in_transaction(store,db,task,expected_revision):
     from app.adapters.research_results_store import now
     from app.adapters.task_store import TaskStore
+    from .figures import customer_figure_entrypoint
+    from .paper_figure_assembly import require_available_originals
+
     if task['revision']!=expected_revision or 'retry' not in recovery_actions(db,task):raise invalid('research_revision_conflict')
+    if entrypoint := customer_figure_entrypoint(task):
+        snapshot = task['input_snapshot']
+        config = snapshot['config']
+        root_id = config['root_id'] or snapshot['figure_version_id']
+        latest = db.execute('''SELECT id FROM research_figure_versions WHERE project_id=%s AND user_id=%s AND root_id=%s
+            ORDER BY revision DESC LIMIT 1''', (task['project_id'], task['user_id'], root_id)).fetchone()
+        if not latest or latest['id'] != snapshot['figure_version_id']:
+            raise invalid('research_revision_conflict')
+        file_ids = [panel['source']['source_id'] for panel in config['panels']]
+        require_available_originals(db, task['project_id'], task['user_id'], entrypoint, file_ids, root_id)
     previous=task['revision'];task.update(status='queued',revision=previous+1,updated_at=now(),reason_code='retry_requested',error_code=None)
     TaskStore.update_task(db,task,previous);task['_retry_reason']='manual_retry';TaskStore.append_event(db,task,'requeued');TaskStore.enqueue(db,task)
     return TaskStore.public_task(task)

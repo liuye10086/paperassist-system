@@ -41,6 +41,12 @@ _PAPER_ROUTES = {
     },
 }
 
+_CUSTOMER_FIGURE_ROUTES = {
+    'GET': ('', '/assembly', '/{version_id}', '/{version_id}/members/{member_id}/download'),
+    'POST': ('', '/{root_id}/cancel'),
+}
+
+
 _THESIS_ROUTES = {
     '/reviews': {
         'GET': (
@@ -96,6 +102,8 @@ _THESIS_ROUTES = {
     '/thesis-requirements': {'GET': ('',), 'PUT': ('',)},
     '/thesis-profile': {'GET': ('',), 'PUT': ('',)},
     '/thesis-template-binding': {'POST': ('', '/preview')},
+    '/thesis-figures': _CUSTOMER_FIGURE_ROUTES,
+    '/thesis-figure-resources': {'GET': ('',), 'PUT': ('',)},
     '/school-templates': {
         'GET': ('',),
         'POST': ('', '/{identity}/retry', '/{identity}/confirm'),
@@ -111,6 +119,12 @@ _THESIS_ROUTES = {
 }
 
 
+_SCI_ROUTES = {
+    '/sci-figures': _CUSTOMER_FIGURE_ROUTES,
+    '/sci-resources': {'GET': ('',), 'PUT': ('',)},
+}
+
+
 def operations(routes):
     return frozenset(
         (method, PROJECT + prefix + suffix)
@@ -122,6 +136,7 @@ def operations(routes):
 
 PAPER_PROJECT_OPERATIONS = operations(_PAPER_ROUTES)
 THESIS_PROJECT_OPERATIONS = operations(_THESIS_ROUTES)
+SCI_PROJECT_OPERATIONS = operations(_SCI_ROUTES)
 
 REVIEW_TASK_TYPES = ('review_round_plan', 'review_revision', 'review_document_export')
 PAPER_TASK_TYPES = ('manuscript_draft', 'manuscript_docx', 'manuscript_writing', 'literature_search') + REVIEW_TASK_TYPES

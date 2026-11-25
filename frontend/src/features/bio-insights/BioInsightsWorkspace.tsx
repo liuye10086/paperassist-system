@@ -19,9 +19,9 @@ import InsightResults from './InsightResults'
 import InsightResources from './InsightResources'
 import {queueResearchSource} from './researchHandoff'
 import './insights.css'
-type Props={allowExternalEvidenceRegistration?:boolean;allowNewAnalysis?:boolean;deliveryTarget?:NativeDeliveryTarget;projectId:string;navigation:AnalysisNavigation;active:boolean;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
+type Props={analysisOnly?:boolean;allowExternalEvidenceRegistration?:boolean;allowNewAnalysis?:boolean;deliveryTarget?:NativeDeliveryTarget;projectId:string;navigation:AnalysisNavigation;active:boolean;onNavigate:(n:AnalysisNavigation)=>void;registerLeaveGuard?:RegisterLeaveGuard}
 export default function BioInsightsWorkspace(props:Props){return props.active&&isInsightView(props.navigation.view)?<Content key={`${props.projectId}:${props.navigation.entry?.requirementVersionId??''}:${props.navigation.entry?.scopeItemId??''}:${props.navigation.intent??''}`} {...props}/>:null}
-function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,allowNewAnalysis=true,allowExternalEvidenceRegistration,deliveryTarget}:Props){
+function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,analysisOnly=false,allowNewAnalysis=true,allowExternalEvidenceRegistration,deliveryTarget}:Props){
  const{t,locale}=useI18n(),[valid,setValid]=useState(true),[page,setPage]=useState(1),[runPage,setRunPage]=useState(1),[newKind,setNewKind]=useState<InsightKind>(navigationKind(n)??'comparison')
  const [workflowSeeds,setWorkflowSeeds]=useResearchDraft<Record<string,BulkPlanSeed>>(projectId,'bulk-workflow-plan-seeds',()=>({}))
  const workflowSeed=n.bulkView&&n.resultVersionId?workflowSeeds[`${n.bulkView}:${n.resultVersionId}`]:undefined
@@ -39,7 +39,10 @@ function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,al
   :undefined
  const resultSeed = workflowSeed??(n.resultVersionId&&seedEntry?.origin===n.resultVersionId?seedEntry.seed:undefined)
  const seed = processedSeed??resultSeed
- const fixedBulk = isReviewedBulkComparison(resultRead.data)||isBulkFigureType(resultRead.data?.summary?.figure_type)
+ const reviewedBulk=isReviewedBulkComparison(resultRead.data)
+ const analystFixedResult=analysisOnly&&n.view==='bio-insight-result'&&!!n.resultVersionId
+ const compactBulk=analystFixedResult&&reviewedBulk
+ const fixedBulk = reviewedBulk||isBulkFigureType(resultRead.data?.summary?.figure_type)
   ||isBulkEnrichmentResult(resultRead.data)||isBulkEnrichmentFigure(resultRead.data)
  const seedTab = resultSeed?.config.kind==='candidate'?'Bulk 候选计划':resultSeed?.config.bulk_enrichment!=null?'Bulk 富集计划':'Bulk 图件计划'
  const legacyPlot = !!n.resultVersionId&&!!resultRead.data&&!fixedBulk&&!singleCellEnrichment
@@ -62,12 +65,24 @@ function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,al
  const [resourcesVisited,setResourcesVisited]=useState(area==='resources');if((area==='resources'||!!n.resourceVersionId)&&!resourcesVisited)setResourcesVisited(true)
  const [panelRoute,setPanelRoute]=useState(routeKey)
  if(panelRoute!==routeKey){setPanelRoute(routeKey);setPanel(defaultPanel);if(n.view==='bio-insight-runs')setHistoryPanel('runs')}
+ else if(compactBulk&&panel!=='current'&&panel!=='plot'){setPanel('current')}
+ const planKindPicker=!n.planVersionId&&!n.runId&&!n.resultVersionId&&area!=='candidates'&&area!=='figures'&&!intentKind
+  ?<div className="insight-kind-selection"><Field label="新计划类型" value={kind} onChange={v=>setNewKind(v as InsightKind)}>
+   {(area==='resources'?['ora','gsea_prerank']:['comparison','result_import','feature_extract','integration'])
+    .map(k=><option key={k} value={k}>{t(kindLabels[k as InsightKind])}</option>)}
+  </Field></div>:null
+ const comparisonKindPicker=analysisOnly&&kind==='comparison'?planKindPicker:null
  if(!valid)return <p role="alert">{t('会话已改变，请重新打开项目。')}</p>
  return <section className="insight-workspace" hidden={!active}>
  {!allowNewAnalysis&&<p role="status">{t('新分析条件尚未就绪；已有结果仍可查看下载，请先核对材料并保存需求。')}</p>}
- <nav className="analysis-page-tabs" aria-label={t('分析工作视图')}>{[['current','当前分析'],...(resultSeed?[['plot',seedTab]]:legacyPlot?[['plot','基于结果绘图']]:[]),['history','历史记录'],['resources','资源管理'],['environment','运行环境']].map(([key,label])=><button type="button" key={key} aria-pressed={panel===key} onClick={()=>{setPanel(key);if(key==='resources')setResourcesVisited(true)}}>{t(label)}</button>)}</nav>
+ {!compactBulk&&<nav className="analysis-page-tabs" aria-label={t('分析工作视图')}>{[['current','当前分析'],...(resultSeed?[['plot',seedTab]]:legacyPlot?[['plot','基于结果绘图']]:[]),['history','历史记录'],['resources','资源管理'],['environment','运行环境']].map(([key,label])=><button type="button" key={key} aria-pressed={panel===key} onClick={()=>{setPanel(key);if(key==='resources')setResourcesVisited(true)}}>{t(label)}</button>)}</nav>}
+ {compactBulk&&resultSeed&&<div className="bulk-result-plan-link">
+  <button type="button" className="button-quiet" onClick={()=>setPanel(panel==='plot'?'current':'plot')}>
+   {t(panel==='plot'?'返回差异结果':seedTab)}
+  </button>
+ </div>}
  <div className="insight-current" hidden={panel!=='current'&&panel!=='plot'}>
- <header className="analysis-section-heading"><h2>{t('差异与功能分析')}</h2>{intentKind&&<span className="analysis-kind-summary">{t(kind==='integration'&&(plan.data?.config.schema_version===2||n.intent==='single_cell_topic')?'单细胞专题':kindLabels[kind])}</span>}{!n.entry&&!n.planVersionId&&!n.runId&&!n.resultVersionId&&!n.bulkPanel&&<nav className="insight-kind-nav" aria-label={t('差异与功能工作区')}>{([['comparison','比较设计与差异','bio-insights'],['resources','资源与富集','bio-resources'],['candidates','候选配方','bio-candidates'],['figures','图件与承接','bio-insight-result']] as const).map(([key,label,view])=><button key={key} type="button" aria-current={area===key?'page':undefined} onClick={()=>onNavigate({...entry,...(n.entry?{intent:key==='comparison'?'comparison':key==='resources'?(n.intent==='gsea_prerank'?'gsea_prerank':'ora'):key==='candidates'?(n.intent==='evidence'?'evidence':'candidate'):'figure'}:{}),view,fileId:'',...(view==='bio-insights'&&n.processedId?{processedId:n.processedId}:{})})}>{t(label)}</button>)}</nav>}</header>
+ {!compactBulk&&<header className="analysis-section-heading"><h2>{t('差异与功能分析')}</h2>{intentKind&&<span className="analysis-kind-summary">{t(kind==='integration'&&(plan.data?.config.schema_version===2||n.intent==='single_cell_topic')?'单细胞专题':kindLabels[kind])}</span>}{!n.entry&&!n.planVersionId&&!n.runId&&!n.resultVersionId&&!n.bulkPanel&&<nav className="insight-kind-nav" aria-label={t('差异与功能工作区')}>{([['comparison','比较设计与差异','bio-insights'],['resources','资源与富集','bio-resources'],['candidates','候选配方','bio-candidates'],['figures','图件与承接','bio-insight-result']] as const).map(([key,label,view])=><button key={key} type="button" aria-current={area===key?'page':undefined} onClick={()=>onNavigate({...entry,...(n.entry?{intent:key==='comparison'?'comparison':key==='resources'?(n.intent==='gsea_prerank'?'gsea_prerank':'ora'):key==='candidates'?(n.intent==='evidence'?'evidence':'candidate'):'figure'}:{}),view,fileId:'',...(view==='bio-insights'&&n.processedId?{processedId:n.processedId}:{})})}>{t(label)}</button>)}</nav>}</header>}
  {n.runId&&<div className="insight-read-panel"><InsightRun key={n.runId} projectId={projectId} runId={n.runId} active={active} onResult={result} onPlan={(planId,planVersionId)=>onNavigate({...entry,view:'bio-insight-plan',fileId:'',planId,planVersionId})}/></div>}
  <ReadState {...plan}/>
  {singleCellEnrichment&&n.resultVersionId&&(enrichmentConfig||comparison?.kind==='comparison')&&<section className="insight-read-panel">
@@ -80,8 +95,8 @@ function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,al
     onClick={()=>onNavigate({...entry,view:'bio-resources',fileId:'',resultVersionId:enrichmentSource.id})}>{t('配置本地 ORA 富集')}</button>}
   </>}
  </section>}
- {n.resultVersionId&&!enrichmentConfig&&<div className="insight-read-panel" hidden={panel==='plot'}>
-  <InsightResults key={n.resultVersionId} projectId={projectId} resultId={n.resultVersionId} active={active&&panel==='current'}
+ {n.resultVersionId&&!enrichmentConfig&&<div className={analystFixedResult?'insight-read-panel analyst-fixed-insight':'insight-read-panel'} hidden={panel==='plot'}>
+  <InsightResults key={n.resultVersionId} projectId={projectId} resultId={n.resultVersionId} active={active&&panel==='current'} compactBulk={compactBulk}
    resultRead={resultRead} onResearch={research} allowNewAnalysis={allowNewAnalysis} deliveryTarget={deliveryTarget}
    location={n} reportContextId={n.reportContextId}
    onNavigate={next=>onNavigate({...entry,...next})} onBulkPlan={next=>{
@@ -98,11 +113,11 @@ function Content({projectId,navigation:n,active,onNavigate,registerLeaveGuard,al
   <ReadState {...processedRead}/>
   {processedRead.data&&!processedSeed&&<p role="alert">{t('此固定处理版本没有可重绘的 Bulk QC 或 PCA 来源。')}</p>}
  </div>}
- {!n.planVersionId&&!n.runId&&!n.resultVersionId&&area!=='candidates'&&area!=='figures'&&!intentKind&&<div className="insight-kind-selection"><Field label="新计划类型" value={kind} onChange={v=>setNewKind(v as InsightKind)}>{(area==='resources'?['ora','gsea_prerank']:['comparison','result_import','feature_extract','integration']).map(k=><option key={k} value={k}>{t(kindLabels[k as InsightKind])}</option>)}</Field></div>}
+ {!comparisonKindPicker&&planKindPicker}
  <div className="insight-editor-host" hidden={!!n.resultVersionId&&!enrichmentConfig&&panel!=='plot'}>
   {(!n.runId||n.planVersionId)&&(!n.planVersionId||plan.data)&&(!n.bulkPanel||processedSeed)&&
    (!n.resultVersionId||seed||legacyPlot||enrichmentConfig&&enrichmentSource)&&
-   <InsightPlanEditor allowExternalEvidenceRegistration={allowExternalEvidenceRegistration} allowNewAnalysis={allowNewAnalysis&&(!singleCellEnrichment||enrichmentRuntime)} key={seed?bulkPlanScope(seed):`${plan.data?.id??kind}:${n.processedId??n.resultVersionId??''}`}
+   <InsightPlanEditor analysisOnly={analysisOnly} comparisonKindPicker={comparisonKindPicker} allowExternalEvidenceRegistration={allowExternalEvidenceRegistration} allowNewAnalysis={allowNewAnalysis&&(!singleCellEnrichment||enrichmentRuntime)} key={seed?bulkPlanScope(seed):`${plan.data?.id??kind}:${n.processedId??n.resultVersionId??''}`}
     projectId={projectId} kind={seed?.config.kind??kind} active={active} initial={plan.data}
     initialProcessedId={seed?undefined:n.processedId} initialResultId={seed||enrichmentConfig?undefined:n.resultVersionId} bulkSeed={seed} entryIntent={n.intent}
     entry={n.entry} enrichmentSource={enrichmentConfig?enrichmentSource:undefined}

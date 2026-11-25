@@ -37,10 +37,11 @@ def defaults(snapshot):
     from app.adapters.manuscript_docx import SECTION_LABELS
 
     labels = SECTION_LABELS
-    if is_narrative_review(snapshot):
+    article_type = snapshot.get('article_type')
+    if is_narrative_review(snapshot) or article_type == 'research' and snapshot.get('paper_plan', {}).get('sci_template'):
         from app.domain.manuscript_writing.article_contract import labels as article_labels
 
-        labels = article_labels('narrative_review', snapshot)
+        labels = article_labels(article_type, snapshot)
     names = {key: en if snapshot['output_language'] == 'en' else zh for key, en, zh in labels}
     return dict(version=DISPLAY_VERSION, names=names, order=list(names), styles={})
 
@@ -77,7 +78,7 @@ def validate_style(key,value):
 
 def display_sections(snapshot):
     value=context(snapshot);sections={s['id']:s for s in snapshot['sections']}
-    levels = theme_heading_levels(snapshot)
+    levels = {key: section['level'] for key, section in sections.items() if 'level' in section}
     return [dict(sections[k], display_name=value['names'][k], heading_level=_heading_level(value, k, levels))
             for k in value['order']]
 
@@ -109,8 +110,8 @@ def _frontiers_action(snapshot, value, key, new):
 def plan(snapshot,target,warnings):
     before=context(snapshot);after=deepcopy(before);actions=[];unexecuted=[]
     rules=sorted(target['selected_requirements'],key=lambda r:r['key']=='section_order')
-    complete_research = [s['id'] for s in snapshot.get('sections', [])] == list(SECTION_IDS)
     narrative = is_narrative_review(snapshot)
+    complete_research = not narrative and [s['id'] for s in snapshot.get('sections', [])] == defaults(snapshot)['order']
     complete_review = completed_narrative_review(snapshot)
     levels = theme_heading_levels(snapshot)
     for rule in rules:
@@ -164,7 +165,10 @@ def plan(snapshot,target,warnings):
         elif narrative and key in ('section_display_names', 'section_order'):
             reason = '综述使用固定的章节名称与顺序。'
         elif key=='section_display_names':
-            old=after['names'];new={i['section_id']:i['display_name'] for i in new}
+            old = after['names']
+            new = {**old, **{i['section_id']: i['display_name'] for i in new}}
+            if len(set(new.values())) != len(new):
+                reason = '修改后的章节名称不得重复。'
         elif key=='section_order':
             names={v:k for k,v in after['names'].items()};old=after['order']
             if len(new)!=len(SECTION_IDS) or set(new)!=set(names):reason='顺序列表必须明确映射全部七个语义部分。'

@@ -214,8 +214,7 @@ def _full_body(document, snapshot, sections, images, en, excluded_chapter_ids=fr
         projected=display_sections(snapshot)[1:]
     else:
         labels_for = article_labels(snapshot['article_type'], snapshot) if snapshot.get('article_type') else SECTION_LABELS
-        projected=[dict(section,display_name=labels[1 if en else 2],
-                        heading_level=section['level'] if planned_review and section.get('parent_id') == 'themes' else 1)
+        projected=[dict(section,display_name=labels[1 if en else 2], heading_level=section.get('level', 1))
                    for section,labels in zip(sections[1:],labels_for[1:])]
     for section in projected:
         if section['id'] in excluded_chapter_ids or planned_review and section.get('parent_id') in excluded_chapter_ids:continue
@@ -232,7 +231,7 @@ def _full_body(document, snapshot, sections, images, en, excluded_chapter_ids=fr
             # The sections are the writing text; original result paragraphs
             # remain frozen evidence and must not replace a rewritten section.
             for group in illustration_groups(snapshot, section):
-                if section['id'] == 'results' and (group['tables'] or group['figures']):
+                if section['id'] == 'results' and not group.get('illustration_chapter_id') and (group['tables'] or group['figures']):
                     document.add_heading(group['title'], 2)
                 for table in group['tables']:
                     _table(document, table)
@@ -362,7 +361,8 @@ def build_manuscript_docx(snapshot, images, *, school_plan=None, source_map=None
                     if field=='font_size_pt':style.font.size=Pt(value)
                     else:setattr(style.paragraph_format,field.removesuffix('_pt'),Pt(value) if field.endswith('_pt') else value)
     en = snapshot['output_language'] == 'en'
-    if 'title' not in excluded_chapter_ids:document.add_paragraph(snapshot['title'], style='Title')
+    if 'title' not in excluded_chapter_ids:
+        document.add_heading(snapshot['title'], level=sections[0].get('level', 0) if sections else 0)
     submission = None
     if frontiers_layout.get('submission_layout'):
         from app.domain.journals.frontiers_review import submission_content

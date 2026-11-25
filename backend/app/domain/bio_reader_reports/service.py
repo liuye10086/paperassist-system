@@ -88,7 +88,8 @@ class BioReaderReportService(ResearchResultsStore):
         return dict(id=context_id, selection=deepcopy(content['selection']), language=content['language'], title=content['title'],
             report=ResearchReportRequest(title=content['title'], language=content['language'], finding_version_id=finding_id, figure_version_ids=[]).model_dump(mode='json'),
             source=dict(source_kind='bio_report_context', source_id=context_id, sha256=row['content_sha256'],
-                        selection=deepcopy(content['selection']), supporting_sources=deepcopy(content['supporting_sources'])))
+                        selection=deepcopy(content['selection']), supporting_sources=deepcopy(content['supporting_sources'])),
+            **({'workbook_limited': True} if content.get('workbook_limited') else {}))
 
     def checked(self, db, project, identifier, *, phase, progress=None):
         from app.domain.research_results.sources import ResearchSourceReader

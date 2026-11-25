@@ -1,12 +1,27 @@
 """Version two consent and raw candidate contracts. Aliases are suggestions only."""
 from typing import Annotated, Literal
-from pydantic import Field, field_validator, model_validator
+from pydantic import BeforeValidator, Field, field_validator, model_validator
 from .contracts import Strict, SectionId, WritingRequest
 
 WORKFLOW = 'manuscript_writing_v2'
 # Absent from older frozen request JSON and therefore from its persisted digest.
 DocumentContextVersion = Annotated[Literal['selected-text-v1'] | None, Field(exclude_if=lambda value: value is None)]
 RevisionParent = Annotated[str | None, Field(min_length=1, max_length=64, exclude_if=lambda value: value is None)]
+
+
+def explicit_true(value):
+    if value is not None and value is not True:
+        raise ValueError('Draft chat options require explicit boolean flags')
+    return value
+
+
+DraftChatFlag = Annotated[Literal[True] | None, BeforeValidator(explicit_true), Field(exclude_if=lambda value: value is None)]
+ChapterId = Annotated[str, Field(min_length=1, max_length=200)]
+
+
+def scoped_draft_revision(request):
+    return request.get('mode') == 'full_draft' and bool(request.get('revision_of_request_id') and request.get('target_sections'))
+
 
 class PreviewRequest(WritingRequest):
     schema_version: Literal[2]
@@ -29,6 +44,9 @@ class SchoolPreviewRequest(WritingRequest):
     schema_version:Literal[3]
     document_context_version: DocumentContextVersion = None
     revision_of_request_id: RevisionParent = None
+    target_sections: list[ChapterId] | None = Field(default=None, min_length=1, max_length=300,
+                                                 exclude_if=lambda value: value is None)
+    draft_advice: DraftChatFlag = None
     output_language:Literal['en','zh-CN']
     selected_source_ids:list[str]=Field(max_length=100)
     selected_evidence_ids:list[str]=Field(max_length=100)
@@ -37,6 +55,10 @@ class SchoolPreviewRequest(WritingRequest):
     def unique_school_selection(self):
         if self.revision_of_request_id and (self.mode != 'full_draft' or not self.instructions.strip()):
             raise ValueError('School revision requires a full draft and advisor feedback')
+        if self.target_sections and (not self.revision_of_request_id or len(set(self.target_sections)) != len(self.target_sections)):
+            raise ValueError('School revision requires distinct chapters in a saved draft')
+        if self.draft_advice and not self.target_sections:
+            raise ValueError('School draft advice requires a selected chapter')
         if any(len(v)!=len(set(v)) for v in (self.selected_source_ids,self.selected_evidence_ids)):raise ValueError('Duplicate school material selection')
         if self.keywords or self.acknowledgements:raise ValueError('School keywords and acknowledgements remain explicit local export material')
         return self
@@ -92,6 +114,17 @@ class LiveOutput(Strict):
     sections: list[LiveSection] = Field(min_length=1, max_length=6)
 
 
+class DraftAdviceOutput(Strict):
+    advice: str = Field(min_length=1, max_length=4000)
+
+    @field_validator('advice')
+    @classmethod
+    def nonblank_advice(cls, value):
+        if not value.strip():
+            raise ValueError('Editorial advice must be nonempty')
+        return value
+
+
 class ParagraphPlan(Strict):
     id:str=Field(min_length=1,max_length=200)
     section_id:str=Field(min_length=1,max_length=200)
@@ -108,6 +141,7 @@ class ArticlePreviewRequest(PreviewRequest):
     schema_version:Literal[4]
     document_context_version: DocumentContextVersion = None
     revision_of_request_id: RevisionParent = None
+    draft_advice: DraftChatFlag = None
     document_kind:Literal['sci','thesis']='sci'
     article_type:Literal['research','brief','narrative_review','methods']='research'
     mode:Literal['full_draft','rewrite_section','results_discussion','expand_restructure','polish']
@@ -123,10 +157,13 @@ class ArticlePreviewRequest(PreviewRequest):
             self.mode != 'full_draft' or self.document_kind != 'sci' or not self.instructions.strip()
         ):
             raise ValueError('Draft revision requires a complete SCI draft and reviewer feedback')
+        if self.draft_advice and not (self.revision_of_request_id and self.target_sections):
+            raise ValueError('Draft advice requires a scoped SCI draft and a question')
         if (self.mode=='rewrite_section')!=(self.target_section is not None):raise ValueError('A rewrite requires exactly one target section')
         if any(not w.strip() or len(w)>200 for w in self.keywords):raise ValueError('Invalid keywords')
         if self.mode in ('polish','expand_restructure') and not self.target_sections:raise ValueError('Explicit target sections required')
-        if self.mode not in ('polish','expand_restructure') and self.target_sections:raise ValueError('Mode derives its section targets')
+        if self.mode not in ('polish','expand_restructure') and self.target_sections and not self.revision_of_request_id:
+            raise ValueError('Mode derives its section targets')
         if (self.mode=='expand_restructure')!=bool(self.paragraph_plan):raise ValueError('Restructure requires an explicit paragraph plan')
         if self.mode=='full_draft' and self.target_paragraph_ids:raise ValueError('Full draft cannot select paragraph subsets')
         for ids in (self.target_sections,self.target_paragraph_ids,[p.id for p in self.paragraph_plan]):

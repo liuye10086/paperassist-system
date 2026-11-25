@@ -14,10 +14,11 @@ type Props = {
   initialDeliveryId?: string
   onSelectSnapshot: (id: string | null) => void
   headingRef: RefObject<HTMLHeadingElement | null>
+  showHeading?: boolean
   registerLeaveGuard: RegisterLeaveGuard
 }
 
-export default function CustomerDeliveries({ projectId, initialDeliveryId, initialSnapshotId, onSelectSnapshot, headingRef, registerLeaveGuard }: Props) {
+export default function CustomerDeliveries({ projectId, initialDeliveryId, initialSnapshotId, onSelectSnapshot, headingRef, showHeading = true, registerLeaveGuard }: Props) {
   const { t } = useI18n()
   const selected = initialSnapshotId ?? null
   const returnDelivery = useRef<string | null>(null)
@@ -35,7 +36,7 @@ export default function CustomerDeliveries({ projectId, initialDeliveryId, initi
 
   return <div className="customer-section customer-deliveries">
     <div className="customer-section-heading">
-      <h1 ref={headingRef} tabIndex={-1}>{t('已发布交付')}</h1>
+      <h1 ref={headingRef} tabIndex={-1} className={showHeading ? undefined : 'visually-hidden'}>{t('已发布交付')}</h1>
       <button type="button" className="button-quiet" disabled={read.loading} onClick={read.refresh}>{t('刷新交付')}</button>
     </div>
     {read.error && <p role="alert" className="error-panel">{t(read.error)}</p>}

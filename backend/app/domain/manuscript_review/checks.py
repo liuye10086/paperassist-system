@@ -46,8 +46,9 @@ def check_snapshot(snapshot,metadata=(),strict_locations=(),*,writing_context=No
                 except (ValueError,KeyError,TypeError):
                     valid=False
             if not valid or actual!=expected:issues.append(issue('structure','sections','Unexpected section structure.',severity='error',actual=actual,expected=expected))
+        plan = snapshot.get('paper_plan') or {}
         for section in snapshot['sections']:
-            parent = section['id']=='themes' and snapshot.get('paper_plan', {}).get('kind')=='narrative_review'
+            parent = section['id'] == 'themes' and plan.get('kind') == 'narrative_review' and not plan.get('combine_review_topics')
             if not section['paragraphs'] and not parent:
                 issues.append(issue('structure','section:'+section['id'],'Section is empty; material requires human review.'))
     else: issues.append(issue('structure','sections','Historical two-section fact draft; complete manuscript structure has not been supplied.'))

@@ -21,6 +21,29 @@ function Invoke-WorkerStack([string]$Operation) {
     if ($LASTEXITCODE -ne 0) { throw "Worker stack $Operation failed. Check Docker Desktop and private runtime configuration." }
 }
 
+function Import-ApiRuntimeManifests([string]$PythonExecutable, [string]$ConfigurationFile) {
+    # The numerical runtime gates read process variables. Import only their paths;
+    # other settings continue to be read by the API through its normal config path.
+    $readManifests = @'
+import json
+import sys
+from dotenv import dotenv_values
+
+names = ('BIO_RUNTIME', 'SINGLE_CELL_RUNTIME', 'BIO_INSIGHTS_RUNTIME',
+         'BIO_TABULAR_RUNTIME', 'BULK_MODEL_RUNTIME', 'BULK_DISPLAY_RUNTIME')
+keys = [f'PAPERASSIST_{name}_MANIFEST' for name in names]
+values = dotenv_values(sys.argv[1], encoding='utf-8-sig', interpolate=False)
+print(json.dumps({key: values[key] for key in keys if values.get(key)}))
+'@
+    $manifests = & $PythonExecutable -B -c $readManifests $ConfigurationFile
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to read API runtime manifest paths.' }
+    foreach ($entry in ($manifests | ConvertFrom-Json).PSObject.Properties) {
+        if ($null -eq [Environment]::GetEnvironmentVariable($entry.Name, 'Process')) {
+            [Environment]::SetEnvironmentVariable($entry.Name, $entry.Value, 'Process')
+        }
+    }
+}
+
 function Test-Port([int]$Port) {
     $client = New-Object Net.Sockets.TcpClient
     try {
@@ -141,6 +164,14 @@ function Start-ServiceProcess([string]$Name, [string]$Executable, [string[]]$Arg
     }
 }
 
+function Start-Backend {
+    Import-ApiRuntimeManifests $pythonPath (Join-Path $projectRoot 'backend\.env')
+    Start-ServiceProcess 'backend' $pythonPath @(
+        '-m', 'uvicorn', 'app.main:app', '--app-dir', 'backend',
+        '--host', '127.0.0.1', '--port', '8000', '--no-proxy-headers', '--no-access-log'
+    ) $projectRoot
+}
+
 function Wait-Ready($State) {
     $deadline = [DateTime]::UtcNow.AddSeconds(45)
     while ([DateTime]::UtcNow -lt $deadline) {
@@ -232,10 +263,7 @@ try {
     $state = [pscustomobject]@{ version = 1; project_root = $projectRoot; services = @() }
     Save-State $state
     try {
-        $state.services += Start-ServiceProcess 'backend' $pythonPath @(
-            '-m', 'uvicorn', 'app.main:app', '--app-dir', 'backend',
-            '--host', '127.0.0.1', '--port', '8000', '--no-proxy-headers', '--no-access-log'
-        ) $projectRoot
+        $state.services += Start-Backend
         Save-State $state
         $state.services += Start-ServiceProcess 'frontend' $nodePath @(
             $vitePath, '--host', '127.0.0.1', '--port', '5173', '--strictPort'

@@ -83,6 +83,46 @@ catch { $failure = $_.Exception.Message }
 
 @unittest.skipUnless(os.name == 'nt' and POWERSHELL, 'Windows PowerShell launcher')
 class DevProcessIdentityTests(unittest.TestCase):
+    def test_reads_only_api_runtime_manifests_with_process_overrides(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / '.env'
+            receipt = (root / 'science results' / 'tabular.json').as_posix()
+            config.write_text(
+                f'PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST="{receipt}"\n'
+                'PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST=file-value\n'
+                'PAPERASSIST_LAUNCHER_TEST_PRIVATE=ignored\n', encoding='utf-8-sig',
+            )
+            harness = root / 'manifests.ps1'
+            harness.write_text(r'''
+param([string]$Launcher, [string]$Python, [string]$Config)
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($Launcher, [ref]$tokens, [ref]$errors)
+$definition = $ast.Find({ param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Import-ApiRuntimeManifests'
+}, $false)
+if (-not $definition) { throw 'No API runtime manifest loader.' }
+. ([scriptblock]::Create($definition.Extent.Text))
+Remove-Item Env:PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST -ErrorAction SilentlyContinue
+Remove-Item Env:PAPERASSIST_LAUNCHER_TEST_PRIVATE -ErrorAction SilentlyContinue
+$env:PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST = 'process-value'
+Import-ApiRuntimeManifests $Python $Config
+[pscustomobject]@{
+    tabular = $env:PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST
+    bulk = $env:PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST
+    private = $env:PAPERASSIST_LAUNCHER_TEST_PRIVATE
+} | ConvertTo-Json -Compress
+''', encoding='utf-8')
+            result = subprocess.run(
+                [POWERSHELL, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                 '-File', str(harness), str(LAUNCHER), sys.executable, str(config)],
+                capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout), dict(tabular=receipt, bulk='process-value', private=None))
+
     def test_status_runs_worker_with_workspace_python_from_another_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

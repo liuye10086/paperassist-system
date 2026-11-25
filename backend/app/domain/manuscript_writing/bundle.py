@@ -7,6 +7,7 @@ from app.adapters.doi import valid_doi
 from app.adapters.models.openai_responses import canonical_payload
 from app.core.exceptions import StorageError
 from app.domain.literature.service import digest
+from app.domain.model_usage.contracts import ModelPolicy
 from app.domain.model_usage.gateway import input_digest
 from app.domain.model_usage.pricing import reserve_micro_usd
 from .live_contracts import LiveOutput
@@ -138,9 +139,9 @@ def document_excerpt(source):
     return dict(document_excerpt=safe_text('\n'.join(excerpt)), document_excerpt_truncated=truncated,
                 document_excerpt_scope='user_provided_context')
 
-def build_bundle(base, request, *, execution_contract=None, include_reported_results=True, revision_sections=None):
+def build_bundle(base, request, *, execution_contract=None, include_reported_results=True, revision_sections=None,
+                 revision_figures=(), revision_school_presentation=None):
     from .frozen import contract,validate,wire_parts
-    from app.domain.model_usage.contracts import ModelPolicy
     from app.domain.admin_configuration.model_consumption import combine
     frozen=validate(execution_contract) if execution_contract is not None else contract()
     if frozen['schema_version']==2 and request.get('schema_version')!=4 and base.get('article_type','research')!='research':
@@ -148,10 +149,13 @@ def build_bundle(base, request, *, execution_contract=None, include_reported_res
     if frozen['schema_version']==4:
         from .article_contract import build_bundle as article_bundle
         return article_bundle(base,request,frozen,include_reported_results=include_reported_results,
-                              revision_sections=revision_sections)
+                              revision_sections=revision_sections,revision_figures=revision_figures)
     if frozen['schema_version']==3:
         from .school_live import build_bundle as school_bundle
-        return school_bundle(base,request,frozen,revision_sections=revision_sections)
+        return school_bundle(base,request,frozen,revision_sections=revision_sections,revision_figures=revision_figures,
+                             revision_school_presentation=revision_school_presentation)
+    if revision_figures:
+        raise ValueError('Figure input requires an article or school contract')
     sources={s['id']:s for s in base.get('sources',[])}; catalog=evidence_catalog(base)
     if not set(request['selected_source_ids'])<=sources.keys() or not set(request['selected_evidence_ids'])<=catalog.keys():
         raise StorageError('manuscript_writing_selection_invalid','只能选择当前冻结版本中的来源和证据。',422)
@@ -249,14 +253,64 @@ def build_bundle(base, request, *, execution_contract=None, include_reported_res
         local_manifest=local,omitted_manifest=['attachments','binary_images','local_paths','private_configuration','unselected_sources','prior_reviews'],
         policy_version=POLICY_VERSION)
 
+def finish_bundle(payload, frozen, local, omitted, *, revision_sections=None, revision_figures=(), figure_section_ids=()):
+    from .frozen import input_allowance, wire_input, wire_parts
+
+    urls = []
+    if revision_figures:
+        from .revision_figures import MAX_REVISION_FIGURES
+
+        if len(revision_figures) > MAX_REVISION_FIGURES:
+            raise ValueError('Too many revision figures')
+        targets = set(figure_section_ids)
+        contexts = []
+        for figure in revision_figures:
+            number, section_ids = figure['number'], figure['section_ids']
+            if (type(number) is not int or number < 1 or not isinstance(section_ids, list) or not section_ids
+                    or len(set(section_ids)) != len(section_ids) or not set(section_ids) <= targets
+                    or not isinstance(figure['image_url'], str)):
+                raise ValueError('Figure lies outside the revision scope')
+            contexts.append(dict(number=number, section_ids=[safe_text(sid) for sid in section_ids],
+                                 title=safe_text(figure['title']), caption=safe_text(figure['caption'])))
+            urls.append(figure['image_url'])
+        payload['revision_figure_context'] = contexts
+        omitted = [key for key in omitted if key != 'binary_images']
+    parts = wire_parts(frozen, payload)
+    policy = ModelPolicy.model_validate(frozen['policy'])
+    material = wire_input(canonical_payload(payload), urls)
+    wire = canonical_payload(dict(model=policy.model, background=True, store=True, service_tier='default',
+                                  input=material, max_output_tokens=policy.max_output_tokens, **parts))
+    size = len(wire.encode())
+    allowance = input_allowance(size, frozen, urls)
+    if allowance > frozen['max_input_allowance']:
+        document = '学校' if frozen['schema_version'] == 3 else '文章'
+        raise StorageError('manuscript_writing_input_limit', f'{document}完整外发包超过冻结输入上限，请减少所选材料。', 422)
+    sha = hashlib.sha256(wire.encode()).hexdigest()
+    return dict(**({'revision_sections': revision_sections} if revision_sections is not None else {}),
+                execution_contract=frozen, wire_json=wire, wire_sha256=sha, bundle_sha256=sha, wire_bytes=size,
+                gateway_digest=input_digest(instructions=parts['instructions'], payload={'input': material} if urls else payload),
+                input_token_allowance=allowance, reserved_micro_usd=reserve_micro_usd(policy, allowance, 0),
+                policy_json=policy.model_dump(mode='json'), local_manifest=local, omitted_manifest=omitted,
+                policy_version=POLICY_VERSION)
+
+
 def validate_bundle(row):
-    from .frozen import bundle_contract
+    from .frozen import bundle_contract, split_wire_input
     from .numeric_contract import REPORTED_RESULTS_LOCATION
     # A preview frozen before the reported-results catalog must still reproduce its original wire.
     has_report = any(entry['location'] == REPORTED_RESULTS_LOCATION
                      for entry in row['local_manifest'].get('numeric_context', {}).values())
-    rebuilt=build_bundle(row['base_snapshot'],row['request_json'],execution_contract=bundle_contract(row),
-                         include_reported_results=has_report, revision_sections=row.get('revision_sections'))
+    frozen = bundle_contract(row)
+    figures = []
+    if frozen.get('scope_figure_input'):
+        text, urls = split_wire_input(json.loads(row['wire_json'])['input'])
+        figures = [dict(figure, image_url=url) for figure, url in
+                   zip(json.loads(text)['revision_figure_context'], urls, strict=True)]
+        if not re.fullmatch(r'[0-9a-f]{64}', row.get('revision_image_parent_sha256', '')):
+            raise ValueError('Missing revision image parent digest')
+    rebuilt=build_bundle(row['base_snapshot'],row['request_json'],execution_contract=frozen,
+                         include_reported_results=has_report, revision_sections=row.get('revision_sections'),
+                         revision_figures=figures,revision_school_presentation=row.get('revision_school_presentation'))
     if 'execution_contract' not in row:rebuilt.pop('execution_contract',None)
     if any(row[k]!=v for k,v in rebuilt.items()): raise ValueError('Frozen bundle mismatch')
     return row

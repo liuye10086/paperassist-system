@@ -2,6 +2,8 @@
 from copy import deepcopy
 import re
 
+from app.domain.manuscripts.school import WRITABLE_PURPOSES
+
 LOCATION = re.compile(r'^paper_notes\[(\d+)\]$')
 TABLE_LOCATION = re.compile(r'^illustrations\[(\d+)\]\.table_cells$')
 INSTRUCTIONS = (
@@ -43,6 +45,11 @@ def review_material_ids(base):
                 and selection['role'] == role
                 and all(source.get(key) == selection[key] for key in ('id', 'kind', 'role', 'file_id'))):
             allowed.add(selection['id'])
+    for image in plan.get('sci_figures', []):
+        source = sources.get(image['figure_id'])
+        if (source and source['kind'] == image['source_kind'] and source['role'] == 'image_observation'
+                and source['sha256'] == image['sha256']):
+            allowed.add(source['id'])
     return allowed
 
 
@@ -54,17 +61,19 @@ def notes(base):
         if plan['kind'] == 'thesis':
             target = row['chapter_id']
         elif plan['kind'] == 'narrative_review':
-            target = row['id']
+            target = 'themes' if plan.get('combine_review_topics') else row['id']
         else:
             target = 'results'
         paragraphs = grouped.get(row['id'], [])
-        if not paragraphs and plan['kind'] == 'thesis' and row['purpose'] == 'materials_and_methods':
+        if (not paragraphs and plan['kind'] == 'thesis'
+                and row['purpose'] in WRITABLE_PURPOSES and row['purpose'] != 'results'):
             identity = 'paper-finding:'+row['id']
             original = next((p for s in base['sections'] if s['id'] == target
                              for p in s['paragraphs'] if p['id'] == identity and is_note(p)), None)
             paragraphs = [original or dict(id=identity, text=row['text'], source_ids=[])]
         for paragraph in paragraphs:
-            yield target, paragraph
+            topic = row['label'] if plan.get('combine_review_topics') else None
+            yield target, paragraph, topic
 
 
 def _add_context(payload, local, row, source_ids, source_aliases):
@@ -87,7 +96,7 @@ def add_notes(base, request, payload, local, section_aliases):
         return
     selected = set(request['selected_source_ids'])
     projected = []
-    for target, paragraph in notes(base):
+    for target, paragraph, topic in notes(base):
         alias = section_aliases.get(target)
         source_ids = paragraph['source_ids']
         if alias is None:
@@ -98,7 +107,8 @@ def add_notes(base, request, payload, local, section_aliases):
         source_aliases = [key for key, sid in local['sources'].items() if sid in source_ids]
         text = safe_text(paragraph['text'])
         location = f'paper_notes[{len(projected)}]'
-        projected.append(dict(section_id=alias, text=text, source_aliases=source_aliases))
+        projected.append(dict(section_id=alias, text=text, source_aliases=source_aliases,
+                              **({'topic': safe_text(topic)} if topic else {})))
         # Thematic notes organize a review; literature numbers still require
         # reviewed evidence. Explicit material notes describe those assets only.
         if plan['kind'] == 'narrative_review' and paragraph['id'].startswith('paper-finding:'):
@@ -115,14 +125,17 @@ def place_illustrations(base, payload, section_aliases):
     plan = base.get('paper_plan')
     if not plan:
         return
+    owned = {group: section['id'] for section in base.get('sections', [])
+             for group in section.get('result_group_ids', [])} if plan['kind'] == 'narrative_review' else {}
     owners = {}
     for group in base['results_groups']:
         target = 'results'
         if plan['kind'] == 'narrative_review':
-            target = group['id']
+            target = owned.get(group['id'], group['id'])
         elif plan['kind'] == 'thesis':
             target = group.get('illustration_chapter_id') or next(
                 (s['id'] for s in base['sections'] if group['id'] in s['result_group_ids']), None)
+        target = group.get('illustration_chapter_id') or target
         if target in section_aliases:
             owners.update({(kind, item['number']): section_aliases[target]
                            for kind in ('figure', 'table') for item in group[kind+'s']})
@@ -142,6 +155,7 @@ def add_illustration_context(base, payload, local):
         return
     native = {kind: {m['selection']['id'] for m in plan['materials'] if m['kind'] == kind}
               for kind in ('figure', 'table')}
+    native['figure'].update(image['figure_id'] for image in plan.get('thesis_figures', []))
     by_number = {(kind, item['number']): item for group in base['results_groups']
                  for kind in ('figure', 'table') for item in group[kind+'s']}
     for index, item in enumerate(payload['illustrations']):
@@ -153,7 +167,7 @@ def add_illustration_context(base, payload, local):
         remember_sources(local, source_ids)
         source_aliases = [key for key, sid in local['sources'].items() if sid in source_ids]
         if kind == 'figure':
-            if plan.get('review_figure_placement_version') == 1:
+            if plan.get('review_figure_placement_version') == 1 or plan.get('sci_figures'):
                 item['source_aliases'] = source_aliases
                 item['caption_status'] = original['caption_status']
                 payload['review_figure_guidance'] = (

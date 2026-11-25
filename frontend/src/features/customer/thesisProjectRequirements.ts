@@ -1,5 +1,6 @@
 import type { Locale } from '../../shared/i18n'
 import type { Chapter } from '../school-templates/contracts'
+import type { SchoolWritingPurpose } from '../manuscripts/thesisTypes'
 import { preparePaperKeywords, type PaperKeywordDraft } from './paperKeywords'
 
 export const educationLevels = ['本科', '硕士', '博士'] as const
@@ -10,11 +11,11 @@ type ThesisBasics = { education_level: EducationLevel; school: string; title: st
 export type ThesisBasicsDraft = PaperKeywordDraft & Omit<ThesisBasics, 'keywords' | 'education_level'> & {
   education_level: EducationLevel | ''; language: Locale | ''
 }
-export const thesisSectionLabels = { materials_and_methods: '材料与方法章节', results: '主要结果章节' } as const
-export type ThesisSectionPurpose = keyof typeof thesisSectionLabels
+export type ThesisSectionPurpose = SchoolWritingPurpose
 export type ThesisSection = { chapter_id: string; purpose: ThesisSectionPurpose; content: string }
 export type BoundThesisTemplate = {
   name: string; confirmation_id: string; chapters: Chapter[]
+  source_file?: {file_id: string; filename: string}
   protected_chapter_purposes?: Record<string, 'manual' | 'acknowledgements'>
 }
 export type ThesisRequirements = Omit<ThesisBasics, 'education_level'> & {

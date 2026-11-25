@@ -1,11 +1,12 @@
 """Choose a customer paper project step from saved requirements, materials and drafts."""
 
 from app.core.exceptions import StorageError
+from app.domain.research_intake.sci_templates import selected_template
 
 
-def sci_settings_saved(db, project_id):
+def sci_settings_for_landing(db, project_id):
     row = db.execute('SELECT sci_settings_json FROM research_intakes WHERE project_id=%s', (project_id,)).fetchone()
-    return bool(row and row['sci_settings_json'])
+    return (row['sci_settings_json'] if row else None) or {}
 
 
 def saved_thesis_target(db, project_id, owner_id, assets):
@@ -90,7 +91,7 @@ def summarize_paper(db, project, owner_id, assets):
                             (project['id'], owner_id)).fetchone()
         if not stored or not stored['school'].strip() or not ((stored['requirements_json'] or {}).get('title') or '').strip():
             return landing(project, 'requirements_needed', 'customer', 'details', project['updated_at'])
-    elif not sci_settings_saved(db, project['id']):
+    elif not (sci := sci_settings_for_landing(db, project['id'])):
         return landing(project, 'settings_needed', 'customer', 'details', project['updated_at'])
 
     # A template or a supplementary school guideline alone is not project research material.
@@ -105,4 +106,6 @@ def summarize_paper(db, project, owner_id, assets):
         school_step = thesis_template_landing(db, project, assets)
         if school_step:
             return school_step
+    elif not started and selected_template(sci.get('article_type'), sci.get('template_id')) is None:
+        return landing(project, 'sci_template_needed', 'customer', 'sci-template', project['updated_at'])
     return landing(project, 'continue_writing', 'customer', 'manuscripts', project['updated_at'])

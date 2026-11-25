@@ -8,7 +8,7 @@ from app.domain.manuscripts.service import now
 from app.domain.manuscripts.sources import require_visible_snapshot, writing_changes as changes
 from app.domain.dataset_preparation.service import require_key, append_checkpoint
 from .bundle import build_bundle, require_current_source_projection, validate_bundle
-from .live_contracts import PreviewRequest, AuthorizationRequest, LiveWritingRequest, WORKFLOW,preview_data
+from .live_contracts import PreviewRequest, AuthorizationRequest, LiveWritingRequest, WORKFLOW,preview_data,scoped_draft_revision
 from .policy import POLICY_VERSION, ENDPOINT, EXTERNAL_STORAGE_NOTICE, capabilities
 from .frozen import contract,bundle_contract,execution_settings,SCI_ARTICLE_PROSE_REVISION
 from app.domain.admin_configuration.bindings import resolve,bind
@@ -49,7 +49,9 @@ class LiveWritingService:
                     instruction_revision=frozen.get('instruction_revision'),document_kind=frozen.get('document_kind','sci'),
                     article_instruction_revision=frozen.get('article_instruction_revision'),
                     source_selection_version=frozen.get('source_selection_version'),
-                    school_presentation_version=frozen.get('school_presentation_version'))
+                               school_presentation_version=frozen.get('school_presentation_version'),
+                               response_stream=frozen.get('response_stream'),
+                               scope_figure_input=frozen.get('scope_figure_input'))
                 if execution_settings(frozen) != execution_settings(bound):
                     raise ValueError('Bundle binding mismatch')
             elif frozen is not None:
@@ -65,16 +67,24 @@ class LiveWritingService:
             or version['snapshot_json']!=bundle['base_snapshot'] or changes(self.manuscripts,bundle['project_id'],bundle['base_snapshot'])): raise source_conflict()
         self.require_customer_writing_input(db, bundle['project_id'], bundle['request_json'], bundle['base_snapshot'])
         if bundle['request_json'].get('revision_of_request_id'):
+            request = bundle['request_json']
+            parent = self.writing.row(db, bundle['project_id'], bundle['manuscript_id'], request['revision_of_request_id'])
             sections = self.revision_sections(db, bundle['project_id'], bundle['manuscript_id'],
-                                              version['id'], bundle['request_json'])
+                                              version['id'], request, parent=parent)
             if sections != bundle['revision_sections']:
+                raise source_conflict()
+            if 'revision_school_presentation' in bundle and bundle['revision_school_presentation'] != (
+                    parent[0]['candidate_json'].get('school_presentation') or {}):
+                raise source_conflict()
+            image_parent = bundle.get('revision_image_parent_sha256')
+            if image_parent is not None and image_parent != parent[0]['candidate_sha256']:
                 raise source_conflict()
         require_current_source_projection(bundle)
 
-    def revision_sections(self, db, project, identity, version_id, request):
+    def revision_sections(self, db, project, identity, version_id, request, *, parent=None):
         """Recover the exact successful parent within its original owner/project/manuscript scope."""
         from .bundle import safe_text
-        row, task = self.writing.row(db, project, identity, request['revision_of_request_id'])
+        row, task = parent if parent is not None else self.writing.row(db, project, identity, request['revision_of_request_id'])
         candidate, original = row['candidate_json'], row['request_json']
         school = bool(candidate and candidate.get('thesis_context'))
         if (not revisable_draft(row, task) or row['base_version_id'] != version_id
@@ -88,10 +98,18 @@ class LiveWritingService:
         def paragraph(p):
             return dict(text=safe_text(p['text']), source_aliases=p.get('suggested_source_aliases', []),
                         evidence_aliases=p.get('suggested_evidence_aliases', []))
+        if scoped_draft_revision(request):
+            from .article_contract import editable_draft_section_ids
+            if not set(request['target_sections']) <= set(editable_draft_section_ids(candidate)):
+                raise StorageError('manuscript_writing_selection_invalid', '所选章节不属于当前稿件的可修改范围。', 422)
+            # Freeze all parent sections locally so that composition copies untouched chapters verbatim.
+            return candidate['sections']
         if school:
-            from .school_live import WRITABLE
-            return [dict(id=f'chapter{i}', paragraphs=[paragraph(p) for p in section['paragraphs']])
-                    for i, section in enumerate(candidate['sections'], 1) if section['purpose'] in WRITABLE]
+            from .school_live import WRITABLE, chapter_aliases
+
+            aliases = chapter_aliases(candidate['sections'])
+            return [dict(id=aliases[section['id']], paragraphs=[paragraph(p) for p in section['paragraphs']])
+                    for section in candidate['sections'] if section['purpose'] in WRITABLE]
         return [dict(id=section['id'], paragraphs=[paragraph(p) for p in section['paragraphs']])
                 for section in candidate['sections'] if section['id'] != 'references' and section['paragraphs']]
 
@@ -142,7 +160,9 @@ class LiveWritingService:
 
     @staticmethod
     def bundle_view(bundle):
-        return {k:v for k,v in bundle.items() if k not in ('base_snapshot','request_key','request_digest','user_id','revision_sections')}
+        hidden = ('base_snapshot', 'request_key', 'request_digest', 'user_id', 'revision_sections',
+                  'revision_image_parent_sha256', 'revision_school_presentation')
+        return {k: v for k, v in bundle.items() if k not in hidden}
 
     def preview(self,project,identity,request,key):
         require_key(key);body=preview_data(request)
@@ -165,18 +185,44 @@ class LiveWritingService:
             schema_version=4 if body['schema_version']==4 else (3 if school else 2)
             prose_revision=SCI_ARTICLE_PROSE_REVISION if schema_version==4 and not school else None
             from .school_presentation import PRESENTATION_VERSION
-            presentation = (PRESENTATION_VERSION if schema_version == 3 and body['mode'] == 'full_draft'
+            response_stream = True if scoped_draft_revision(body) else None
+            presentation = (PRESENTATION_VERSION if schema_version == 3 and body['mode'] == 'full_draft' and not response_stream
                             and body.get('document_context_version') == 'selected-text-v1' else None)
-            sections = self.revision_sections(db, project, identity, version['id'], body) if body.get('revision_of_request_id') else None
+            sections = None
+            revision_school_presentation = None
+            figures = []
+            if body.get('revision_of_request_id'):
+                parent = self.writing.row(db, project, identity, body['revision_of_request_id'])
+                sections = self.revision_sections(db, project, identity, version['id'], body, parent=parent)
+                row, task = parent
+                if response_stream and school:
+                    revision_school_presentation = row['candidate_json'].get('school_presentation') or {}
+                if response_stream and any(group.get('figures') for group in row['candidate_json'].get('results_groups', [])):
+                    from app.domain.sci_draft_reader import SciDraftReader
+                    from .revision_figures import freeze_revision_figures
+
+                    rendered = SciDraftReader(self.manuscripts.assets).content(db, project, identity, row, task)
+                    figures = freeze_revision_figures(self.manuscripts, project, row['candidate_json'],
+                                                      rendered['sections'], body['target_sections'])
+                    if school:
+                        from .school_live import chapter_aliases
+
+                        aliases = chapter_aliases(sections)
+                        for figure in figures:
+                            figure['section_ids'] = [aliases[sid] for sid in figure['section_ids']]
             try:
                 frozen=contract(configuration,schema_version=schema_version,document_kind='thesis' if school else 'sci',
                                 article_instruction_revision=prose_revision,source_selection_version=2,
-                                school_presentation_version=presentation)
-                data=build_bundle(version['snapshot_json'],body,execution_contract=frozen,revision_sections=sections)
+                                school_presentation_version=presentation,response_stream=response_stream,
+                                scope_figure_input=True if figures else None)
+                data=build_bundle(version['snapshot_json'],body,execution_contract=frozen,revision_sections=sections,
+                                  revision_figures=figures,revision_school_presentation=revision_school_presentation)
             except (ValueError,KeyError,TypeError) as exc:
                 if not school:raise StorageError('manuscript_writing_selection_invalid','文章结构、写作范围或所选证据与冻结基础稿不匹配。',422) from exc
                 raise StorageError('manuscript_writing_selection_invalid','学校章节、语言或所选用途与冻结确认不匹配；受保护章节不能请求模型生成。',422) from exc
             data.update(base_snapshot=version['snapshot_json'],request_json=body)
+            if figures:
+                data['revision_image_parent_sha256'] = row['candidate_sha256']
             identity_id=str(uuid4());timestamp=now()
             db.execute('INSERT INTO manuscript_writing_bundles(id,project_id,user_id,manuscript_id,base_version_id,request_key,request_digest,bundle_sha256,bundle_json,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (identity_id,project,self.store.user_id,identity,version['id'],key,request_digest,data['bundle_sha256'],Jsonb(data),timestamp))
@@ -189,9 +235,11 @@ class LiveWritingService:
             if bundle['manuscript_id']!=identity: raise denied()
             return self.bundle_view(bundle)
 
-    def list_previews(self,project,identity):
+    def list_previews(self,project,identity,*,capabilities_only=False):
         with self.store.connection() as db:
             self.manuscripts.root(db,project,identity)
+            if capabilities_only:
+                return dict(capabilities=capabilities(resolve(db)))
             rows=db.execute('SELECT id FROM manuscript_writing_bundles WHERE project_id=%s AND user_id=%s AND manuscript_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id,identity)).fetchall()
             items=[]
             for row in rows:

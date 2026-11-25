@@ -5,7 +5,9 @@ import {thesisBasicsDraft, type ThesisRequirements} from './thesisProjectRequire
 
 const requirements: ThesisRequirements = {revision:2, language:'zh-CN',school:'示例大学',education_level:'硕士',
   title:'运动成绩分析',keywords:['cohort','training','performance','sports'],template:{name:'体育学模板',confirmation_id:'school1',
-    chapters:[{id:'methods',title:'研究方法',level:1},{id:'results',title:'研究结果',level:1}]},
+    source_file:{file_id:'template-word',filename:'学校模板.docx'},
+    chapters:[{id:'methods',title:'研究方法',level:1},{id:'results',title:'研究结果',level:1},
+      {id:'discussion',title:'讨论',level:1}]},
   sections:[{chapter_id:'methods',purpose:'materials_and_methods',content:'先说明入组要求。'}]}
 const common = {projectId:'p1',registerLeaveGuard:vi.fn(() => () => {})}
 function serve(input:ThesisRequirements) {
@@ -36,25 +38,28 @@ it.each([true,false])('saves just the thesis basics and continues to uploads wit
   expect(writes()).toEqual([{basics:{title:requirements.title,school:requirements.school,education_level:'硕士',keywords:['cohort','training','performance','sports']},
     language:'zh-CN',expected_revision:2,expected_language:'zh-CN'}])
 })
-it('saves optional chapter requirements in the organizer without changing the thesis basics or leaving the step', async () => {
+it('shows the adopted original and saves content directly from its chapters', async () => {
   const writes = serve(requirements)
   const open = vi.fn(), notifyMaterials = vi.fn()
   render(<ThesisTemplateOrganizer {...common} onOpenTemplate={open} onSectionsSaved={notifyMaterials}/>)
-  fireEvent.click(await screen.findByRole('button',{name:'管理学校模板'}))
+  fireEvent.click(await screen.findByRole('button',{name:'更换模板'}))
   expect(open).toHaveBeenCalledWith(true)
+  expect(screen.getByRole('link',{name:'下载模板原件'}).getAttribute('href')).toBe('/api/v1/projects/p1/files/template-word/download')
   expect(notifyMaterials).not.toHaveBeenCalled()
   expect(screen.queryByRole('button',{name:'编辑毕业论文需求'})).toBeNull()
-  fireEvent.click(screen.getByText('逐章写作要求（选填）'))
-  const results = within(screen.getByRole('group',{name:'主要结果章节'}))
-  fireEvent.change(results.getByRole('combobox',{name:'模板章节'}),{target:{value:'results'}})
-  fireEvent.click(results.getByRole('button',{name:'添加章节'}))
-  fireEvent.change(results.getByRole('textbox',{name:'研究结果'}),{target:{value:'报告组间差异。'}})
-  fireEvent.click(screen.getByRole('button',{name:'保存章节要求'}))
-  expect((await screen.findByRole('status')).textContent).toContain('章节要求已保存。')
+  const outline = within(screen.getByRole('navigation',{name:'模板目录'}))
+  expect(screen.getByRole('textbox',{name:'章节内容'})).toHaveProperty('value','先说明入组要求。')
+  fireEvent.click(outline.getByRole('button',{name:'研究结果'}))
+  fireEvent.change(screen.getByRole('textbox',{name:'章节内容'}),{target:{value:'报告组间差异。'}})
+  fireEvent.click(outline.getByRole('button',{name:'讨论'}))
+  fireEvent.change(screen.getByRole('textbox',{name:'章节内容'}),{target:{value:'讨论样本来源的局限。'}})
+  fireEvent.click(screen.getByRole('button',{name:'保存章节内容'}))
+  expect((await screen.findByRole('status')).textContent).toContain('章节内容已保存。')
   expect(notifyMaterials).toHaveBeenCalledOnce()
   expect(writes()).toEqual([{basics:{title:requirements.title,school:requirements.school,education_level:'硕士',keywords:['cohort','training','performance','sports']},
     language:'zh-CN',expected_revision:2,expected_language:'zh-CN',
-    chapter_plan:{confirmation_id:'school1',sections:[...requirements.sections,{chapter_id:'results',purpose:'results',content:'报告组间差异。'}]}}])
+    chapter_plan:{confirmation_id:'school1',sections:[...requirements.sections,{chapter_id:'results',purpose:'results',content:'报告组间差异。'},
+      {chapter_id:'discussion',purpose:'discussion',content:'讨论样本来源的局限。'}]}}])
   expect(screen.queryByRole('button',{name:/下一步/})).toBeNull()
 })
 it('offers the upload entry only in the organizer until a template is adopted', async () => {
@@ -63,17 +68,16 @@ it('offers the upload entry only in the organizer until a template is adopted', 
   render(<ThesisTemplateOrganizer {...common} onOpenTemplate={open}/>)
   fireEvent.click(await screen.findByRole('button',{name:'上传学校模板'}))
   expect(open).toHaveBeenCalledWith(false)
-  expect(screen.queryByText('逐章写作要求（选填）')).toBeNull()
+  expect(screen.queryByRole('navigation',{name:'模板目录'})).toBeNull()
 })
-it('keeps the automatic contents page out of the selectable methods and results chapters', async () => {
+it('displays the automatic contents page in the outline with its editing disabled', async () => {
   serve({...requirements,template:{...requirements.template!,chapters:[
     {id:'toc',title:'目  录',level:1},...requirements.template!.chapters,
   ]}})
   render(<ThesisTemplateOrganizer {...common} onOpenTemplate={vi.fn()}/>)
-  fireEvent.click(await screen.findByText('逐章写作要求（选填）'))
-  const group = within(screen.getByRole('group',{name:'主要结果章节'}))
-  expect(group.getByRole('option',{name:'研究结果'})).toBeTruthy()
-  expect(group.queryByRole('option',{name:/目\s*录/})).toBeNull()
+  fireEvent.click(await screen.findByRole('button',{name:/目\s*录/}))
+  expect(screen.getByRole('textbox',{name:'章节内容'})).toHaveProperty('readOnly',true)
+  expect(screen.getByRole('button',{name:'保存章节内容'})).toHaveProperty('disabled',true)
 })
 it.each(['customer-thesis-requirements','customer-thesis-chapter-requirements'])('preserves pending chapter edits across a successful basics save (%s)', async scope => {
   const writes = serve(requirements), next = vi.fn()
@@ -88,8 +92,8 @@ it.each(['customer-thesis-requirements','customer-thesis-chapter-requirements'])
   expect(writes()[0].chapter_plan).toBeUndefined()
   first.unmount()
   render(<ThesisTemplateOrganizer {...common} onOpenTemplate={vi.fn()}/>)
-  expect(await screen.findByRole('textbox',{name:'研究方法'})).toHaveProperty('value',sections[0].content)
-  fireEvent.click(screen.getByRole('button',{name:'保存章节要求'}))
+  expect(await screen.findByRole('textbox',{name:'章节内容'})).toHaveProperty('value',sections[0].content)
+  fireEvent.click(screen.getByRole('button',{name:'保存章节内容'}))
   await waitFor(() => expect(writes()).toHaveLength(2))
   expect(writes()[1]).toMatchObject({expected_revision:3,chapter_plan:{confirmation_id:'school1',sections}})
 })

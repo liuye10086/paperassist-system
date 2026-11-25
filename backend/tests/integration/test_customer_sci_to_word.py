@@ -13,6 +13,7 @@ from app.db.database import database_connection
 from app.domain.literature.execution import run_literature_task
 from app.domain.manuscript_writing.bundle import build_bundle, validate_bundle
 from app.domain.manuscript_writing.execution import run_manuscript_writing_task
+from app.domain.manuscript_writing.frozen import wire_payload
 from app.domain.tasks.execution import run_task
 from app.domain.tasks.file_parse_execution import run_parse_file_task
 from app.main import app
@@ -39,7 +40,7 @@ class SciFixtureProvider(LiveFixture):
 
     def receipt(self):
         result = super().receipt()
-        payload = json.loads(json.loads(self.posts[0])['input'])
+        payload = wire_payload(self.posts[0])
         sections = []
         for section_id in payload['writing_scope']['output_section_ids']:
             paragraph = dict(id=f'{section_id}:1', source_aliases=[], evidence_aliases=[], study_numeric_bindings=[])

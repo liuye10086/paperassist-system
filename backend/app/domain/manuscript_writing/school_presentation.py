@@ -8,15 +8,18 @@ from .contracts import Strict
 from .live_contracts import LiveParagraph
 
 PRESENTATION_VERSION = 'school-presentation-v1'
+CITATION_ANCHORS_INSTRUCTIONS = (
+    'For each literature claim, copy the exact full sentence, including its final punctuation, into citation_anchors '
+    'with only the evidence aliases that support that sentence. A citation anchor must be a single '
+    'sentence that occurs once in its paragraph. The union of the anchor aliases must equal the '
+    'paragraph evidence_aliases. Never add citations to descriptions of this study or to unsupported claims.'
+)
 INSTRUCTIONS = (
     'Also return the presentation of the draft. Translate source_title faithfully into English '
     'or copy it if already English. Return keywords in each listed abstract language and concise '
     'content-specific headings only for the listed chapter and figure aliases. Do not supply chapter '
-    'or figure numbers in those headings. Use existing evidence aliases only. For each literature '
-    'claim, copy the exact full sentence, including its final punctuation, into citation_anchors '
-    'with only the evidence aliases that support that sentence. A citation anchor must be a single '
-    'sentence that occurs once in its paragraph. The union of the anchor aliases must equal the '
-    'paragraph evidence_aliases. Never add citations to descriptions of this study or to unsupported claims.'
+    'or figure numbers in those headings. Use existing evidence aliases only. '
+    + CITATION_ANCHORS_INSTRUCTIONS
 )
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=220)]
 Keyword = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -56,8 +59,11 @@ class Presentation(Strict):
     figure_titles: list[AliasTitle] = Field(max_length=300)
 
 
-class SchoolPresentationOutput(Strict):
+class SchoolRevisionOutput(Strict):
     sections: list[PresentationSection] = Field(min_length=1, max_length=300)
+
+
+class SchoolPresentationOutput(SchoolRevisionOutput):
     presentation: Presentation
 
 
@@ -80,8 +86,8 @@ def add_presentation_input(base, payload, local):
     )
 
 
-def presentation_schema(numeric):
-    schema = SchoolPresentationOutput.model_json_schema()
+def presentation_schema(numeric, *, revision=False):
+    schema = (SchoolRevisionOutput if revision else SchoolPresentationOutput).model_json_schema()
     defs = schema['$defs']
     defs['StudyNumericBinding'] = numeric['$defs']['StudyNumericBinding']
     numerical = numeric['$defs']['LiveParagraph']['properties']

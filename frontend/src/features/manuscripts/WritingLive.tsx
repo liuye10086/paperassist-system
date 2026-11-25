@@ -55,7 +55,7 @@ export default function WritingLive({projectId,manuscriptId,version,onPublished,
  const previewsUrl=`${base}/writing-previews`,requestsUrl=`${base}/writing-requests`
  const previewList=(v:unknown):v is{items:Bundle[];capabilities:WritingCapabilities}=>object(v)&&validCapabilities(v.capabilities)&&listOf((x):x is Bundle=>validBundle(x,projectId,manuscriptId))(v)
  const requestList=(v:unknown):v is{items:LiveRequest[]}=>object(v)&&Array.isArray(v.items)&&v.items.every(x=>object(x)&&(x.schema_version===2?validLiveRequest(x,projectId,manuscriptId):x.schema_version===undefined||x.schema_version===1))
- const visibleRequests=(list:LiveRequest[])=>list.filter(x=>x.schema_version===2&&(!customer||x.base_revision===version.revision)&&(!customerThesis||x.input.schema_version===3))
+ const visibleRequests=(list:LiveRequest[])=>list.filter(x=>x.schema_version===2&&!x.input.draft_advice&&(!customer||x.base_revision===version.revision)&&(!customerThesis||x.input.schema_version===3))
  const liveKey=(value:PreviewInput)=>[value.schema_version,value.schema_version===4?value.article_type:'legacy',value.mode,value.target_section??''].join(':')
  const hasDraft=(value:PreviewInput)=>!!value.instructions||JSON.stringify(value.keywords)!==JSON.stringify(value.schema_version===4?articleInitial.keywords:[])||!!value.acknowledgements||JSON.stringify(value.selected_source_ids)!==JSON.stringify(selectedSourceIds)||JSON.stringify(value.selected_evidence_ids)!==JSON.stringify(value.schema_version===4?articleInitial.selected_evidence_ids:[])||(value.schema_version===4&&(value.article_type!==articleInitial.article_type||!!value.brief_limits||(value.target_sections?.length??0)>0||(value.target_paragraph_ids?.length??0)>0||(value.paragraph_plan?.length??0)>0))
  // A customer's writing draft is kept in this tab, so leaving never asks; a running or unknown submission still
@@ -71,7 +71,7 @@ export default function WritingLive({projectId,manuscriptId,version,onPublished,
   setInput(protocolDrafts[next?4:school?3:2]??(next?articleInitial:legacyInitial));invalidate()
  }
  // Returns true when it found the writing request whose submission result was unknown.
- const exactRequest=(v:unknown):v is LiveRequest=>validLiveRequest(v,projectId,manuscriptId)&&v.id===focusedRequest&&v.base_revision===version.revision
+ const exactRequest=(v:unknown):v is LiveRequest=>validLiveRequest(v,projectId,manuscriptId)&&!v.input.draft_advice&&v.id===focusedRequest&&v.base_revision===version.revision
  async function refresh(prepare=false){
   if(focusedRequest){
    const item=await op.run(requestsUrl+'/'+encodeURIComponent(focusedRequest),exactRequest)
@@ -79,7 +79,8 @@ export default function WritingLive({projectId,manuscriptId,version,onPublished,
    return !!item
   }
   const previews=await op.run(previewsUrl,previewList);if(!previews)return false
-  setSaved(previews.items);setEnabled(previews.capabilities.real_calls_enabled);setCapabilities(previews.capabilities)
+  const writingPreviews=previews.items.filter(item=>!item.request_json.draft_advice)
+  setSaved(writingPreviews);setEnabled(previews.capabilities.real_calls_enabled);setCapabilities(previews.capabilities)
   const requests=await op.run(requestsUrl,requestList);if(!requests)return false
   const visible=visibleRequests(requests.items);setItems(visible)
   let found:LiveRequest|undefined
@@ -92,7 +93,7 @@ export default function WritingLive({projectId,manuscriptId,version,onPublished,
    // draft of this version that is not adopted yet, so coming back continues the check instead of offering a new fee.
    const follow=found?visible.find(x=>x.id===found.id):returnTo??(!selected?visible.find(inProgress)??visible.find(unadopted):undefined)
    if(follow)chooseCandidate(follow)
-   if(prepare)await prepareCustomerPreview(previews.items,previews.capabilities.real_calls_enabled)
+   if(prepare)await prepareCustomerPreview(writingPreviews,previews.capabilities.real_calls_enabled)
   }
   return !!found
  }

@@ -4,6 +4,7 @@
 .bulk-workflow-body .analysis-section-heading h2 { margin: 0; }
 .bulk-workflow-design.analysis-workspace { height: auto; margin-bottom: 16px; }
 .bulk-workflow-body .bulk-stage-summary > :last-child { margin-bottom: 0; }
+.bulk-workflow-body .bulk-data-actions { justify-content: flex-end; }
 .bulk-stage-history { margin-top: 16px; }
 .bulk-stage-history summary, .bulk-facts summary { cursor: pointer; font-weight: 600; }
 .bulk-history-list, .bulk-evidence-list { display: grid; gap: 12px; padding-inline-start: 20px; }

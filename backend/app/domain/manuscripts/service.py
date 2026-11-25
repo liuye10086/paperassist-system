@@ -176,9 +176,21 @@ class ManuscriptService:
         selections=[s.model_dump() for s in request.sources]
         plan=snap.get('paper_plan')
         if bool(request.paper_plan_token)!=bool(plan):raise source_conflict()
-        actual=[{k:s[k] for k in ('kind','id','file_id','role')} for s in snap['sources']]
+        from .paper_plan import placed_figures, planned_selections
+        from .research_sources import KINDS, valid_bindings
+
+        planned_research_figures = [(image['figure_id'], image['sha256']) for image in placed_figures(plan or {})
+                                    if image['source_kind'] == 'research_figure_version']
+        research_sources = [source for source in snap['sources'] if source['kind'] in KINDS]
+        if ([(source['id'], source['sha256']) for source in research_sources] != planned_research_figures
+                or any(source['kind'] != 'research_figure_version' or source['role'] != 'image_observation'
+                       for source in research_sources)
+                or research_sources and not valid_bindings(db, row, research_sources)):
+            raise source_conflict()
+        file_sources = [source for source in snap['sources'] if source['kind'] not in KINDS]
+        actual=[{k:s[k] for k in ('kind','id','file_id','role')} for s in file_sources]
         if plan:
-            planned=[item['selection'] for item in plan['materials']]
+            planned=planned_selections(plan)
             planned_ids={item['id'] for item in planned}
             if [source for source in actual if source['id'] in planned_ids]!=planned:raise source_conflict()
             actual=[source for source in actual if source['id'] not in planned_ids]
@@ -234,8 +246,8 @@ class ManuscriptService:
         if snap['project_id']!=row['project_id'] or snap['workflow_version']!=WORKFLOW: raise source_conflict()
         source_rows=db.execute('SELECT * FROM manuscript_sources WHERE version_id=%s',(row['id'],)).fetchall()
         by_id={s['source_id']:s for s in source_rows}
-        if len(by_id)!=len(snap['sources']): raise source_conflict()
-        for source in snap['sources']:
+        if len(by_id)!=len(file_sources): raise source_conflict()
+        for source in file_sources:
             bound=by_id.get(source['id'])
             if not bound or bound['source_json']!=source or bound['sha256']!=digest(source) or any(bound[k]!=source[v] for k,v in (('kind','kind'),('file_id','file_id'),('role','role'))): raise source_conflict()
         parent=db.execute('SELECT revision FROM manuscript_versions WHERE id=%s AND manuscript_id=%s',(row['parent_version_id'],row['manuscript_id'])).fetchone() if row['parent_version_id'] else None
@@ -327,7 +339,12 @@ class ManuscriptService:
                     inherit_task(db,task,confirmation_id=request.thesis.confirmation_id)
                 db.execute('''INSERT INTO manuscript_versions(id,project_id,user_id,idempotency_key,request_json,request_digest,manuscript_id,revision,parent_version_id,task_id,snapshot_json,snapshot_sha256,created_at,school_confirmation_id)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(version_id,project,self.store.user_id,key,Jsonb(body),hashed,identity,revision,parent,task['id'],Jsonb(snapshot),digest(snapshot),timestamp,request.thesis.confirmation_id if request.thesis else None))
+                from .research_sources import KINDS, bind
+
                 for source in snapshot['sources']:
+                    if source['kind'] in KINDS:
+                        bind(db, project, self.store.user_id, version_id, source)
+                        continue
                     foreign={'document_version':'document_version_id','ocr_review_version':'ocr_review_version_id','external_evidence_version':'external_evidence_version_id','analysis_run':'analysis_run_id','figure':'figure_id','figure_language_version':'figure_language_version_id','analysis_report':'analysis_report_id','collection_report':'collection_report_id'}.get(source['kind'])
                     fields=dict(id=str(uuid4()),version_id=version_id,file_id=source['file_id'],kind=source['kind'],source_id=source['id'],role=source['role'],source_json=Jsonb(source),sha256=digest(source))
                     if foreign: fields[foreign]=source['id']
@@ -364,7 +381,7 @@ class ManuscriptService:
         inherit_task(db,producer,parent_task=adaptation['task_id'])
         fields=dict(id=version_id,project_id=project,user_id=self.store.user_id,idempotency_key='journal:'+adaptation['id'],request_json=Jsonb(body),request_digest=digest(body),manuscript_id=identity,revision=revision,parent_version_id=base['id'],task_id=producer['id'],snapshot_json=Jsonb(candidate),snapshot_sha256=digest(candidate),created_at=timestamp,school_confirmation_id=None)
         db.execute('INSERT INTO manuscript_versions('+','.join(fields)+') VALUES ('+','.join(['%s']*len(fields))+')',tuple(fields.values()))
-        for table in ('manuscript_sources','manuscript_citations'):
+        for table in ('manuscript_sources','manuscript_citations','manuscript_research_sources'):
             for original in db.execute('SELECT * FROM '+table+' WHERE version_id=%s',(base['id'],)).fetchall():
                 values=dict(original);values.update(id=str(uuid4()),version_id=version_id)
                 values={k:Jsonb(v) if isinstance(v,(dict,list)) else v for k,v in values.items()}
@@ -390,9 +407,12 @@ class ManuscriptService:
         revision=root['current_revision']+1;version_id=str(uuid4());timestamp=now()
         body=dict(base['request_json'],expected_revision=revision-1)
         if body.get('kind')!='research_results_methods':
-            planned_ids={item['selection']['id'] for item in candidate.get('paper_plan',{}).get('materials',[])}
+            from .paper_plan import planned_selections
+
+            plan = candidate.get('paper_plan')
+            planned_ids = {item['id'] for item in planned_selections(plan)} if plan else set()
             body['sources']=[{k:s[k] for k in ('kind','id','file_id','role')}
-                             for s in candidate['sources'] if s['id'] not in planned_ids]
+                             for s in candidate['sources'] if s['kind'] not in KINDS and s['id'] not in planned_ids]
         producer=self.task(db,project,'manuscript_draft',dict(project_id=project,manuscript_id=identity,manuscript_version_id=version_id,revision=revision,output_language=candidate['output_language'],workflow_version=WORKFLOW,snapshot_sha256=digest(candidate)),'manuscript:'+version_id,validated_sources=candidate['sources'])
         from app.domain.admin_configuration.rule_consumption import inherit_task
         inherit_task(db,producer,parent_task=adaptation['task_id'])

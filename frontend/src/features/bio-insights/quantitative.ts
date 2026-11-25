@@ -5,7 +5,7 @@ export type SampleRow=SampleKey&{retained?:boolean;[key:string]:unknown}
 export type SampleGroup={label:string;sample_keys:SampleKey[]}
 export type SampleContrast={contrast_id:string;name:string;groups:SampleGroup[]}
 export type SampleCovariate={field:string;kind:'categorical'|'continuous';name:string;reference_level?:string|null}
-type SampleScale={namespace?:string;reference_version?:string;species_taxon_id?:number|null}
+export type SampleScale={namespace?:string;reference_version?:string;species_taxon_id?:number|null}
 export const sampleKey=(s:SampleKey)=>JSON.stringify([s.processed_version_id,s.sample_id])
 export const newSampleContrast=(id:string,count=2):SampleContrast=>({contrast_id:id,name:id,groups:Array.from({length:count},(_,i)=>({label:String.fromCharCode(65+i),sample_keys:[]}))})
 export function defaultQuantitativeConfig():Config{return{kind:'comparison',schema_version:2,mode:'continuous',design:'independent',method:'welch_t',analysis_layer:'analysis',contrasts:[newSampleContrast('contrast_1')],family_contrast_ids:['contrast_1'],inference_unit:'biological',inference_goal:'exploratory',independence_confirmed:false,independence_basis:'',technical_exploration_confirmed:false,design_basis:'',data_driven_grouping:false,pairing_field:'pair_id',batch_adjustment:false,excluded_samples:[],minimum_total_counts:10,size_factor_method:'ratio',posthoc:'none',missing_policy:'complete_cases',namespace:'',reference_version:'',species_taxon_id:null,output_language:'zh-CN'}}

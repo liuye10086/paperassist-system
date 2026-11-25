@@ -5,9 +5,10 @@ import re
 from app.adapters.manuscript_docx import _document, _figure, _save_document, _table
 from app.adapters.task_store import source_conflict
 from app.core.exceptions import StorageError
-from app.domain.manuscript_writing.article_contract import illustration_groups, labels
+from app.domain.manuscript_writing.article_contract import editable_draft_section_ids, illustration_groups, labels
 from app.domain.manuscript_writing.authorization import revisable_draft
 from app.domain.manuscript_writing.context import citation_fragments
+from app.domain.manuscript_writing.live_contracts import scoped_draft_revision
 from app.domain.manuscript_writing.service import WritingService
 from app.domain.manuscripts.execution import images_for
 from app.domain.manuscripts.illustrations import BODY_REFERENCE
@@ -108,29 +109,36 @@ def reader_references(snapshot, sections, references):
 def draft_content(snapshot, evidence):
     en = snapshot['output_language'] == 'en'
     school = bool(snapshot.get('thesis_context'))
+    plan = snapshot.get('paper_plan') or {}
     headings = {} if school else {sid: english if en else chinese
                 for sid, english, chinese in labels(snapshot.get('article_type', 'research'), snapshot)}
     references = {item['project_reference_id']: item for item in snapshot['references']}
     sections = []
+    reference_heading = None
     for section in snapshot['sections']:
         sid = section['id']
         if not school and sid == 'references':
+            if plan.get('sci_template'):
+                reference_heading = dict(heading=headings[sid], level=section.get('level', 1))
             continue
         role = section.get('purpose', sid)
         paragraphs = [dict(id=p['id'], parts=paragraph_parts(p, snapshot, evidence, references))
                       for p in section['paragraphs'] if role != 'references']
-        illustrations = [dict(id=g['id'], title=g['title'], tables=g['tables'], figures=g['figures'])
+        combined = sid == 'themes' and plan.get('combine_review_topics')
+        illustrations = [dict(id=g['id'], title=headings[sid] if combined else g['title'], tables=g['tables'], figures=g['figures'])
                          for g in section_groups(snapshot, section) if g['tables'] or g['figures']]
-        if (snapshot.get('paper_plan') or {}).get('review_figure_placement_version') == 1:
+        if plan.get('review_figure_placement_version') == 1 or plan.get('sci_figures'):
             illustrations = place_review_figures(paragraphs, illustrations)
+        default_level = 0 if not school and sid == 'title' else 1
         view = dict(id=sid, heading=section['title'] if school else headings[sid],
-                    level=section.get('level', 1), paragraphs=paragraphs, groups=illustrations)
+                    level=section.get('level', default_level), paragraphs=paragraphs, groups=illustrations)
         if school:
             view.update(purpose=role, output_language=section['output_language'])
         sections.append(view)
     return dict(title=snapshot['title'], output_language=snapshot['output_language'], sections=sections,
                 keywords=snapshot.get('keywords', []), acknowledgements=snapshot.get('acknowledgements', ''),
-                references=reader_references(snapshot, sections, references))
+                references=reader_references(snapshot, sections, references),
+                **({'reference_heading': reference_heading} if reference_heading else {}))
 
 
 def draft_changes(before, after):
@@ -198,7 +206,7 @@ class SciDraftReader:
                 params.extend([manuscript, str(revision), revision, revision])
             rows = db.execute("""SELECT r.manuscript_id, r.task_id FROM manuscript_writing_requests r
                 JOIN tasks t ON t.id=r.task_id AND t.project_id=r.project_id AND t.user_id=r.user_id
-                WHERE r.project_id=%s AND r.user_id=%s""" + scope + ' ORDER BY ' + published_first + """
+                WHERE r.project_id=%s AND r.user_id=%s AND (r.request_json->>'draft_advice') IS DISTINCT FROM 'true'""" + scope + ' ORDER BY ' + published_first + """
                          CASE WHEN t.status IN ('failed','cancelled') THEN 1 ELSE 0 END,
                          r.created_at DESC, r.task_id DESC""", tuple(params)).fetchall()
             for item in rows:
@@ -328,10 +336,28 @@ class SciDraftReader:
     def detail(self, project, manuscript, request_id, revision):
         with self.store.connection() as db:
             row, task = self.exact_request(db, project, manuscript, request_id, revision)
+            request = row['request_json']
+            advice = request.get('draft_advice') is True
+            scoped = scoped_draft_revision(request)
             result = dict(project_id=project, manuscript_id=manuscript, request_id=request_id, revision=revision,
                           status=task['status'], error_code=self.store.public_task(task)['error_code'], draft=None,
-                          previous_request_id=row['request_json'].get('revision_of_request_id'), changes=[], can_revise=False)
+                          previous_request_id=request.get('revision_of_request_id'), changes=[], can_revise=False)
+            if scoped:
+                result['target_sections'] = request['target_sections']
+            if advice:
+                result['draft_advice'] = True
+            if scoped and task['status'] in ('queued', 'running'):
+                result['partial_reply'] = (row.get('draft_chat_json') or {}).get('preview', [])
             if task['status'] != 'succeeded':
+                return result
+            if advice:
+                from app.domain.manuscript_writing.live_contracts import DraftAdviceOutput
+                try:
+                    reply = {key: value for key, value in (row.get('draft_chat_json') or {}).items()
+                             if key != 'first_preview_at'}
+                    result['advice'] = DraftAdviceOutput.model_validate(reply).advice
+                except ValueError as exc:
+                    raise source_conflict() from exc
                 return result
             if row['candidate_json'] is None:
                 raise source_conflict()
@@ -340,12 +366,18 @@ class SciDraftReader:
                 revisable_draft(row, task)
                 and self.writing.manuscripts.root(db, project, manuscript)['current_revision'] == revision
             )
+            if result['can_revise']:
+                result['editable_section_ids'] = editable_draft_section_ids(row['candidate_json'])
             if result['previous_request_id']:
                 previous, previous_task = self.writing.row(db, project, manuscript, result['previous_request_id'])
                 if previous_task['status'] != 'succeeded' or previous['candidate_json'] is None:
                     raise source_conflict()
                 before = self.content(db, project, manuscript, previous, previous_task)
-                result['changes'] = draft_changes(before, result['draft'])
+                changes = draft_changes(before, result['draft'])
+                if scoped:
+                    targets = set(request['target_sections'])
+                    changes = [change for change in changes if change['section_id'] in targets]
+                result['changes'] = changes
             return result
 
 
@@ -399,10 +431,15 @@ def draft_word(draft, images):
     document.core_properties.title = draft['title']
     en = draft['output_language'] == 'en'
     for section in draft['sections']:
-        if section['id'] != 'title':
-            document.add_heading(section['heading'], level=section['level'])
+        title = section['id'] == 'title'
+        level = section['level']
+        if not title:
+            document.add_heading(section['heading'], level=level)
         for paragraph in section['paragraphs']:
-            document.add_paragraph(paragraph_text(paragraph), style='Title' if section['id'] == 'title' else 'Normal')
+            if title:
+                document.add_heading(paragraph_text(paragraph), level=level)
+            else:
+                document.add_paragraph(paragraph_text(paragraph), style='Normal')
             for figure in paragraph.get('figures', ()):
                 _figure(document, figure, images, en)
         if section['id'] == 'abstract' and draft['keywords']:
@@ -418,7 +455,8 @@ def draft_word(draft, images):
         document.add_heading('Acknowledgements' if en else '致谢', level=1)
         document.add_paragraph(draft['acknowledgements'])
     if draft['references']:
-        document.add_heading('References' if en else '参考文献', level=1)
+        reference_heading = draft.get('reference_heading', dict(heading='References' if en else '参考文献', level=1))
+        document.add_heading(reference_heading['heading'], level=reference_heading['level'])
         for reference in draft['references']:
             document.add_paragraph(f'[{reference["number"]}] {reference["text"]}')
     return _save_document(document)

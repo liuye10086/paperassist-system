@@ -1,0 +1,38 @@
+.thesis-chapter-editor {
+  display: grid;
+  grid-template-columns: minmax(11rem, 1fr) minmax(0, 2fr);
+  align-items: start;
+  gap: 16px;
+}
+.thesis-chapter-outline {
+  min-width: 0;
+  max-block-size: min(60vh, 32rem);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.thesis-chapter-outline ol { list-style: none; padding: 0; margin: 0; }
+.thesis-chapter-outline li + li { border-block-start: 1px solid var(--border); }
+.thesis-chapter-outline button {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.thesis-chapter-outline button[aria-current='true'] {
+  background: var(--accent-surface);
+  color: var(--accent-foreground);
+  box-shadow: inset 3px 0 var(--primary);
+}
+.thesis-chapter-outline button:focus-visible { outline-offset: -2px; }
+.thesis-chapter-content { display: grid; gap: 12px; min-width: 0; }
+.thesis-chapter-content > h3, .thesis-chapter-content > p { margin: 0; }
+.thesis-chapter-content textarea { min-block-size: 12rem; }
+
+@media (max-width: 740px) {
+  .thesis-chapter-editor { grid-template-columns: minmax(0, 1fr); }
+  .thesis-chapter-outline { max-block-size: 15rem; }
+}

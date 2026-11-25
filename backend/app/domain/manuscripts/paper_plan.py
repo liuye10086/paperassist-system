@@ -9,6 +9,7 @@ from app.domain.paper_materials import (
     DEFAULT_REVIEW_TOPIC, MATERIAL_KINDS, chapter_heading, paper_material_rows, read_sci_settings, review_section_labels,
     review_topic_heading, sci_finding_label, sci_target_id, thesis_figure_chapters, thesis_target_id,
 )
+from app.domain.research_intake.sci_templates import configured_template
 from app.domain.school_templates.service import SchoolTemplateService
 
 
@@ -40,6 +41,10 @@ def current_plan(service, db, project, school=None):
     project_id = project['id']
     targets = {}
     figure_chapters = {}
+    sci_template = None
+    sci_figure_workflow = False
+    thesis_figures = []
+    thesis_figures_need_configuration = False
     if project['project_type'] == 'sci':
         settings = read_sci_settings(db, project)
         if not settings:
@@ -47,6 +52,8 @@ def current_plan(service, db, project, school=None):
         title = settings.get('proposed_title') or project['name']
         kind = settings['article_type']
         keywords = settings['keywords']
+        sci_template = configured_template(kind, settings.get('template_id'), settings.get('template_sections'))
+        sci_figure_workflow = bool(sci_template and settings.get('figure_workflow'))
         if kind == 'research':
             findings = settings.get('figure_findings', [])
             if settings.get('main_results'):
@@ -82,6 +89,12 @@ def current_plan(service, db, project, school=None):
             key = thesis_target_id(binding, chapter['id'])
             figure_chapters[key] = dict(id='paper-image-' + digest(key)[:32], label=chapter['title'].strip(),
                                         chapter_id=chapter['id'], purpose=by_chapter.get(chapter['id'], {}).get('purpose'))
+        if requirements.get('figure_placements'):
+            from app.domain.school_templates.thesis_figure_resources import resolve_thesis_figures
+
+            thesis_figures, thesis_figures_need_configuration = resolve_thesis_figures(
+                db, service.assets, project, requirements, school,
+            )
     else:
         return None
 
@@ -92,10 +105,14 @@ def current_plan(service, db, project, school=None):
     review = kind == 'narrative_review'
     native_sections = {sci_target_id('section', sid): dict(id=sid)
                        for sid in review_section_labels(project['default_output_language'])} if review else {}
-    for note in paper_material_rows(db, service.assets, project_id, include_uploaded_figures=review or kind == 'thesis'):
-        if note['file_id'] in excluded:
+    include_uploaded_figures = (review and not sci_figure_workflow) or kind == 'thesis'
+    composed_panels = panel_file_ids(thesis_figures)
+    for note in paper_material_rows(db, service.assets, project_id, include_uploaded_figures=include_uploaded_figures):
+        if note['file_id'] in excluded or note['file_id'] in composed_panels:
             continue
         material_kind = MATERIAL_KINDS.get(note['file_type'])
+        if sci_figure_workflow and material_kind == 'figure':
+            continue
         thesis_figure = kind == 'thesis' and material_kind == 'figure'
         if thesis_figure:
             section = figure_chapters.get(note['target_id']) or auto_figure_section(
@@ -109,7 +126,8 @@ def current_plan(service, db, project, school=None):
             continue
         else:
             section = targets.get(note['target_id'])
-        if section is None or material_kind is None or (not thesis_figure and section.get('purpose') == 'materials_and_methods'):
+        if (section is None or material_kind is None
+                or kind == 'thesis' and material_kind == 'table' and section.get('purpose') != 'results'):
             omitted_count += 1
             continue
         file_id = note['file_id']
@@ -130,11 +148,23 @@ def current_plan(service, db, project, school=None):
         plan['review_figure_placement_version'] = 1
     if kind == 'thesis':
         assigned = {item['chapter_id'] for item in materials if 'chapter_id' in item}
+        assigned.update(image['chapter_id'] for image in thesis_figures)
         if assigned:
             plan['figure_chapters'] = [dict(id=s['id'], label=s['label'], chapter_id=s['chapter_id'])
                                        for s in figure_chapters.values() if s['chapter_id'] in assigned]
+        if thesis_figures or thesis_figures_need_configuration:
+            plan.update(thesis_figures=thesis_figures, thesis_figures_need_configuration=thesis_figures_need_configuration)
     if project['project_type'] == 'sci':
         plan['target_journal'] = settings.get('target_journal')
+        if sci_template is not None:
+            plan['sci_template'] = sci_template
+            if review and settings.get('combine_review_topics'):
+                plan['combine_review_topics'] = True
+        if sci_figure_workflow:
+            from app.domain.research_intake.sci_resources import resolve_sci_figures
+
+            figures, needs_configuration = resolve_sci_figures(db, service.assets, project, settings, sci_template)
+            plan.update(sci_figures=figures, sci_figures_need_configuration=needs_configuration)
     if file_descriptions:
         plan['file_descriptions'] = file_descriptions
     return dict(**plan, token=digest(plan), omitted_count=omitted_count)
@@ -145,10 +175,18 @@ def require_current_plan(service, db, project, request, school):
     if plan is None or plan.pop('token') != request.paper_plan_token or request.title != plan['title']:
         raise StorageError('task_source_conflict', '项目需求或图表已更新，请刷新后重新准备稿件。', 409)
     plan.pop('omitted_count')
-    planned_files = {item['selection']['file_id'] for item in plan['materials']}
-    if any(source.file_id in planned_files for source in request.sources):
+    if plan.pop('sci_figures_need_configuration', False):
+        raise StorageError('sci_resources_invalid', '请先完成正图的入稿章节和图注配置。', 422)
+    if plan.pop('thesis_figures_need_configuration', False):
+        raise StorageError('thesis_figure_resources_invalid', '请先核对正图对应的学校模板章节和图注。', 422)
+    planned_files = {selection['file_id'] for selection in planned_selections(plan)}
+    composed_panels = panel_file_ids(plan.get('thesis_figures', []))
+    if any(source.file_id in planned_files
+           or source.kind == 'original' and source.role == 'image_observation' and source.file_id in composed_panels
+           for source in request.sources):
         raise StorageError('task_input_invalid', '已关联的图表会随项目需求带入，请移除重复选择。', 422)
     plan_groups = {section['id'] for section in [*plan['sections'], *plan.get('figure_chapters', [])]}
+    plan_groups.update(sci_figure_group_id(figure['chapter_id']) for figure in plan.get('sci_figures', []))
     if {group.id for group in request.results_groups} & plan_groups:
         raise StorageError('task_input_invalid', '项目需求中的内容已分组，请检查补充结果分组。', 422)
     if 'file_descriptions' in plan:
@@ -158,6 +196,27 @@ def require_current_plan(service, db, project, request, school):
         plan['sections'][0]['label'] = review_topic_heading(request.output_language)
     require_review_heading_language(plan, request.output_language)
     return plan
+
+
+def placed_figures(plan):
+    return plan.get('thesis_figures', plan.get('sci_figures', []))
+
+
+def panel_file_ids(figures):
+    return {file_id for figure in figures for file_id in figure['panel_file_ids']}
+
+
+def planned_selections(plan):
+    selections = [item['selection'] for item in plan['materials']]
+    for image in placed_figures(plan):
+        if image['source_kind'] == 'original':
+            file_id = image['figure_id']
+            selections.append(dict(kind='original', id=file_id, file_id=file_id, role='image_observation'))
+    return selections
+
+
+def sci_figure_group_id(chapter_id):
+    return 'sci-figures-' + chapter_id
 
 
 def require_review_heading_language(plan, language):
@@ -173,6 +232,8 @@ def require_review_heading_language(plan, language):
 
 
 def result_sections(plan):
+    if plan['kind'] == 'thesis':
+        return [section for section in plan['sections'] if section.get('purpose') == 'results']
     return [section for section in plan['sections'] if section.get('purpose') != 'materials_and_methods']
 
 
@@ -187,6 +248,9 @@ def freeze_groups(service, project, plan, source_lookup, make_figure, language):
 
     by_section = defaultdict(list)
     finding_sources = defaultdict(list)
+    thesis_figures_by_chapter = defaultdict(list)
+    for image in plan.get('thesis_figures', []):
+        thesis_figures_by_chapter[image['chapter_id']].append(image)
     for material in plan['materials']:
         by_section[material['section_id']].append(material)
         if 'finding_section_id' in material:
@@ -239,11 +303,30 @@ def freeze_groups(service, project, plan, source_lookup, make_figure, language):
             paragraphs.append(dict(id='paper-material:' + identity,
                                    text=f"{material['result']} ({labels})", origin='user_provided',
                                    source_ids=[identity], citations=[], cross_references=references))
-        if plan['kind'] == 'research':
+        if plan['kind'] == 'research' and 'sci_figures' not in plan:
             bind_finding_figures(paragraphs[0], figures, position, language)
         title = sci_finding_label(position, language) if plan['kind'] == 'research' else section['label']
         group = dict(id=section['id'], title=title, paragraphs=paragraphs, tables=tables, figures=figures)
         if 'chapter_id' in section and 'text' not in section:
             group['illustration_chapter_id'] = section['chapter_id']
+            figures.extend(make_figure(image['figure_id'], paper_caption=image['caption'], optional_caption=True)
+                           for image in thesis_figures_by_chapter[section['chapter_id']])
         groups.append(group)
+    sci_groups = {}
+    if plan.get('sci_figures'):
+        headings = {section['id']: section['en' if language == 'en' else 'zh'] for section in plan['sci_template']['sections']}
+        for image in plan['sci_figures']:
+            chapter_id = image['chapter_id']
+            if chapter_id not in sci_groups:
+                sci_groups[chapter_id] = dict(id=sci_figure_group_id(chapter_id), title=headings[chapter_id],
+                                              illustration_chapter_id=chapter_id, paragraphs=[], tables=[], figures=[])
+            figure = make_figure(image['figure_id'], paper_caption=image['caption'], optional_caption=True)
+            if not image['caption']:
+                figure['caption'] = 'Author-supplied illustration.' if language == 'en' else '作者提供的配图。'
+            sci_groups[chapter_id]['figures'].append(figure)
+    if plan['kind'] == 'research' and 'sci_figures' in plan:
+        figures = [figure for group in sci_groups.values() for figure in group['figures']]
+        for position, group in enumerate(groups, 1):
+            bind_finding_figures(group['paragraphs'][0], figures, position, language, use_global_numbers=True)
+    groups.extend(sci_groups.values())
     return groups, table_count

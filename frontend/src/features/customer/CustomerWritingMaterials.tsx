@@ -43,10 +43,8 @@ export default function CustomerWritingMaterials({
       onSelect={selection => onUpdateRoute({ analysisProject: selection?.projectId, analysisSnapshot: selection?.snapshotId })}
       onPick={pick => setPicks(old => [pick, ...old.filter(item =>
         item.researchProjectName !== pick.researchProjectName || item.deliveryTitle !== pick.deliveryTitle)].slice(0, 20))} />}
-    <div hidden={analysisResults}>
-      <CustomerMaterials projectId={project.id} headingRef={analysisResults ? undefined : headingRef}
-        onContinue={onContinue} onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard}
-        forWriting="thesis" active={!analysisResults} analysisPicks={picks} onAnalysisResults={onOpenAnalysisResults} analysisResultsRef={pickButton} />
-    </div>
+    <CustomerMaterials projectId={project.id} headingRef={analysisResults ? undefined : headingRef}
+      onContinue={onContinue} onUnavailable={onUnavailable} registerLeaveGuard={registerLeaveGuard}
+      forWriting="thesis" active={!analysisResults} analysisPicks={picks} onAnalysisResults={onOpenAnalysisResults} analysisResultsRef={pickButton} />
   </>
 }

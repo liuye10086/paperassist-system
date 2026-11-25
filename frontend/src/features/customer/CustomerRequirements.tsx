@@ -203,10 +203,8 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
   const progress = useResearchRead<Progress>(customerBase(projectId) + '/progress', current?.operation === 'confirm')
   const updatesAssigned = current?.operation === 'confirm' && !!progress.data && analystStatuses.has(progress.data.status)
   return <section className="customer-section customer-requirements" aria-labelledby={headingId}>
-    <header className="customer-requirements__header">
-      <h1 id={headingId} ref={headingRef} tabIndex={-1}>{t('选择需求')}</h1>
-      {root && !pending && <p role="status">{t(status)}</p>}
-    </header>
+    <h1 id={headingId} ref={headingRef} tabIndex={-1} className="visually-hidden">{t('选择需求')}</h1>
+    {root && !pending && <p className="customer-requirements__status" role="status">{t(status)}</p>}
     {reading && <p role="status">{t('正在读取需求……')}</p>}
     {!root && !reading && error && <button type="button" onClick={reload}>{t('重新读取需求')}</button>}
     {root && <div className="customer-requirements__form" aria-busy={busy}>

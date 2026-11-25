@@ -1,27 +1,41 @@
-"""Read only actual immutable PNG/JPEG members, with owner and byte checks."""
+"""Resolve immutable raster panels with owner and byte checks."""
 import base64
 import hashlib
 import io
 from PIL import Image
+from app.adapters.project_images import IMAGE_FORMATS, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE
+from app.adapters.research_figure_render import PANEL_FORMATS
 from app.adapters.research_results_store import invalid
 from app.adapters.bio_analysis_store import scoped_object
 from app.adapters.research_objects import ResearchObjects
+from app.adapters.storage import MaterialVisibility
 
 
 def image_metadata(raw):
     try:
-        with Image.open(io.BytesIO(raw)) as image:
-            if image.format not in ('PNG','JPEG'):raise ValueError()
-            if max(image.size)>8000 or image.width*image.height>40_000_000:raise invalid('research_source_limit_exceeded',422)
-            image.verify();return {'format':'png' if image.format=='PNG' else 'jpeg','width':image.width,'height':image.height}
-    except (ValueError,OSError,Image.DecompressionBombError) as exc:raise invalid('research_source_unsupported',422) from exc
+        with Image.open(io.BytesIO(raw), formats=list(PANEL_FORMATS)) as image:
+            if min(image.size)<1 or max(image.size)>MAX_IMAGE_SIDE or image.width*image.height>MAX_IMAGE_PIXELS:
+                raise invalid('research_source_limit_exceeded',422)
+            image.verify()
+            return dict(format=PANEL_FORMATS[image.format],width=image.width,height=image.height)
+    except (OSError,ValueError,TypeError,SyntaxError,EOFError,OverflowError,IndexError,
+            Image.DecompressionBombError,Image.DecompressionBombWarning) as exc:
+        raise invalid('research_source_unsupported',422) from exc
 
 
-def read_figure_panel(reader,db,project,panel,*,phase,progress=None,figure_language=None,frozen_panel=None):
-    source=reader._read_source_in_phase(project,panel.source,db=db,phase=phase,progress=progress);kind=source.source_kind;quality={}
+def read_figure_panel(reader,db,project,panel,*,phase,progress=None,figure_language=None,frozen_panel=None,customer_originals=False):
+    kind=panel.source.source_kind
+    if customer_originals and kind!='original_file':raise invalid('research_source_unsupported',422)
     if kind=='original_file':
         if panel.member_key is not None:raise invalid('research_locator_invalid',422)
-        row=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s',(source.source_id,project)).fetchone()
+        visibility=MaterialVisibility()
+        visibility.customer=customer_originals
+        row=db.execute('SELECT * FROM files WHERE id=%s AND project_id=%s'+visibility.material_filter,
+            (panel.source.source_id,project)).fetchone()
+        if row is None:raise invalid('research_source_not_found',404)
+        if customer_originals and row['file_type'] not in IMAGE_FORMATS:raise invalid('research_source_unsupported',422)
+    source=reader._read_source_in_phase(project,panel.source,db=db,phase=phase,progress=progress);quality={}
+    if kind=='original_file':
         raw=reader.assets.original(dict(row));sha=source.sha256;key=None
     elif kind=='analysis_run':
         if panel.member_key not in (None,'statistics'):raise invalid('research_locator_invalid',422)
@@ -79,7 +93,11 @@ def read_figure_panel(reader,db,project,panel,*,phase,progress=None,figure_langu
     else:raise invalid('research_source_unsupported',422)
     if hashlib.sha256(raw).hexdigest()!=sha:raise invalid()
     if progress is not None:progress()
-    return source,dict(source=source.model_dump(mode='json'),member_key=key,sha256=sha,label=panel.label,note=panel.note,**image_metadata(raw),**quality),raw
+    metadata=image_metadata(raw)
+    if ((customer_originals and metadata['format']!=row['file_type'])
+            or (metadata['format']=='tiff' and kind!='original_file')):
+        raise invalid('research_source_unsupported',422)
+    return source,dict(source=source.model_dump(mode='json'),member_key=key,sha256=sha,label=panel.label,note=panel.note,**metadata,**quality),raw
 
 
 def research_figure_source(reader,db,project,row,*,progress=None):

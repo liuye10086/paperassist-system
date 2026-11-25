@@ -25,7 +25,8 @@ def history(project_id: str, store: Store):
 
 
 @router.get(READER)
-def read(project_id: str, manuscript_id: str, request_id: str, revision: Revision, store: Store):
+def read(project_id: str, manuscript_id: str, request_id: str, revision: Revision, store: Store, response: Response):
+    response.headers['Cache-Control'] = 'private, no-store'
     return SciDraftReader(store).detail(project_id, manuscript_id, request_id, revision)
 
 

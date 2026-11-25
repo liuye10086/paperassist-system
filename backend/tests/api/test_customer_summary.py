@@ -161,7 +161,12 @@ def test_sci_summary_opens_drafts_through_preparation_recovery_and_reading():
             assert (value['kind'], value['actor'], value['step']) == ('continue_writing', 'customer', 'manuscripts')
             assert value['target'] == TARGET and value['message_params'] == {}
 
-        check_summary()  # The project already has a visible upload.
+        assert landing(customer, project) == ('sci_template_needed', 'customer', 'sci-template')
+        catalog = customer.get(project + '/sci-template').json()
+        applied = customer.put(project + '/sci-template', json=dict(expected_revision=catalog['revision'],
+                               template_id='standard-sci-research-v1'))
+        assert applied.status_code == 200, applied.text
+        check_summary()
         current = project + '/sci-current-draft'
         assert customer.get(current).json() == {'draft': None}
         created = post(customer, project + '/manuscripts', body(**materials), 'summary-fact')

@@ -106,6 +106,12 @@ def define_research_results_tables(metadata):
          *bounded_json('config_json'),text('config_sha256'),text('manifest_object_id',True),text('manifest_sha256',True),
          obj('manifest_object_id'),*request(),
          check("config_sha256 ~ '^[0-9a-f]{64}$' AND ((manifest_object_id IS NULL AND manifest_sha256 IS NULL) OR (manifest_object_id IS NOT NULL AND manifest_sha256 IS NOT NULL AND manifest_sha256 ~ '^[0-9a-f]{64}$'))"))
+    sa.Table('paper_figure_cancellations',metadata,
+             sa.Column('root_id',sa.Text,primary_key=True),text('project_id'),text('user_id'),
+             sa.Column('cancelled_at',sa.DateTime(timezone=True),nullable=False),
+             sa.ForeignKeyConstraint(['root_id','project_id','user_id'],
+                 ['research_figure_versions.id','research_figure_versions.project_id','research_figure_versions.user_id'],
+                 name='paper_figure_cancellation_scope'))
     make('research_report_versions',*version_lineage('root_id','research_report_versions'),*task_result('report'),
          ref('root_id','research_report_versions'),check('revision<>1 OR root_id=id'),
          text('finding_version_id'),ref('finding_version_id','research_finding_versions'),text('language'),

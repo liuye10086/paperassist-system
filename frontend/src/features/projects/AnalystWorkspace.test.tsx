@@ -53,7 +53,7 @@ function open(hash: string) {
   return render(<ProjectWorkspace analysisOnly />)
 }
 
-function server({ intakeDraft = false } = {}) {
+function server({ intakeDraft = false, submittedRequirement = requirement } = {}) {
   const state = { status: 'assigned', note: null as string | null, frozen: false, published: false, revoked: false, stale: false, progressFailure: false, readFailure: false, assignedTotal: 1 }
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     const [path, query] = url.split('?')
@@ -85,9 +85,10 @@ function server({ intakeDraft = false } = {}) {
       state.status = 'delivered'
       return Response.json({}, { status: 201 })
     }
-    if (path === base + '/research-intake') return Response.json({ project_id: project.id, revision: 2, current_requirement: intakeDraft ? draft : requirement,
+    if (path === base + '/research-intake') return Response.json({ project_id: project.id, revision: 2, current_requirement: intakeDraft ? draft : submittedRequirement,
       current_design: null, deliveries: [{ id: 'd1', kind: 'analysis', active: true, origin: 'explicit' }, { id: 'd2', kind: 'sci_draft', active: true }], capabilities: {}, gaps: [] })
-    if (path === base + '/requirements/r1') return Response.json(requirement)
+    if (path === base + '/requirements/r1') return Response.json(submittedRequirement)
+    if (path === base + '/bulk-workflow') return Response.json({ project_id: project.id, stages: [], comparisons: [], descendants: [] })
     if (path === delivery + '/candidates') return Response.json({ items: [{ selection, label: 'expression.csv', format: 'csv', status: 'existing_upload' }],
       requirements: [{ id: 'r1', version: 1 }, { id: 'r2', version: 2 }] })
     if (path === delivery + '/snapshots/preview') return Response.json({ ...snapshot, sha256: undefined })
@@ -426,6 +427,37 @@ it('offers direct table and bio analysis when submitted choices have no linked m
   expect(screen.getByRole('button', { name: /表格数据与统计/ })).toBeTruthy()
   expect(screen.getByRole('button', { name: /组学与生信数据/ })).toBeTruthy()
   expect(screen.getByRole('button', { name: '进入 Bulk RNA-seq 工作流' })).toBeTruthy()
+})
+
+it('opens the Bulk data step from an assigned Bulk-only project and routes directly to the import form', async () => {
+  server({ submittedRequirement: { ...requirement, content: { ...requirement.content, scope_items:
+    requirement.content.scope_items.filter(scope => scope.id.includes('.bulk') || scope.id === 'customer.delivery.word') } } })
+  open('#project=assigned&section=analysis')
+
+  await screen.findByRole('heading', { name: '导入计数矩阵与样本表' })
+  const start = screen.getByRole('button', { name: '进入 Bulk RNA-seq 工作流' })
+  expect(screen.queryByRole('button', { name: '进入生信质量控制' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: '单细胞分析流程' })).toBeNull()
+  fireEvent.click(start)
+
+  const workflow = within(await screen.findByRole('navigation', { name: 'Bulk RNA-seq 工作流' }))
+  expect(workflow.getByRole('button', { name: '数据与样本' })).toHaveProperty('ariaCurrent', 'page')
+  const importMatrix = await screen.findByRole('button', { name: '导入并核对 Bulk 矩阵' })
+  await waitFor(() => expect(importMatrix).toHaveProperty('disabled', false))
+  fireEvent.click(importMatrix)
+  expect(window.location.hash).toContain('scope=customer.type.bulk&intent=bulk_import')
+  expect(await screen.findByRole('textbox', { name: '数据集名称' })).toBeTruthy()
+})
+
+it('shows the dedicated workflow for each assay on a mixed analyst project', async () => {
+  server()
+  open('#project=assigned&section=analysis')
+  const single = within(await screen.findByRole('article', { name: '单细胞 RNA 测序数据分析' }))
+  const bulk = within(screen.getByRole('article', { name: 'RNA 转录组学分析（Bulk RNA-seq）' }))
+  expect(single.getByRole('heading', { name: '关联细胞分组表' })).toBeTruthy()
+  expect(bulk.getByRole('heading', { name: '运行样本质控' })).toBeTruthy()
+  expect(bulk.queryByRole('heading', { name: '关联细胞分组表' })).toBeNull()
+  expect(screen.getByRole('button', { name: /表格数据与统计/ })).toBeTruthy()
 })
 
 it('opens step three with quality control before the analysis choices and opens the selected source directly', async () => {

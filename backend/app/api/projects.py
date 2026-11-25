@@ -11,7 +11,13 @@ from app.adapters.project_images import IMAGE_MEDIA_TYPES, PREVIEW_MAX_SIDE, tif
 from app.adapters.storage import PROJECT_UPDATE_LIMITS, ProjectStore, get_request_project_store
 from app.auth.permissions import require_customer_role
 from app.domain.project_summary import ProjectSummary, read_project_summary
-from app.domain.research_intake.sci_settings import SciSettingsPayload, SciSettingsState, SciSettingsWrite, sci_settings
+from app.domain.research_intake.sci_resources import (
+    FigureResourcesState, FigureResourcesWrite, SciResourcesState, SciResourcesWrite, sci_resources,
+)
+from app.domain.research_intake.sci_settings import (
+    SciSettingsPayload, SciSettingsState, SciSettingsWrite, SciTemplateWrite, sci_settings, sci_template_settings,
+)
+from app.domain.school_templates.thesis_figure_resources import thesis_figure_resources
 from app.domain.school_templates.thesis_requirements import ThesisBasics, ThesisRequirementsWrite, thesis_requirements
 from app.domain.workflow_state import WorkflowState, read_workflow_state
 from app.domain.files import (ProjectFile, FilePage, FileMetadata, FileDetails, FilePurposesInput,
@@ -155,6 +161,28 @@ def update_sci_settings(project_id: str, changes: SciSettingsWrite, store: Store
     return sci_settings(store, project_id, changes)
 
 
+@router.get('/{project_id}/sci-template', dependencies=[Depends(require_customer_role)])
+def get_sci_template(project_id: str, store: Store):
+    return sci_template_settings(store, project_id)
+
+
+@router.put('/{project_id}/sci-template', dependencies=[Depends(require_customer_role)])
+def update_sci_template(project_id: str, changes: SciTemplateWrite, store: Store):
+    return sci_template_settings(store, project_id, changes)
+
+
+@router.get('/{project_id}/sci-resources', response_model=SciResourcesState, response_model_exclude_unset=True,
+            dependencies=[Depends(require_customer_role)])
+def get_sci_resources(project_id: str, store: Store):
+    return sci_resources(store, project_id)
+
+
+@router.put('/{project_id}/sci-resources', response_model=SciResourcesState, response_model_exclude_unset=True,
+            dependencies=[Depends(require_customer_role)])
+def update_sci_resources(project_id: str, changes: SciResourcesWrite, store: Store):
+    return sci_resources(store, project_id, changes)
+
+
 @router.get('/{project_id}/thesis-requirements', dependencies=[Depends(require_customer_role)])
 def get_thesis_requirements(project_id: str, store: Store):
     return thesis_requirements(store, project_id)
@@ -163,6 +191,18 @@ def get_thesis_requirements(project_id: str, store: Store):
 @router.put('/{project_id}/thesis-requirements', dependencies=[Depends(require_customer_role)])
 def update_thesis_requirements(project_id: str, changes: ThesisRequirementsWrite, store: Store):
     return thesis_requirements(store, project_id, changes)
+
+
+@router.get('/{project_id}/thesis-figure-resources', response_model=FigureResourcesState, response_model_exclude_unset=True,
+            dependencies=[Depends(require_customer_role)])
+def get_thesis_figure_resources(project_id: str, store: Store):
+    return thesis_figure_resources(store, project_id)
+
+
+@router.put('/{project_id}/thesis-figure-resources', response_model=FigureResourcesState, response_model_exclude_unset=True,
+            dependencies=[Depends(require_customer_role)])
+def update_thesis_figure_resources(project_id: str, changes: FigureResourcesWrite, store: Store):
+    return thesis_figure_resources(store, project_id, changes)
 
 
 @router.get('/{project_id}/summary', response_model=ProjectSummary)

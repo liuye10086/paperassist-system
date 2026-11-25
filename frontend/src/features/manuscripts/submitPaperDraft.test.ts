@@ -200,6 +200,21 @@ it('reads versioned upload excerpts only on supported school and article preview
   expect(validPreviewInput({...bundleFixture().request_json, document_context_version: 'selected-text-v1'})).toBe(false)
 })
 
+it('accepts distinct school chapter IDs only on full-draft revision requests', () => {
+  const school = {...bundleFixture().request_json, schema_version:3, instructions:'Change the comparison.'}
+  const scoped = {...school, revision_of_request_id:'w1', target_sections:['thesis:custom:methods']}
+  expect(validPreviewInput(school)).toBe(true)
+  expect(validPreviewInput(scoped)).toBe(true)
+  expect(validPreviewInput({...scoped, draft_advice:true})).toBe(true)
+  expect(validPreviewInput({...school, target_sections:scoped.target_sections})).toBe(false)
+  expect(validPreviewInput({...scoped, target_sections:[]})).toBe(false)
+  expect(validPreviewInput({...scoped, target_sections:['x', 'x']})).toBe(false)
+  expect(validPreviewInput({...scoped, target_sections:['']})).toBe(false)
+  expect(validPreviewInput({...scoped, target_sections:Array.from({length:301}, (_, i) => 'chapter-' + i)})).toBe(false)
+  expect(validPreviewInput({...scoped, mode:'rewrite_section', target_section:'thesis:custom:methods'})).toBe(false)
+  expect(validPreviewInput({...school, revision_of_request_id:'w1', draft_advice:true})).toBe(false)
+})
+
 it('lets the writing API evaluate an explicitly selected historical analysis version', async () => {
   const {records} = server()
   const current_changes = [{kind: 'analysis_run', id: 'run', reasons: ['analysis_configuration_changed']}]

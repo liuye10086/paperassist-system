@@ -1,5 +1,6 @@
-import {useState} from 'react'
+import {useState,type FormEvent,type ReactNode} from 'react'
 import {useI18n} from '../../shared/i18n'
+import ModuleViews,{ModuleView} from '../../shared/components/ModuleViews'
 import {projectBase} from './api'
 import {
   bulkComparisonLabel, bulkFigureLabels, bulkQColumns, validBulkSelection,
@@ -25,12 +26,13 @@ const readerColumns = [
 const pageSize = 50
 const defaults = {subset:'all' as BulkSubset,qColumn:'q_within_contrast' as BulkQColumn,q:'0.05',effect:'1',search:''}
 
-export default function BulkComparisons({projectId,result,active,onPlan,allowNewAnalysis=true}:{
+export default function BulkComparisons({projectId,result,active,onPlan,allowNewAnalysis=true,compact}:{
   projectId:string
   result:Result
   active:boolean
   onPlan?:(seed:BulkPlanSeed)=>void
   allowNewAnalysis?:boolean
+  compact?:{details:ReactNode;reportContextId?:string}
 }) {
   const {t} = useI18n()
   const [draft,setDraft] = useState(defaults)
@@ -38,6 +40,10 @@ export default function BulkComparisons({projectId,result,active,onPlan,allowNew
   const [requestedContrast,setRequestedContrast] = useState('')
   const [page,setPage] = useState(1)
   const [plot,setPlot] = useState<BulkFigureType>('bulk_volcano')
+  const reportContextId=compact?.reportContextId
+  const [view,setView]=useState<{id:string;reportContextId?:string}|null>(null)
+  const selectedView=view?.reportContextId===reportContextId&&view?.id?view.id:reportContextId?'details':'results'
+  const openView=(id:string)=>setView({id,reportContextId})
   const query = new URLSearchParams({
     subset:filter.subset, q_column:filter.qColumn, q_threshold:filter.q,
     minimum_absolute_effect:filter.effect, page:String(page), page_size:String(pageSize),
@@ -99,38 +105,105 @@ export default function BulkComparisons({projectId,result,active,onPlan,allowNew
     onPlan?.({source:resultSource,config})
   }
   const deg = selection.direction==='both'?selected?.deg:selected?.[selection.direction]
-  const columns = data?readerColumns.filter(column=>data.columns.includes(column)):[]
+  const columns = data?(compact?['feature_id','symbol','effect_value','p_value',selection.q_column,'test_status']:readerColumns)
+    .filter(column=>data.columns.includes(column)):[]
+  const compactLabels=compact?{feature_id:'特征 ID',symbol:'基因名',contrast_id:'比较',effect_value:'log2FC',
+    p_value:'原始 P 值',test_status:'检验状态',[selection.q_column]:bulkQColumns[selection.q_column]}:undefined
+  const applyFilters=(event:FormEvent<HTMLFormElement>)=>{
+    event.preventDefault()
+    if (invalid) return
+    const next = {...draft,search:draft.search.trim()}
+    setDraft(next)
+    setFilter(next)
+    setPage(1)
+    if (compact) openView('results')
+  }
+  const contrastField=<Field label="固定比较" value={contrastId} onChange={value=>{setRequestedContrast(value);setPage(1)}}>
+    {!contrasts.length&&<option value="">{t('读取默认比较')}</option>}
+    {contrasts.map(item=><option key={item.contrast_id} value={item.contrast_id}>{bulkComparisonLabel(item)}</option>)}
+  </Field>
+  const scopeField=<Field label="结果范围" value={draft.subset} onChange={value=>setDraft({...draft,subset:value as BulkSubset})}>
+    {Object.entries(subsetLabels).map(([key,label])=><option key={key} value={key}>{t(label)}</option>)}
+  </Field>
+  const thresholds=<>
+    <Field label="q 值口径" value={draft.qColumn} onChange={value=>setDraft({...draft,qColumn:value as BulkQColumn})}>
+      {Object.entries(bulkQColumns).map(([key,label])=><option key={key} value={key}>{t(label)}</option>)}
+    </Field>
+    <Field label="q 阈值" type="number" min={0} max={1} step="any" value={draft.q} onChange={q=>setDraft({...draft,q})}/>
+    <Field label="最小绝对 log2FC" type="number" min={0} max={1000000} step="any" value={draft.effect} onChange={effect=>setDraft({...draft,effect})}/>
+  </>
+  const searchField=<label>{t('特征搜索')}<input maxLength={200} value={draft.search} onChange={event=>setDraft({...draft,search:event.target.value})}/></label>
+  const thresholdError=invalid&&<p role="alert">{t('请输入 0–1 的 q 阈值与 0–1,000,000 的最小绝对效应。')}</p>
+  const filterNotes=<>
+    <p className="muted">{t('比较内 BH 使用单个比较的检验族。冻结比较族 BH 使用已声明的跨比较检验族。模型原生调整值可因独立过滤而缺失。')}</p>
+    <p className="muted">{t('全量按原表顺序。DEG 按所选 q 升序、绝对效应降序、稳定 ID 排序。零效应归为无方向。')}</p>
+  </>
+  const count=<p>{data&&t('当前范围匹配 {matched} 行，当前比较全量 {total} 行。',{matched:data.matched_total,total:data.total})}</p>
+  const noneFound=deg===0&&<p role="status">{t('当前比较在此阈值和方向下有 0 个 DEG。')}</p>
+  const plots=onPlan&&<section aria-label={t('使用当前固定比较')}>
+    <div className={compact?'bulk-result-toolbar':'intake-actions'}>
+      <Field label="Bulk 图型" value={plot} onChange={value=>setPlot(value as BulkFigureType)}>
+        {plotTypes.map(kind=><option key={kind} value={kind}>{t(bulkFigureLabels[kind])}</option>)}
+      </Field>
+      <button type="button" className={compact?'button-primary':undefined} disabled={!actionsReady} onClick={()=>startFigure(plot)}>{t('按当前筛选绘图')}</button>
+      <button type="button" disabled={!actionsReady} onClick={startCandidate}>{t('保存当前筛选为候选计划')}</button>
+    </div>
+    <p className="muted">{t('图件和候选使用整个固定比较的阈值与方向。特征搜索和分页只影响此处浏览。')}</p>
+    <div className="intake-actions">
+      <button type="button" disabled={!actionsReady} onClick={()=>startEnrichment('ora')}>{t('用当前筛选配置 ORA')}</button>
+      <button type="button" disabled={!comparisonReady} onClick={()=>startEnrichment('gsea_prerank')}>{t('用完整 Wald 排名配置 GSEA')}</button>
+    </div>
+    <p className="muted">{t('ORA 使用已应用的 DEG 阈值与方向。GSEA 使用所选比较的完整有符号 Wald 排名，包括未达 DEG 阈值的基因。')}</p>
+  </section>
+  const rows=data&&<>
+    <BulkRows title="Bulk 比较结果" columns={columns} rows={data.items} labels={compactLabels}
+      onExpression={onPlan?featureId=>startFigure('bulk_expression',featureId):undefined} disabled={!actionsReady}/>
+    {!data.items.length&&<p>{t('当前范围没有匹配行，完整结果仍可下载。')}</p>}
+    <Paging page={page} size={pageSize} total={data.matched_total} onPage={setPage}/>
+    {data.feature_matches.length>0&&<BulkRows title="同一稳定 ID 的跨比较结果"
+      columns={compact&&data.columns.includes('contrast_id')?['contrast_id',...columns]:columns} rows={data.feature_matches} labels={compactLabels}/>}
+  </>
+
+  if(compact)return <ModuleViews label={t('Bulk 结果视图')} value={selectedView} onChange={openView} lazy>
+    <ModuleView id="results" title={t('差异结果')}>
+      <form className="bulk-result-toolbar" onSubmit={applyFilters}>
+        {contrasts.length!==1&&contrastField}{scopeField}{searchField}
+        <button type="submit" className="button-primary" disabled={invalid}>{t('应用筛选')}</button>
+      </form>
+      {thresholdError}
+      <ReadState {...read}/>
+      {data&&selected&&<>
+        <div className="bulk-result-summary">
+          <strong>{selected.numerator} vs {selected.denominator}</strong>
+          <span>{t(bulkQColumns[selection.q_column])} · q ≤ {selection.q_threshold} · |log2FC| ≥ {selection.minimum_absolute_effect}</span>
+          <span>{t('上调')} {selected.up} · {t('下调')} {selected.down}</span>
+        </div>
+        {count}{noneFound}{rows}
+      </>}
+    </ModuleView>
+    <ModuleView id="filters" title={t('筛选设置')}>
+      <form className="bulk-result-toolbar" onSubmit={applyFilters}>
+        {thresholds}<button type="submit" className="button-primary" disabled={invalid}>{t('应用筛选')}</button>
+      </form>
+      {thresholdError}
+      {filterNotes}
+      <p className="muted">{t('正 log2FC 表示分子组表达较高。筛选使用已保存的 MLE log2FC 与所选调整指标，条件为 q ≤ 阈值且 |log2FC| ≥ 阈值。')}</p>
+    </ModuleView>
+    {onPlan&&<ModuleView id="plots" title={t('绘图与分析')} disabled={!allowNewAnalysis}>
+      <ReadState {...read}/>
+      {data&&selected&&plots}
+    </ModuleView>}
+    <ModuleView id="details" title={t('方法与下载')}>{compact.details}</ModuleView>
+  </ModuleViews>
+
   return <section className="analysis-detail" aria-label={t('Bulk 多比较查询')}>
     <h3>{t('Bulk 多比较查询')}</h3>
     <p>{t('正 log2FC 表示分子组表达较高。筛选使用已保存的 MLE log2FC 与所选调整指标，条件为 q ≤ 阈值且 |log2FC| ≥ 阈值。')}</p>
-    <form onSubmit={event=>{
-      event.preventDefault()
-      if (invalid) return
-      const next = {...draft,search:draft.search.trim()}
-      setDraft(next)
-      setFilter(next)
-      setPage(1)
-    }}>
-      <div className="insight-grid">
-        <Field label="固定比较" value={contrastId} onChange={value=>{setRequestedContrast(value);setPage(1)}}>
-          {!contrasts.length&&<option value="">{t('读取默认比较')}</option>}
-          {contrasts.map(item=><option key={item.contrast_id} value={item.contrast_id}>{bulkComparisonLabel(item)}</option>)}
-        </Field>
-        <Field label="结果范围" value={draft.subset} onChange={value=>setDraft({...draft,subset:value as BulkSubset})}>
-          {Object.entries(subsetLabels).map(([key,label])=><option key={key} value={key}>{t(label)}</option>)}
-        </Field>
-        <Field label="q 值口径" value={draft.qColumn} onChange={value=>setDraft({...draft,qColumn:value as BulkQColumn})}>
-          {Object.entries(bulkQColumns).map(([key,label])=><option key={key} value={key}>{t(label)}</option>)}
-        </Field>
-        <Field label="q 阈值" type="number" min={0} max={1} step="any" value={draft.q} onChange={q=>setDraft({...draft,q})}/>
-        <Field label="最小绝对 log2FC" type="number" min={0} max={1000000} step="any" value={draft.effect} onChange={effect=>setDraft({...draft,effect})}/>
-        <label>{t('特征搜索')}<input maxLength={200} value={draft.search} onChange={event=>setDraft({...draft,search:event.target.value})}/></label>
-      </div>
+    <form onSubmit={applyFilters}>
+      <div className="insight-grid">{contrastField}{scopeField}{thresholds}{searchField}</div>
       <button type="submit" disabled={invalid}>{t('应用筛选')}</button>
     </form>
-    <p className="muted">{t('比较内 BH 使用单个比较的检验族。冻结比较族 BH 使用已声明的跨比较检验族。模型原生调整值可因独立过滤而缺失。')}</p>
-    <p className="muted">{t('全量按原表顺序。DEG 按所选 q 升序、绝对效应降序、稳定 ID 排序。零效应归为无方向。')}</p>
-    {invalid&&<p role="alert">{t('请输入 0–1 的 q 阈值与 0–1,000,000 的最小绝对效应。')}</p>}
+    {filterNotes}{thresholdError}
     <ReadState {...read}/>
     {data&&selected&&<>
       <p><strong>{bulkComparisonLabel(selected)}</strong> · {t(bulkQColumns[selection.q_column])} ({selection.q_column}) · q ≤ {selection.q_threshold} · |log2FC| ≥ {selection.minimum_absolute_effect}</p>
@@ -141,36 +214,15 @@ export default function BulkComparisons({projectId,result,active,onPlan,allowNew
         </tr>)}</tbody>
       </table></div>
       <p className="muted">{t('已尝试检验包含不可计算行。NA 为缺失或不可计算，0 为保存的数值。精确稳定 ID 可跨比较核对。')}</p>
-      <p>{t('当前范围匹配 {matched} 行，当前比较全量 {total} 行。',{matched:data.matched_total,total:data.total})}</p>
-      {deg===0&&<p role="status">{t('当前比较在此阈值和方向下有 0 个 DEG。')}</p>}
-      {onPlan&&<section aria-label={t('使用当前固定比较')}>
-        <div className="intake-actions">
-          <Field label="Bulk 图型" value={plot} onChange={value=>setPlot(value as BulkFigureType)}>
-            {plotTypes.map(kind=><option key={kind} value={kind}>{t(bulkFigureLabels[kind])}</option>)}
-          </Field>
-          <button type="button" disabled={!actionsReady} onClick={()=>startFigure(plot)}>{t('按当前筛选绘图')}</button>
-          <button type="button" disabled={!actionsReady} onClick={startCandidate}>{t('保存当前筛选为候选计划')}</button>
-        </div>
-        <p className="muted">{t('图件和候选使用整个固定比较的阈值与方向。特征搜索和分页只影响此处浏览。')}</p>
-        <div className="intake-actions">
-          <button type="button" disabled={!actionsReady} onClick={()=>startEnrichment('ora')}>{t('用当前筛选配置 ORA')}</button>
-          <button type="button" disabled={!comparisonReady} onClick={()=>startEnrichment('gsea_prerank')}>{t('用完整 Wald 排名配置 GSEA')}</button>
-        </div>
-        <p className="muted">{t('ORA 使用已应用的 DEG 阈值与方向。GSEA 使用所选比较的完整有符号 Wald 排名，包括未达 DEG 阈值的基因。')}</p>
-      </section>}
-      <BulkRows title="Bulk 比较结果" columns={columns} rows={data.items}
-        onExpression={onPlan?featureId=>startFigure('bulk_expression',featureId):undefined} disabled={!actionsReady}/>
-      {!data.items.length&&<p>{t('当前范围没有匹配行，完整结果仍可下载。')}</p>}
-      <Paging page={page} size={pageSize} total={data.matched_total} onPage={setPage}/>
-      {data.feature_matches.length>0&&<BulkRows title="同一稳定 ID 的跨比较结果" columns={columns} rows={data.feature_matches}/>}
+      {count}{noneFound}{plots}{rows}
     </>}
   </section>
 }
 
-function BulkRows({title,columns,rows,onExpression,disabled}:{title:string;columns:string[];rows:Record<string,unknown>[];onExpression?:(id:string)=>void;disabled?:boolean}) {
+function BulkRows({title,columns,rows,labels,onExpression,disabled}:{title:string;columns:string[];rows:Record<string,unknown>[];labels?:Record<string,string>;onExpression?:(id:string)=>void;disabled?:boolean}) {
   const {t} = useI18n()
   return <div className="field-table-scroll"><table className="field-table" aria-label={t(title)}>
-    <thead><tr>{columns.map(column=><th key={column}>{column}</th>)}{onExpression&&<th>{t('单基因表达')}</th>}</tr></thead>
+    <thead><tr>{columns.map(column=><th key={column}>{labels?.[column]?t(labels[column]):column}</th>)}{onExpression&&<th>{t('单基因表达')}</th>}</tr></thead>
     <tbody>{rows.map((row,index)=><tr key={String(row.row_key??index)}>
       {columns.map(column=><td key={column}>{displayRaw(row[column])}</td>)}
       {onExpression&&<td>{typeof row.feature_id==='string'&&row.feature_id&&<button type="button" disabled={disabled}

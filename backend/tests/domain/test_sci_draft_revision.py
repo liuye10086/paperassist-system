@@ -52,6 +52,42 @@ def test_revision_pins_the_original_text_and_real_opinion_and_requires_changed_p
     assert result['sections'] != candidate['sections']
 
 
+def test_scoped_revision_sends_only_selected_draft_text_and_merges_into_its_parent():
+    from app.domain.manuscript_writing.live_execution import validate_live_candidate
+
+    snapshot, first, original_output, candidate = original()
+    req = request(revision_of_request_id='original', instructions='Clarify the discussion and shorten the abstract.',
+                  target_sections=['discussion', 'abstract'])
+    row = dict(candidate_json=candidate, base_version_id='v1', request_json=snapshot['input'], published_revision=None)
+    service = SimpleNamespace(writing=SimpleNamespace(row=lambda *_: (row, {'status': 'succeeded'})))
+    sections = authorization.LiveWritingService.revision_sections(service, None, 'p', 'm', 'v1', req)
+    bundle = build_bundle(snapshot['base_snapshot'], req, execution_contract=first['execution_contract'],
+                          revision_sections=sections)
+    bundle['id'] = 'scoped-bundle'
+    payload = json.loads(json.loads(bundle['wire_json'])['input'])
+    assert payload['writing_scope']['output_section_ids'] == ['abstract', 'discussion']
+    assert [s['id'] for s in payload['original_draft']] == ['abstract', 'discussion']
+    assert 'Original introduction.' not in bundle['wire_json']
+    validate_bundle(dict(bundle, request_json=req, base_snapshot=snapshot['base_snapshot']))
+    revised = dict(snapshot, input=req, request_id='revised')
+    with pytest.raises(ValueError, match='scope'):
+        compose_live_candidate(original_output, revised, bundle, 'scoped-call', 'synthetic_fixture')
+    selected = dict(sections=[s for s in original_output['sections'] if s['id'] in req['target_sections']])
+    for section, wire_section in zip(selected['sections'], payload['original_draft']):
+        section['paragraphs'][0]['id'] = wire_section['paragraphs'][0]['id']
+    with pytest.raises(ValueError, match='unchanged'):
+        compose_live_candidate(selected, revised, bundle, 'scoped-call', 'synthetic_fixture')
+    selected['sections'][-1]['paragraphs'][0]['text'] = 'Updated discussion.'
+    selected['sections'][-1]['paragraphs'].append(dict(selected['sections'][-1]['paragraphs'][0],
+                                                     id='discussion:new', text='An added clarification.'))
+    result = compose_live_candidate(selected, revised, bundle, 'scoped-call', 'synthetic_fixture')
+    validate_live_candidate(result, revised, bundle)
+    assert {s['id']: s for s in result['sections'] if s['id'] != 'discussion'} == {
+        s['id']: s for s in candidate['sections'] if s['id'] != 'discussion'}
+    assert result['title'] == candidate['title']
+    assert authorization.revisable_draft(dict(row, candidate_json=result, request_json=req), {'status': 'succeeded'})
+
+
 @pytest.mark.parametrize('change', ['sources', 'evidence', 'base', 'state', 'published', 'language'])
 def test_rejects_unrelated_or_incomplete_parent_and_changed_materials(change):
     snapshot, _, _, candidate = original()
@@ -142,6 +178,70 @@ def test_school_revision_only_sends_writable_chapter_aliases_and_requires_change
     candidate2 = compose_live_candidate(output, new_snapshot, bundle, 'new-call', 'synthetic_fixture')
     assert candidate2['sections'][-1]['paragraphs'][0]['text'] != candidate['sections'][-1]['paragraphs'][0]['text']
     assert candidate2['sections'][:2] == candidate['sections'][:2]
+
+
+def test_school_revision_chat_reuses_the_parent_and_changes_only_its_selected_chapter():
+    from app.domain.manuscript_writing.frozen import contract, validate_wire, wire_payload
+    from app.domain.manuscript_writing.live_contracts import preview_data
+    from app.domain.manuscript_writing.live_execution import validate_live_candidate
+    from tests.domain.test_school_writing_live import fixture
+
+    snapshot, first, output, _ = fixture(True)
+    parent = compose_live_candidate(output, snapshot, first, 'call', 'synthetic_fixture')
+    methods = next(s for s in parent['sections'] if s['purpose'] == 'materials_and_methods')
+    other = next(s for s in parent['sections'] if s['purpose'] == 'introduction')
+    other['paragraphs'][0]['text'] = '保留上轮已经修改过的绪论。'
+    presentation = dict(english_title='Saved English Title', keywords=[])
+    body = snapshot['input'] | dict(revision_of_request_id='parent', instructions='缩短研究方法。')
+    request = preview_data(body | dict(target_sections=[methods['id']]))
+    row = dict(candidate_json=parent, base_version_id='v1', request_json=snapshot['input'], published_revision=None)
+    service = SimpleNamespace(writing=SimpleNamespace(row=lambda *_: (row, {'status': 'succeeded'})))
+    frozen = contract(schema_version=3, source_selection_version=2, response_stream=True)
+    originals = authorization.LiveWritingService.revision_sections(service, None, 'p', 'm', 'v1', request)
+    assert originals == parent['sections']
+    bundle = build_bundle(snapshot['base_snapshot'], request, execution_contract=frozen,
+                          revision_sections=originals, revision_school_presentation=presentation)
+    payload = wire_payload(bundle['wire_json'])
+    [chapter] = payload['chapters']
+    assert chapter['purpose'] == 'materials_and_methods'
+    [original] = payload['original_draft']
+    assert original['id'] == chapter['alias']
+    assert original['paragraphs'][0]['text'] == methods['paragraphs'][0]['text']
+    assert [section['id'] for section in payload['context']] == [chapter['alias']]
+    assert '保留上轮已经修改过的绪论。' not in bundle['wire_json']
+    assert 'Saved English Title' not in bundle['wire_json'] and 'PRIVATE AUTHOR' not in bundle['wire_json']
+    assert methods['id'] not in bundle['wire_json']
+    assert json.loads(bundle['wire_json'])['stream'] is True
+    validate_wire(bundle['wire_json'], frozen)
+    validate_bundle(dict(bundle, request_json=request, base_snapshot=snapshot['base_snapshot']))
+
+    bundle['id'] = 'school-revision'
+    new_snapshot = snapshot | dict(input=request, request_id='school-revision')
+    new_text = '研究方法已经按意见精简。'
+    paragraphs = [dict(id=original['paragraphs'][0]['id'], text=new_text, source_aliases=[], evidence_aliases=[],
+                       study_numeric_bindings=[], citation_anchors=[])]
+    revised = compose_live_candidate(dict(sections=[dict(id=chapter['alias'], paragraphs=paragraphs)]),
+                                     new_snapshot, bundle, 'edited', 'synthetic_fixture')
+    assert [s for s in revised['sections'] if s['id'] != methods['id']] == [s for s in originals if s['id'] != methods['id']]
+    assert next(s for s in revised['sections'] if s['id'] == methods['id'])['paragraphs'][0]['text'] == new_text
+    assert revised['school_presentation'] == presentation
+    validate_live_candidate(revised, new_snapshot, bundle)
+
+    advice = preview_data(request | dict(instructions='这章有什么问题？', draft_advice=True))
+    advice_bundle = build_bundle(snapshot['base_snapshot'], advice, execution_contract=frozen,
+                                 revision_sections=originals, revision_school_presentation=presentation)
+    reply = wire_payload(advice_bundle['wire_json'])
+    assert reply['draft_sections'][0]['paragraphs'] == [p['text'] for p in methods['paragraphs']]
+    assert len(reply['draft_sections']) == 1 and 'original_draft' not in reply
+    assert advice_bundle['local_manifest']['school']['writable_aliases'] == [chapter['alias']]
+    validate_wire(advice_bundle['wire_json'], frozen)
+    for malformed in (dict(target_sections=[]), dict(target_sections=[methods['id'], methods['id']]),
+                      dict(target_sections=[methods['id']], revision_of_request_id=None), dict(draft_advice=True)):
+        with pytest.raises(ValueError):
+            preview_data(body | malformed)
+    protected = preview_data(body | dict(target_sections=[parent['sections'][0]['id']]))
+    with pytest.raises(StorageError, match='所选章节'):
+        authorization.LiveWritingService.revision_sections(service, None, 'p', 'm', 'v1', protected)
 
 
 def test_historical_school_candidate_keeps_frozen_chapters_and_is_read_only():

@@ -31,6 +31,48 @@ def test_asymmetric_panels_keep_order_ratio_and_original_dpi(tmp_path):
         x,y,w,h=b['box'];assert image.getpixel((x+w//2,y+h//2))[:3]==(0,0,255)
 
 
+def test_tiff_first_page_renders_without_reserializing_the_original(tmp_path):
+    from app.adapters.research_figure_render import render_figure, validate_figure_result
+    from app.domain.research_results.figure_members import image_metadata
+
+    stream = io.BytesIO()
+    Image.new('RGB', (40, 20), 'blue').save(stream, 'TIFF', save_all=True,
+        append_images=[Image.new('RGB', (20, 40), 'yellow')])
+    raw = stream.getvalue()
+    source = tmp_path / 'source.tif'
+    source.write_bytes(raw)
+    output = tmp_path / 'output'
+    output.mkdir()
+    config = dict(mode='reuse', columns=1, width_mm=85.0, dpi=150, formats=['png'])
+    panel = dict(path=str(source), sha256=hashlib.sha256(raw).hexdigest(), label='A', source={}, format='tiff')
+    payload = dict(config=config, panels=[panel])
+    result = render_figure(payload, output)
+    validate_figure_result(payload, result, output)
+    assert image_metadata(raw) == dict(format='tiff', width=40, height=20)
+    assert (output / 'original_1.tiff').read_bytes() == raw
+    assert result['manifest']['panels'][0]['original_pixels'] == [40, 20]
+    with Image.open(output / 'figure_png.png') as image:
+        x, y, width, height = result['manifest']['panels'][0]['box']
+        assert image.getpixel((x + width // 2, y + height // 2)) == (0, 0, 255)
+
+
+def test_tiff_16_bit_grayscale_retains_midtones_in_png_composition(tmp_path):
+    from app.adapters.research_figure_render import render_figure
+
+    source = tmp_path / 'grayscale.tiff'
+    Image.new('I;16', (40, 20), 32768).save(source, 'TIFF')
+    raw = source.read_bytes()
+    output = tmp_path / 'output'
+    output.mkdir()
+    config = dict(mode='reuse', columns=1, width_mm=85.0, dpi=150, formats=['png'])
+    panel = dict(path=str(source), sha256=hashlib.sha256(raw).hexdigest(), source={}, format='tiff')
+    result = render_figure(dict(config=config, panels=[panel]), output)
+    assert (output / 'original_1.tiff').read_bytes() == raw
+    with Image.open(output / 'figure_png.png') as image:
+        x, y, width, height = result['manifest']['panels'][0]['box']
+        assert image.getpixel((x + width // 2, y + height // 2)) == (127, 127, 127)
+
+
 def test_source_tamper_and_output_overlimit_fail_before_publication(tmp_path):
     from app.adapters.research_figure_render import render_figure
     path=tmp_path/'input.png';value=raster((10,1000),'red');path.write_bytes(value)

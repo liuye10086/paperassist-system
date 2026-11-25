@@ -10,7 +10,7 @@ it('places thesis figures in a bound school chapter without requiring a caption 
   const chapter = { id: 'thesis:results:confirmed:design', label: '第二章 研究设计' }
   let chapterLabel = chapter.label
   const writes: Record<string, unknown>[] = []
-  const pick = vi.fn(), organize = vi.fn(), upload = vi.fn()
+  const pick = vi.fn(), organize = vi.fn()
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (url.includes('/files?')) return Response.json({ total: 5, items: [
       { id: 'img', filename: '流程.png', file_type: 'png', parse_status: 'stored' },
@@ -41,10 +41,10 @@ it('places thesis figures in a bound school chapter without requiring a caption 
   expect(screen.queryByRole('button', { name: '设置配图' })).toBeNull()
   expect(screen.queryByRole('button', { name: '添加说明' })).toBeNull()
   expect(screen.queryByRole('button', { name: /编辑.*图表资料/ })).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: '下一步 模板与资料整理' }))
+  fireEvent.click(screen.getByRole('button', { name: '下一步 图件拼版' }))
   expect(organize).toHaveBeenCalledOnce()
   uploadStep.unmount()
-  const organizer = render(<ThesisMaterialOrganizer projectId="p1" registerLeaveGuard={guard} onUpload={upload} chapterRevision={0}/>)
+  const organizer = render(<ThesisMaterialOrganizer projectId="p1" registerLeaveGuard={guard} chapterRevision={0}/>)
   const figure = within((await screen.findByText('流程.png')).closest('li')!)
   const edit = figure.getByRole('button', { name: '设置配图' })
   await waitFor(() => expect(edit).toHaveProperty('disabled', false))
@@ -61,7 +61,7 @@ it('places thesis figures in a bound school chapter without requiring a caption 
   const caption = figure.getByRole('textbox', { name: '图注与出处（选填）' })
   fireEvent.change(caption, {target:{value:'尚未保存的说明'}})
   chapterLabel = '第三章 实验方法'
-  organizer.rerender(<ThesisMaterialOrganizer projectId="p1" registerLeaveGuard={guard} onUpload={upload} chapterRevision={1}/>)
+  organizer.rerender(<ThesisMaterialOrganizer projectId="p1" registerLeaveGuard={guard} chapterRevision={1}/>)
   await figure.findByRole('option',{name:chapterLabel})
   expect(caption).toHaveProperty('value','尚未保存的说明')
   fireEvent.change(caption, {target:{value:''}})
@@ -82,6 +82,5 @@ it('places thesis figures in a bound school chapter without requiring a caption 
   fireEvent.click(newBook.getByRole('button', {name:'入稿工作表'}))
   expect(await screen.findByRole('checkbox', {name:'汇总'})).toBeTruthy()
   fireEvent.click(screen.getByRole('button', {name:'返回项目文件'}))
-  fireEvent.click(screen.getByRole('button', { name: '返回上传资料' }))
-  expect(upload).toHaveBeenCalledOnce()
+  expect(screen.queryByRole('button', { name: '返回上传资料' })).toBeNull()
 })

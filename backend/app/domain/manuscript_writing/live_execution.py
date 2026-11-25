@@ -13,6 +13,7 @@ from app.domain.report_collections.service import scoped_store
 from .authorization import LiveWritingService
 from .bundle import validate_bundle
 from .context import normalize_sections, NUMBER
+from .draft_chat import DraftReplyProgress, OUTPUT_BYTES
 from .live_contracts import PreviewRequest, LiveWritingRequest, LiveOutput, WORKFLOW,preview_data
 from .policy import POLICY_VERSION, policy, capabilities
 from .live_notice import COMPOSITION_VERSION, update_notice
@@ -94,21 +95,25 @@ def validate_live_candidate(candidate,snapshot,bundle):
     if p['provider_provenance'] not in ('synthetic_fixture','openai_live'): raise ValueError('Invalid provenance')
     if candidate!=compose_live_candidate(p['raw_output'],snapshot,bundle,p['model_call_id'],p['provider_provenance'],composition_version=p.get('composition_version',1)): raise ValueError('Candidate mismatch')
 
-def parse(response,snapshot,bundle,call_id,provenance):
+def response_json(response):
     if not isinstance(response,dict) or response.get('status')!='completed': raise ValueError('Not completed')
     outputs=response['output']
     if not isinstance(outputs,list) or any(not isinstance(o,dict) or o.get('type') not in ('reasoning','message') for o in outputs): raise ValueError('Invalid output')
     messages=[o for o in outputs if o['type']=='message']
     if len(messages)!=1 or len(messages[0]['content'])!=1: raise ValueError('One output required')
     item=messages[0]['content'][0]
-    if item['type']!='output_text' or not isinstance(item['text'],str) or len(item['text'].encode())>250000: raise ValueError('Invalid output text')
+    if item['type']!='output_text' or not isinstance(item['text'],str) or len(item['text'].encode())>OUTPUT_BYTES: raise ValueError('Invalid output text')
     def pairs(items):
         value={}
         for k,v in items:
             if k in value: raise ValueError('Duplicate key')
             value[k]=v
         return value
-    return compose_live_candidate(json.loads(item['text'],object_pairs_hook=pairs),snapshot,bundle,call_id,provenance)
+    return json.loads(item['text'],object_pairs_hook=pairs)
+
+
+def parse(response,snapshot,bundle,call_id,provenance):
+    return compose_live_candidate(response_json(response),snapshot,bundle,call_id,provenance)
 
 def create_production_provider():
     """Read a protected key only at execution time using the established resolver."""
@@ -133,8 +138,8 @@ def execute_live(repository,lease,provider):
         if call and (call.get('provider_response_id') or call['status'] in ('submitting','submission_unknown')):
             # A changed base blocks publication, but cannot strand an already
             # submitted response. Keep the original identity.
-            service.writing.row(db,task['project_id'],snapshot['manuscript_id'],task['id'])
-        else: service.writing.assert_current(db,task)
+            row, _ = service.writing.row(db,task['project_id'],snapshot['manuscript_id'],task['id'])
+        else: row = service.writing.assert_current(db,task)
         bundle=service.bundle(db,task['project_id'],snapshot['execution']['bundle_id'])
     if call and not call.get('provider_response_id') and call['status'] in ('submitting','submission_unknown'):
         return wait(repository,lease,'submission_unknown','model_submission_unknown')
@@ -145,11 +150,21 @@ def execute_live(repository,lease,provider):
             return wait(repository,lease,'confirmation_required','manuscript_writing_not_authorized')
         provider=create_production_provider();owned=True
     gateway=ModelGateway(ModelUsageService(task['user_id'],repository.config),provider)
+    progress = None
+    if bundle.get('execution_contract', {}).get('response_stream'):
+        school = bundle['local_manifest'].get('school')
+        section_ids = ({alias: school['chapters'][alias]['chapter_id'] for alias in school['writable_aliases']}
+                       if school else None)
+        progress = DraftReplyProgress(repository, lease, snapshot['input'], row.get('draft_chat_json'),
+                                      call and call.get('provider_response_id'), section_ids=section_ids)
     try:
-        if call and call.get('provider_response_id'): output=gateway.refresh(call['id'])
+        if call and call.get('provider_response_id'):
+            output = (gateway.resume_frozen_writing(call['id'], starting_after=progress.cursor, on_delta=progress.record)
+                      if progress else gateway.refresh(call['id']))
         else:
             request=CallRequest(task_id=task['id'],expected_task_revision=task['revision'],call_key='manuscript-writing-v2',input_digest=bundle['gateway_digest'],policy=ModelPolicy.model_validate(bundle['policy_json']),input_token_allowance=bundle['input_token_allowance'])
-            output=gateway.submit_frozen_writing(request,wire_json=bundle['wire_json'],execution_lease=lease)
+            output=gateway.submit_frozen_writing(request,wire_json=bundle['wire_json'],execution_lease=lease,
+                                                **({'on_delta': progress.record} if progress else {}))
     except ModelGatewayError as exc:
         with repository.connection() as db: call=last_call(db,task['id'])
         if call and not call.get('provider_response_id') and call['status'] in ('submitting','submission_unknown'): return wait(repository,lease,'submission_unknown','model_submission_unknown')
@@ -159,17 +174,34 @@ def execute_live(repository,lease,provider):
         if owned: provider.close()
     call,response=output['call'],output.get('response')
     if not call.get('provider_response_id'): return wait(repository,lease,'submission_unknown','model_submission_unknown')
-    if isinstance(response,dict) and response.get('status') in ('queued','in_progress'): return repository.defer(lease)
+    if isinstance(response,dict) and response.get('status') in ('queued','in_progress'):
+        if progress:
+            progress.flush()
+        return repository.defer(lease)
     with repository.connection() as db:
         mismatched=db.execute("SELECT 1 FROM usage_events WHERE call_id=%s AND reason_code='model_mismatch' LIMIT 1",(call['id'],)).fetchone()
     if mismatched: return repository.fail(lease,'manuscript_writing_invalid')
-    try: candidate=parse(response,snapshot,bundle,call['id'],provenance)
+    advice = snapshot['input'].get('draft_advice') is True
+    try:
+        if advice:
+            from .live_contracts import DraftAdviceOutput
+            reply = DraftAdviceOutput.model_validate(response_json(response)).model_dump(mode='json')
+            if '\x00' in reply['advice']:
+                raise ValueError('Invalid advice text')
+        else:
+            candidate=parse(response,snapshot,bundle,call['id'],provenance)
     except (ValueError,KeyError,TypeError): return repository.fail(lease,'manuscript_writing_invalid')
+    chat_timing = {'first_preview_at': progress.first_preview_at} if progress and progress.first_preview_at else {}
     with repository.connection(write=True) as db:
         task=repository.require_lease(db,lease);repository.require_owner(db,task);service.writing.assert_current(db,task)
         previous=checkpoint(db,task)
         if previous['next_node'] not in ('check','await_confirmation'): raise source_conflict()
-        changed=db.execute('UPDATE manuscript_writing_requests SET candidate_json=%s,candidate_sha256=%s,updated_at=%s WHERE task_id=%s AND candidate_json IS NULL',(Jsonb(candidate),digest(candidate),repository.now(db),task['id']))
+        if advice:
+            changed = db.execute('UPDATE manuscript_writing_requests SET draft_chat_json=%s,updated_at=%s WHERE task_id=%s AND candidate_json IS NULL',
+                                 (Jsonb({**reply, **chat_timing}), repository.now(db), task['id']))
+        else:
+            changed=db.execute('UPDATE manuscript_writing_requests SET candidate_json=%s,candidate_sha256=%s,draft_chat_json=%s,updated_at=%s WHERE task_id=%s AND candidate_json IS NULL',
+                               (Jsonb(candidate),digest(candidate),Jsonb(chat_timing) if chat_timing else None,repository.now(db),task['id']))
         if changed.rowcount!=1: raise source_conflict()
         append_checkpoint(db,task,'done','done',previous['state_json'],previous);repository._finish(db,task,'succeeded',None)
         return TaskStore.public_task(task)

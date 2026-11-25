@@ -409,8 +409,7 @@ it('shows the customer language check without the advanced read-back or folded s
   expect(document.body.textContent).not.toMatch(/DOCX/)
 })
 
-it('shows the SCI draft, Word download and revision form without internal identifiers or retired review actions', async () => {
-  const { fireEvent } = await import('@testing-library/react')
+it('shows the SCI draft, Word download and direct revision chat without internal identifiers or retired review actions', async () => {
   const draft = { manuscript_id: submissionId, revision: 1, request_id: feedbackId }
   const reader = base + '/manuscripts/' + draft.manuscript_id + '/writing-requests/' + draft.request_id + '/draft-reader'
   const fetch = vi.fn(async (url: string) => {
@@ -435,9 +434,8 @@ it('shows the SCI draft, Word download and revision form without internal identi
   check()
   const word = screen.getByRole('link', {name: /下载.*Word/})
   expect(word.getAttribute('href')).toBe(reader + '/word?revision=1')
-  fireEvent.click(screen.getByRole('button', {name: '修改初稿'}))
-  expect(await screen.findByLabelText('审稿意见')).toBeTruthy()
-  check()
+  expect(screen.queryByRole('button', {name: '修改初稿'})).toBeNull()
+  expect(screen.getByRole('textbox', {name: '修改意见'})).toBeTruthy()
   expect(fetch.mock.calls.map(([url]) => url).some(url => /\/reviews|\/exports|\/writing-authorizations/.test(url))).toBe(false)
 })
 
@@ -577,10 +575,8 @@ it('shows thesis details, template rules and uploads without internal identifier
     expect(screen.queryByRole('alert')).toBeNull()
     expect(findTechnicalText(document.body, ids)).toEqual([])
     expect(document.body.textContent).not.toMatch(banned)
-    if (!document.querySelector('.thesis-organizer-panels')) {
-      expect(document.querySelectorAll('details')).toHaveLength(0)
-      expect(document.querySelector('.customer-step-content [aria-expanded]')).toBeNull()
-    }
+    expect(document.querySelectorAll('details')).toHaveLength(0)
+    expect(document.querySelector('.customer-step-content [aria-expanded]')).toBeNull()
   }
   const visit = (hash: string) => {
     cleanup()

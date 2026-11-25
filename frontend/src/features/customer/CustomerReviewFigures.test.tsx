@@ -43,74 +43,26 @@ function open(review: boolean, existing?: PaperMaterialNote) {
 
 afterEach(() => { cleanup(); clearApiSession(); vi.unstubAllGlobals() })
 
-it('marks an uploaded review figure for automatic placement and accepts a section without a caption', async () => {
-  const writes = open(true)
-  const button = await screen.findByRole('button', { name: '设置配图' })
-  const row = within(button.closest('li')!)
-  expect(row.getByText(/自动安排/)).toBeTruthy()
-  expect(writes).toHaveLength(0)
-  fireEvent.click(button)
-  const select = screen.getByRole('combobox', { name: '入稿章节' })
-  expect(select).toHaveProperty('value', '')
-  for (const target of targets) expect(within(select).getByRole('option', { name: target.label })).toBeTruthy()
-  fireEvent.change(select, { target: { value: targets[1].id } })
-  fireEvent.click(screen.getByRole('button', { name: '保存配图设置' }))
-  await waitFor(() => expect(row.queryByRole('combobox')).toBeNull())
-  await waitFor(() => expect(row.getByText(/脑内稳态/)).toBeTruthy())
-  expect(writes).toEqual([{ file_id: 'figure', expected_revision: 0, target_id: targets[1].id, result: '' }])
-  const doc = within(screen.getByText('笔记.docx').closest('li')!)
-  fireEvent.click(doc.getByRole('button', { name: '添加说明' }))
-  expect(doc.getByLabelText('文件说明（选填）')).toBeTruthy()
-  expect(doc.queryByRole('combobox')).toBeNull()
-})
-
-it('restores automatic placement and clears an existing caption and credit', async () => {
-  const writes = open(true, { id: 'note', file_id: 'figure', revision: 3, result: '原图注。出处 A。', target_id: targets[0].id,
-    target_label: targets[0].label, target_available: true })
-  fireEvent.click(await screen.findByRole('button', { name: '设置配图' }))
-  const select = screen.getByRole('combobox', { name: '入稿章节' })
-  const caption = screen.getByRole('textbox', { name: '图注与出处（选填）' })
-  expect(select).toHaveProperty('value', targets[0].id)
-  expect(caption).toHaveProperty('value', '原图注。出处 A。')
-  fireEvent.change(select, { target: { value: '' } })
-  fireEvent.change(caption, { target: { value: '' } })
-  fireEvent.click(screen.getByRole('button', { name: '保存配图设置' }))
-  await waitFor(() => expect(screen.queryByRole('combobox')).toBeNull())
-  expect(writes).toEqual([{ file_id: 'figure', expected_revision: 3, target_id: null, result: '' }])
-  await waitFor(() => expect(screen.queryByText('原图注。出处 A。')).toBeNull())
-  expect(within(screen.getByText('综述示意图.png').closest('li')!).getByText(/自动安排/)).toBeTruthy()
-})
-
-it('explains the fallback for a removed section and allows keeping automatic placement explicitly', async () => {
-  const writes = open(true, { id: 'note', file_id: 'figure', revision: 1, result: '', target_id: 'sci:review:removed',
-    target_label: '旧主题', target_available: false })
-  const button = await screen.findByRole('button', { name: '设置配图' })
-  expect(within(button.closest('li')!).getByText(/旧主题.*自动安排/)).toBeTruthy()
-  fireEvent.click(button)
-  expect(screen.getByRole('combobox', { name: '入稿章节' })).toHaveProperty('value', '')
-  fireEvent.click(screen.getByRole('button', { name: '保存配图设置' }))
-  await waitFor(() => expect(writes).toHaveLength(1))
-  expect(writes[0].target_id).toBeNull()
-})
-
-it('keeps the existing image description editor in original research projects', async () => {
-  open(false)
+it.each([true, false])('keeps SCI originals downloadable without offering placement or image notes (review: %s)', async review => {
+  const writes = open(review, {id:'note', file_id:'figure', revision:3, result:'原图注。', target_id:targets[0].id,
+    target_label:targets[0].label, target_available:true})
   const row = within((await screen.findByText('综述示意图.png')).closest('li')!)
-  const button = row.getByRole('button', { name: '添加说明' })
-  await waitFor(() => expect(button).toHaveProperty('disabled', false))
-  fireEvent.click(button)
-  expect(row.getByLabelText('文件说明（选填）')).toBeTruthy()
-  expect(row.queryByRole('combobox')).toBeNull()
-  expect(row.queryByText(/自动安排/)).toBeNull()
+  expect(row.getByRole('link', {name:'下载 综述示意图.png'}).getAttribute('href')).toBe(base + '/files/figure/download')
+  expect(row.queryByRole('button')).toBeNull()
+  expect(screen.queryByText(/自动安排/)).toBeNull()
+  expect(screen.queryByText('原图注。')).toBeNull()
+  expect(writes).toHaveLength(0)
 })
 
-it('refreshes figure placements when the project file list has not changed', async () => {
-  const existing = { id: 'note', file_id: 'figure', revision: 1, result: '', target_id: targets[0].id,
-    target_label: targets[0].label, target_available: true }
-  open(true, existing)
-  const row = within((await screen.findByRole('button', { name: '设置配图' })).closest('li')!)
-  expect(row.getByText(/范围与背景/)).toBeTruthy()
-  Object.assign(existing, { revision: 2, target_id: targets[2].id, target_label: targets[2].label })
-  fireEvent.click(screen.getByRole('button', { name: '刷新资料' }))
-  await waitFor(() => expect(row.getByText(/综合讨论与局限/)).toBeTruthy())
+it('saves non-image material notes without a figure placement choice', async () => {
+  const writes = open(true)
+  const row = within((await screen.findByText('笔记.docx')).closest('li')!)
+  const add = row.getByRole('button', {name:'添加说明'})
+  await waitFor(() => expect(add).toHaveProperty('disabled', false))
+  fireEvent.click(add)
+  fireEvent.change(row.getByLabelText('文件说明（选填）'), {target:{value:'原始实验笔记。'}})
+  expect(row.queryByRole('combobox')).toBeNull()
+  fireEvent.click(row.getByRole('button', {name:'保存说明'}))
+  expect(await row.findByText('原始实验笔记。')).toBeTruthy()
+  expect(writes).toEqual([{file_id:'document', expected_revision:0, target_id:null, result:'原始实验笔记。'}])
 })

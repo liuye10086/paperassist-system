@@ -67,8 +67,8 @@ def check_bindings(groups, language):
 BODY_REFERENCE = re.compile(r'(?<![A-Za-z])(?P<kind>Figure|Fig\.?|Table|图|表)\s*(?P<number>[0-9]+)(?:\s*\(?(?P<panel>[A-Za-z])\)?)?(?![A-Za-z0-9])',re.I)
 
 
-def bind_finding_figures(paragraph, figures, position, language):
-    """Bind the author's references inside a finding to its own frozen images."""
+def bind_finding_figures(paragraph, figures, position, language, *, use_global_numbers=False):
+    """Bind mentions to saved images, with the legacy per-finding numbering fallback."""
     from app.core.exceptions import StorageError
 
     by_number = {figure['number']: figure for figure in figures}
@@ -85,7 +85,7 @@ def bind_finding_figures(paragraph, figures, position, language):
             return match.group()
         number = int(match['number'])
         target = by_number.get(number)
-        if target is None and number == position and len(figures) == 1:
+        if target is None and not use_global_numbers and number == position and len(figures) == 1:
             # Older requirements displayed Figure N for the Nth finding.
             target = figures[0]
         panel = match['panel'].upper() if match['panel'] else None
@@ -99,7 +99,7 @@ def bind_finding_figures(paragraph, figures, position, language):
 
     text = BODY_REFERENCE.sub(replace, paragraph['text'])
     mentioned = {ref['target_id'] for ref in references}
-    remaining = [reference(figure) for figure in figures if figure['id'] not in mentioned]
+    remaining = [] if use_global_numbers else [reference(figure) for figure in figures if figure['id'] not in mentioned]
     if remaining:
         text += ' (' + ', '.join(remaining) + ')'
     paragraph.update(text=text, cross_references=references)

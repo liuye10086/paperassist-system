@@ -107,7 +107,9 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
   const [files, setFiles] = useState<ProjectFile[]>([])
   const imports=useEntryImports(projectId,Boolean(active)&&(section==='files'||section==='analysis')&&files.some(file=>file.parse_status==='stored'),section==='analysis'?analysis.view:navigation.view)
   const requestedTypes=current?analysisScopes(current).filter(scope=>scope.id.startsWith('customer.type.')):[]
-  const guidedOverview=assigned && section==='analysis' && !analysis.entry && analysis.view==='overview' && requestedTypes.length===1 && requestedTypes[0].id==='customer.type.single_cell'
+  const guidedRna=assigned && section==='analysis' && !analysis.entry && analysis.view==='overview' &&
+    requestedTypes.some(({id})=>id==='customer.type.single_cell'||id==='customer.type.bulk')
+  const guidedOverview=guidedRna&&requestedTypes.length===1
   const linkedOriginal=analysis.entry&&entryAvailable&&['bio','single_cell_import'].includes(analysis.intent??'')&&
     fixedVersion?.material_refs?.some(ref=>ref.file_id===analysis.fileId&&ref.availability==='provided')&&
     files.some(file=>file.id===analysis.fileId&&file.parse_status==='stored')
@@ -225,14 +227,14 @@ function ResourceContent({ projectId, onSaved, section, onSectionChange, onUnava
       {analysis.bulkView&&entryAvailable&&<BulkWorkflowNav view={analysis.bulkView} nested={!bulkHome} onNavigate={navigateAnalysis}/>}
       <AnalysisEntryContext navigation={analysis} version={fixedVersion} current={current} loading={fixed.loading} error={fixedError} files={files} filesUnknown={loading||!!error||imports.unknown} imports={imports.data??[]} onReload={fixed.refresh} onNavigate={navigateAnalysis} onFile={openFile}/>
       <div className="analysis-module-body" hidden={bioView}>
-      {analysis.bulkView&&entryAvailable&&<BulkWorkflowWorkspace key={bulkOverviewRevision} {...{projectId,allowNewAnalysis,files,outputLanguage,deliveryTarget}}
+      {analysis.bulkView&&entryAvailable&&<BulkWorkflowWorkspace key={bulkOverviewRevision} {...{projectId,analysisOnly,allowNewAnalysis,files,outputLanguage,deliveryTarget}}
         navigation={analysis} active={analysisActive&&bulkHome} onNavigate={navigateAnalysis} onUpload={analysisOnly ? undefined : openBulkUpload}/>}
-      <BioInsightsWorkspace allowExternalEvidenceRegistration={!assigned} allowNewAnalysis={allowNewAnalysis} deliveryTarget={deliveryTarget} projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={analysisActive&&insightView&&entryAvailable} registerLeaveGuard={registerLeaveGuard}/>
+      <BioInsightsWorkspace analysisOnly={analysisOnly} allowExternalEvidenceRegistration={!assigned} allowNewAnalysis={allowNewAnalysis} deliveryTarget={deliveryTarget} projectId={projectId} navigation={analysis} onNavigate={navigateAnalysis} active={analysisActive&&insightView&&entryAvailable} registerLeaveGuard={registerLeaveGuard}/>
       {analysisActive&&readerReportView&&entryAvailable&&<BioReaderReportWorkspace key={projectId+':'+analysis.reportContextId}
        {...{projectId,deliveryTarget}} navigation={analysis}/>}
       <div className="analysis-overview-body" hidden={analysis.view!=='overview'}>
         {analysisOnly && analysisActive && analysis.view==='overview' && !analysis.entry && !guidedOverview && qualityPanel}
-        <AnalysisGuide alternateQuality={guidedOverview?qualityPanel:undefined} embedded={analysisOnly} assigned={assigned} projectId={projectId} onUpload={analysisOnly ? undefined : openUpload} version={requirement} scopeId={analysis.entry?.scopeItemId} loading={analysis.entry?fixed.loading:intake.loading&&!current} error={analysis.entry?fixedError:intake.error} onRefresh={analysis.entry?fixed.refresh:intake.refresh} files={files} filesLoading={loading} filesError={error} onReloadFiles={refreshMaterials} imports={imports.data??[]} importsUnknown={imports.unknown} importsError={imports.error} onFile={openFile} onNavigate={navigateAnalysis} onRequirements={onRequirements} onDeliveries={onDeliveries}/>
+        <AnalysisGuide guidedRna={guidedRna} alternateQuality={guidedOverview?qualityPanel:undefined} embedded={analysisOnly} assigned={assigned} projectId={projectId} onUpload={analysisOnly ? undefined : openUpload} version={requirement} scopeId={analysis.entry?.scopeItemId} loading={analysis.entry?fixed.loading:intake.loading&&!current} error={analysis.entry?fixedError:intake.error} onRefresh={analysis.entry?fixed.refresh:intake.refresh} files={files} filesLoading={loading} filesError={error} onReloadFiles={refreshMaterials} imports={imports.data??[]} importsUnknown={imports.unknown} importsError={imports.error} onFile={openFile} onNavigate={navigateAnalysis} onRequirements={onRequirements} onDeliveries={onDeliveries}/>
       </div>
       {!assigned&&<div hidden={analysis.view!=='research-request'}>{requirementsVisited&&<ProjectRequirements projectId={projectId} files={files.filter((file):file is ProjectFile & {parse_status:'queued'|'parsing'|'parsed'|'failed'}=>file.parse_status!=='stored')} registerLeaveGuard={registerLeaveGuard}/>}</div>}
       <div hidden={!entryAvailable||analysis.view==='overview'||analysis.view==='research-request'||bioView||insightView||researchView||readerReportView||bulkHome}>

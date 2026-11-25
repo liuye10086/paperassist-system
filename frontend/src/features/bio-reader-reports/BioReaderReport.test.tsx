@@ -210,6 +210,19 @@ it('keeps interpretation preparation available after failed history without maki
  expect(fetch.mock.calls.map(([url])=>url)).toEqual([contexts+'/context1/reports?page=1'])
 })
 
+it('offers a separate Word download for a Bulk report with large source tables',async()=>{
+ const report=fixedContext({title:'Bulk report',language:'zh-CN',selection:{kind:'bulk',delivery:{
+  comparison_version_id:'main1',result_version_ids:[],language:'zh',facts_digest:sha,selections:[],sensitivity:null,evidence:[],
+ }}})
+ const fetch=vi.fn(async(_url:string)=>Response.json(fixedExports()))
+ vi.stubGlobal('fetch',fetch)
+ render(<FixedBioReaderReport projectId="p1" context={{...report,workbook_limited:true}}/>)
+ const word=await screen.findByRole('link',{name:/下载.*docx/})
+ expect(word.getAttribute('href')).toBe(memberUrl)
+ expect(screen.getByText('Word 可单独下载。大表可在原分析结果中按需下载。')).toBeTruthy()
+ expect(fetch.mock.calls.map(([url])=>url)).toEqual([contexts+'/context1/reports?page=1'])
+})
+
 it('refreshes a previously read interpretation after a transient read error',async()=>{
  const context=fixedContext({title:projection.title,language:'en',selection:{...selection,figure_version_ids:[]}})
  const recovered={id:'narr1',fingerprint:JSON.stringify(context.report),binding,bundle:sha,report:context.report}

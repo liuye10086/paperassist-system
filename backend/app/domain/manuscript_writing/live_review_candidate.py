@@ -1,12 +1,12 @@
 """Deterministic science checks and server-owned citation rendering."""
 from copy import deepcopy
-import json
 from app.domain.literature.service import digest
 from app.domain.manuscripts.illustrations import BODY_REFERENCE, check_references, rendered_groups
 from .context import NUMBER, RESEARCH_CLAIMS, WritingCitationScopeError
 from .live_notice import COMPOSITION_VERSION, update_notice
 from .numeric_review import NUMERIC_VERSION,validation_version,numbers as signed_numbers,value as numeric_value
 from .numeric_contract import REPORTED_RESULTS_LOCATION, is_numeric_v2, context_facts
+from .frozen import wire_payload
 
 def body_digest(candidate):
     """JSON digest of exact pre-citation prose, including title and abstract."""
@@ -37,7 +37,7 @@ def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VER
     candidate=deepcopy(raw);targets=target_ids(raw,snapshot)
     decisions={p['paragraph_id']:p for p in body['paragraphs']}
     if len(decisions)!=len(body['paragraphs']) or decisions.keys()!=targets: raise ValueError('Every changed paragraph requires a manual science decision')
-    payload=json.loads(json.loads(bundle['wire_json'])['input'])
+    payload=wire_payload(bundle['wire_json'])
     facts={s['alias']:{(f['fact_path'],numeric_value(f['value']) if strict else f['value']) for f in s['facts']} for s in payload['sources']}
     contextual=is_numeric_v2(bundle)
     contexts={alias:{(path,numeric_value(value) if strict else value) for path,value in values}

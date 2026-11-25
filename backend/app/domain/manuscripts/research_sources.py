@@ -43,6 +43,22 @@ def bind(db,project,owner,version_id,source):
         'source_json':source,'sha256':digest(source)})
 
 
+def valid_bindings(db, row, sources):
+    expected = [source for source in sources if source['kind'] in KINDS]
+    rows = db.execute('SELECT * FROM manuscript_research_sources WHERE version_id=%s', (row['id'],)).fetchall()
+    if len(rows) != len(expected):
+        return False
+    indexed = {(source['source_kind'], source['source_id']): source for source in rows}
+    for source in expected:
+        bound = indexed.get((source['kind'], source['id']))
+        column, _ = SOURCE_TARGETS[source['kind']]
+        if (not bound or bound[column] != source['id'] or bound['source_json'] != source
+                or bound['sha256'] != digest(source) or bound['role'] != source['role']
+                or (bound['project_id'], bound['user_id']) != (row['project_id'], row['user_id'])):
+            return False
+    return True
+
+
 def numeric(source):
     blocked={f for c in source.get('content',{}).get('conflicts',[]) if c['decision']=='unresolved' for f in c['fact_ids']}
     for index,fact in enumerate(source.get('content',{}).get('facts',[])):
@@ -84,14 +100,8 @@ def validate_version(service,db,row):
         or snapshot['research_bridge'].get('document_kind')!=context['document_kind']
         or request['expected_revision']!=row['revision']-1 or snapshot['title']!=request['title'] or snapshot['output_language']!=request['output_language']):raise invalid()
     validate_frozen(service,db,row)
-    source_rows=db.execute('SELECT * FROM manuscript_research_sources WHERE version_id=%s',(row['id'],)).fetchall()
-    expected=[s for s in snapshot['sources'] if s['kind'] in KINDS]
-    if len(source_rows)!=len(expected):raise invalid()
-    indexed={(s['source_kind'],s['source_id']):s for s in source_rows}
-    for source in expected:
-        bound=indexed.get((source['kind'],source['id']))
-        column,_=SOURCE_TARGETS[source['kind']]
-        if not bound or bound[column]!=source['id'] or bound['source_json']!=source or bound['sha256']!=digest(source) or bound['role']!=source['role'] or bound['project_id']!=row['project_id'] or bound['user_id']!=row['user_id']:raise invalid()
+    if not valid_bindings(db, row, snapshot['sources']):
+        raise invalid()
     legacy=db.execute('SELECT * FROM manuscript_sources WHERE version_id=%s',(row['id'],)).fetchall()
     if sorted((s['source_json'] for s in legacy),key=lambda s:s['id'])!=sorted((s for s in snapshot['sources'] if s['kind'] not in KINDS),key=lambda s:s['id']):raise invalid()
     producer=service.store.require_task(db,row['task_id'])

@@ -1,6 +1,7 @@
 """Deterministic fact transcription. No model, statistical estimation or inference."""
 from copy import deepcopy
 from urllib.parse import quote
+from app.adapters.task_store import source_conflict
 from app.core.exceptions import StorageError
 from .contracts import METHOD_FIELDS,WORKFLOW
 from .sources import read_source
@@ -91,11 +92,21 @@ def result_text(result,en):
 
 
 def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None,paper_plan=None):
+    from .paper_plan import placed_figures, planned_selections
+
     en=request.output_language=='en'
+    placed_images = {image['figure_id']: image for image in placed_figures(paper_plan or {})}
     sources=deepcopy(frozen_sources) if frozen_sources is not None else [read_source(service,project,s) for s in request.sources]
     if paper_plan is not None and frozen_sources is None:
-        sources.extend(read_source(service,project,item['selection']) for item in paper_plan['materials'])
+        from .research_sources import read as read_research_source
+
+        sources.extend(read_source(service,project,selection) for selection in planned_selections(paper_plan))
+        sources.extend(read_research_source(service, project, dict(
+            kind='research_figure_version', id=image['figure_id'], sha256=image['sha256'],
+        )) for image in placed_images.values() if image['source_kind'] == 'research_figure_version')
     lookup={s['id']:s for s in sources};issues=[];methods=[]
+    if any(lookup.get(identity, {}).get('sha256') != row['sha256'] for identity, row in placed_images.items()):
+        raise source_conflict()
     def issue(identity,kind,field,message,values=None):
         if any(i['id']==identity for i in issues): return
         issues.append(dict(id=identity,kind=kind,field=field,message=message,values=values or []))
@@ -125,12 +136,15 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None,pa
     def figure(identity, *, paper_caption=None, optional_caption=False):
         nonlocal figure_count
         source,image=image_lookup.get(identity,(lookup.get(identity),None))
-        if not source or source['role']!='image_observation' or source['kind'] not in ('figure','figure_language_version','original','document_version'):
+        placed_image = placed_images.get(identity)
+        allowed = ('figure', 'figure_language_version', 'original', 'document_version', 'research_figure_version')
+        if not source or source['role'] != 'image_observation' or source['kind'] not in allowed:
             raise StorageError('task_input_invalid','图表必须关联已选图表或原始图片。',422)
         if identity in used_figures: raise StorageError('task_input_invalid','图表不能重复编号。',422)
         used_figures.add(identity);content=source['content']
-        preview_url=image['preview_url'] if image else source['download_url']
+        preview_url=image['preview_url'] if image else source.get('download_url')
         image_metadata={}
+        figure_sha = image['sha256'] if image else source['sha256']
         if image is not None:
             image_metadata['image_id']=image['id']
             title=source['label']+' — '+image['id']
@@ -138,6 +152,17 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None,pa
             caption=(('Candidate source caption (verify): ' if en else '候选来源图注（待核对）：')+candidate) if candidate else ('Document image observation; caption to be supplied.' if en else '文档图片观察；图注待补充。')
             explicit=notes.get(identity) or notes.get(source['id'])
             if not candidate and not (explicit and explicit.caption): issue('missing:caption:'+identity,'missing',identity,'Image caption not supplied.' if en else '图片图注未提供，待补充。')
+        elif source['kind'] == 'research_figure_version':
+            if not placed_image:
+                raise source_conflict()
+            member = next((m for m in content['members'] if m['id'] == placed_image['member_id']
+                           and m['format'] == 'png' and m['role'] == 'figure'), None)
+            if not member:
+                raise source_conflict()
+            image_metadata['research_member_id'] = member['id']
+            figure_sha = member['sha256']
+            preview_url = placed_image['preview_url']
+            title, caption = placed_image['title'], ''
         elif source['kind'] in ('figure','figure_language_version'):
             language=content.get('language') or content.get('output_language') or 'zh-CN'
             if language!=request.output_language: raise StorageError('task_source_conflict','图中文字语言与事实稿不一致，请先生成对应语言图表。',409)
@@ -161,11 +186,12 @@ def freeze(service,project,request,*,frozen_sources=None,frozen_citation=None,pa
         elif caption_status=='candidate':
             issue('verify:caption:'+identity,'limitation',identity,
                 f'Figure {figure_count}: The source caption candidate requires researcher verification.' if en else f'图 {figure_count}：来源候选图注需研究人员核对。')
-        if paper_caption:
+        if paper_caption and not placed_image:
             title='Research image' if en else '研究图'
+        panels = placed_image.get('panels', []) if placed_image else [p.model_dump() for p in note.panels] if note else []
         return dict(id=identity,number=figure_count,title=title,caption=paper_caption or (note.caption if supplied else caption),caption_status=caption_status,
-            caption_origin='user_provided' if supplied else 'source',panels=[p.model_dump() for p in note.panels] if note else [],
-            sha256=image['sha256'] if image else source['sha256'],source_ids=[source['id']],
+            caption_origin='user_provided' if supplied else 'source',panels=panels,
+            sha256=figure_sha,source_ids=[source['id']],
             preview_url=preview_url,**image_metadata)
     if paper_plan is not None:
         from .paper_plan import freeze_groups

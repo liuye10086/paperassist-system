@@ -31,13 +31,13 @@ from app.core.config import local_config
 
 from app.db.statistics_report_context_schema import TABLE_NAMES as STATISTICS_CONTEXT_TABLES
 
-SCHEMA_HEAD = "0092_school_draft_edits"
+SCHEMA_HEAD = "0094_sci_revision_chat"
 _APPEND_ONLY_TABLES = frozenset({
     'account_deletions', 'reader_report_narrative_requests',
     'customer_material_submissions', 'customer_material_submission_files',
     'bio_report_context_versions', 'bio_report_context_files', 'bio_report_context_requests',
     *STATISTICS_CONTEXT_TABLES, 'statistics_legacy_export_requests',
-    'analysis_request_receipts', 'research_finding_versions', 'research_figure_members',
+    'analysis_request_receipts', 'research_finding_versions', 'research_figure_members', 'paper_figure_cancellations',
     'research_report_members', 'research_source_bindings', 'manuscript_research_sources',
     'bio_observation_map_versions', 'bio_analysis_recipe_versions', 'bio_processed_dataset_versions',
     'bio_analysis_artifacts', 'bio_annotation_versions', 'bio_annotation_evidence', 'bio_figure_members',

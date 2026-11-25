@@ -2,6 +2,7 @@
 .sci-draft-generator .literature-actions { display: flex; gap: .5rem; align-items: end; flex-wrap: wrap; }
 .sci-draft-generator form label { flex: 1 1 18rem; display: grid; gap: .35rem; }
 .sci-draft-generator .sci-generate-panel { background: var(--accent-surface); border-radius: 10px; padding: .75rem 1rem; display: flex; flex-wrap: wrap; gap: .65rem 1rem; align-items: center; }
+.sci-draft-generator[data-project-type='sci'] .sci-generate-panel { justify-content: flex-end; }
 .sci-generate-panel > p.muted { flex: 1 1 24rem; margin: 0; }
 .sci-generate-panel > [role], .sci-generate-panel > div { flex-basis: 100%; }
 .sci-planned-figures { flex-basis: 100%; }
@@ -25,5 +26,5 @@
 .sci-abstract summary .sci-collapse, .sci-abstract[open] summary b:not(.sci-collapse) { display: none; }
 .sci-abstract[open] summary .sci-collapse { display: inline; }
 @media (min-width: 760px) and (min-height: 580px) {
-  .sci-draft-generator .sci-generate-panel { position: sticky; top: 0; z-index: 1; }
+  .sci-draft-generator[data-project-type='thesis'] .sci-generate-panel { position: sticky; top: 0; z-index: 1; }
 }

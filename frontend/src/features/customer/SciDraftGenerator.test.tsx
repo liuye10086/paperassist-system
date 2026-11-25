@@ -1,4 +1,4 @@
-import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react'
+import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react'
 import {afterEach, beforeEach, expect, it, vi} from 'vitest'
 import type {Reference} from '../literature/literatureApi'
 import {literatureTask} from '../literature/fixtures'
@@ -64,7 +64,7 @@ const thesisRequirements: ThesisRequirements = {title:'学位论文',keywords:['
   language:'zh-CN', revision:3, sections:[],template:{name:'学院目录',confirmation_id:'confirmed',chapters}}
 const thesisCandidates = {
   project_type:'thesis', citation_drafts:[],methods_fields:[...methodFields],
-  items:[{kind:'document_version',id:'doc',file_id:'file',label:'报告.docx',version:1,allowed_roles:['methods'],download_url:null}],
+  items:[{kind:'document_version',id:'doc',file_id:'file',label:'报告.docx',version:1,allowed_roles:['methods'],download_url:null}] as Candidates['items'],
   thesis:{ready:true, confirmation_id:'confirmed', profile:{revision:3,school:'示例学院',major:'',department:'',degree_type:'',
     education_level:'硕士',applicable_version:'',bound_confirmation_id:'confirmed'}, blocking_reasons:[] as string[],chapters,
     protected_chapter_purposes:{cover:'manual'},purposes:['manual','introduction','results','discussion'],
@@ -114,6 +114,42 @@ it('blocks generation when the school directory is unavailable and links to its 
   fireEvent.click(repair)
   expect(open).toHaveBeenCalledOnce()
   expect(screen.getByRole('button',{name:'生成毕业论文初稿'})).toHaveProperty('disabled',true)
+})
+
+it('shows assigned thesis figures and keeps only independent originals as automatic image inputs', async () => {
+  const figure = {figure_id:'thesis-figure',chapter_id:'thesis:figure:confirmed:results',chapter_label:'第二章 观察指标',
+    title:'病例登记流程图',caption:'登记、核对和归档。',panel_file_ids:['fig-panel']}
+  const originals: Candidates['items'] = ['fig-panel', 'independent'].map(id => ({kind:'original', id, file_id:id, label:id + '.png',
+    version:null, allowed_roles:['image_observation'], download_url:null}))
+  const candidates = {...thesisCandidates,items:[...thesisCandidates.items,...originals],
+    paper_plan:{...thesisCandidates.paper_plan,thesis_figures:[figure]}}
+  const old = manuscriptFixture.versions[0]
+  const previous = {...old,input:{...old.input, sources:[{kind:'original',id:'fig-panel',file_id:'fig-panel',role:'image_observation'}],
+    figure_notes:[{figure_id:'fig-panel',caption:'旧的单张图注。',panels:[]}]}}
+  serve('research', url => url.endsWith('/manuscripts/candidates') ? Response.json(candidates) :
+    url.endsWith('/manuscripts') ? Response.json({items:[{...manuscriptFixture,versions:[previous]}]}) : undefined)
+  mountThesis()
+  const panel = within(await screen.findByRole('region', {name:'本次配图（1 张）'}))
+  expect(panel.getByText(figure.title)).toBeTruthy()
+  expect(panel.getByText(figure.chapter_label)).toBeTruthy()
+  expect(panel.getByText(figure.caption)).toBeTruthy()
+  fireEvent.change(screen.getByRole('combobox',{name:'独立专题'}),{target:{value:'discussion'}})
+  fireEvent.click(screen.getByRole('button',{name:'生成毕业论文初稿'}))
+  await waitFor(() => expect(preparePaperDraft).toHaveBeenCalledOnce())
+  const input = vi.mocked(preparePaperDraft).mock.calls[0][0].input
+  expect(input.sources.map(source => source.id)).toEqual(['doc','independent'])
+  expect(input.figure_notes).toEqual([])
+})
+
+it('sends an obsolete thesis figure assignment back to the school organizer', async () => {
+  const candidates = {...thesisCandidates,paper_plan:{...thesisCandidates.paper_plan,thesis_figures_need_configuration:true}}
+  const open = vi.fn()
+  serveThesis(candidates)
+  mountThesis(vi.fn(),open)
+  await screen.findByText('请先在资源配置中核对并保存图件。')
+  expect(screen.getByRole('button',{name:'生成毕业论文初稿'})).toHaveProperty('disabled',true)
+  fireEvent.click(screen.getByRole('button',{name:'前往模板与资料整理'}))
+  expect(open).toHaveBeenCalledOnce()
 })
 it('classifies the university outline, keeps the full order collapsed and asks once for an unfamiliar chapter tree', async () => {
   const labels = [
@@ -271,6 +307,51 @@ it.each([2, 50])('counts %i planned review images including section-bound files 
   if (imageCount === 50) expect(screen.getByText('本项目超过单次写作可使用的 50 项资料。')).toBeTruthy()
 })
 
+it('lists configured SCI figures and sends recovery to resources while a placement needs repair', async () => {
+  const resources = vi.fn()
+  serve('narrative_review', url => {
+    if (url.endsWith('/manuscripts/candidates')) return Response.json({project_type:'sci', methods_fields:[...methodFields], citation_drafts:[], items:[],
+      paper_plan:{kind:'narrative_review', title:'Review', keywords:[], sections:[], token:'a'.repeat(64), omitted_count:0,
+        materials:[{section_id:'discussion', kind:'figure', filename:'Old automatically placed.png', result:'',
+          selection:{id:'old-figure', file_id:'old-figure', kind:'original', role:'image_observation'}}],
+        sci_figures:[{figure_id:'new-figure', chapter_id:'discussion', chapter_label:'Synthesis', title:'Selected formal figure', caption:'A caption.'}],
+        sci_figures_need_configuration:true}})
+    if (url.includes('selection=shortlisted')) return Response.json({project_id:'p1', total:1, page:1, page_size:10,
+      items:[{...item, selection:{...item.selection,status:'shortlisted'}}]})
+  })
+  render(<SciDraftGenerator project={project} settings={settings} onOpenResources={resources} onSubmitted={vi.fn()}/>)
+  expect(await screen.findByText('Selected formal figure')).toBeTruthy()
+  expect(screen.getByText('Synthesis')).toBeTruthy()
+  expect(screen.getByText('A caption.')).toBeTruthy()
+  expect(screen.queryByText(/Old automatically placed/)).toBeNull()
+  const generate = screen.getByRole('button', {name:'生成初稿'})
+  expect(generate).toHaveProperty('disabled', true)
+  fireEvent.click(generate)
+  expect(preparePaperDraft).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', {name:'前往资源配置'}))
+  expect(resources).toHaveBeenCalledOnce()
+})
+
+it('uses the frozen plan for selected SCI figures without including unassigned original images as writing sources', async () => {
+  serve('narrative_review', url => {
+    if (url.endsWith('/manuscripts/candidates')) return Response.json({project_type:'sci', methods_fields:[...methodFields], citation_drafts:[],
+      items:[{kind:'original', id:'unused', file_id:'unused', label:'Unused.png', version:null,
+        allowed_roles:['methods','image_observation'], download_url:null},
+      {kind:'document_version', id:'notes', file_id:'document', label:'Notes.docx', version:1, allowed_roles:['methods'], download_url:null}],
+      paper_plan:{kind:'narrative_review', title:'Review', keywords:[], sections:[], token:'a'.repeat(64), omitted_count:0,
+        materials:[], sci_figures:[{figure_id:'fixed-figure', chapter_id:'discussion', chapter_label:'Synthesis', title:'Panel', caption:'Description'}]}})
+    if (url.includes('selection=shortlisted')) return Response.json({project_id:'p1', total:1, page:1, page_size:10,
+      items:[{...item, selection:{...item.selection,status:'shortlisted'}}]})
+  })
+  render(<SciDraftGenerator project={project} settings={settings} onSubmitted={vi.fn()} />)
+  const generate = screen.getByRole('button', {name:'生成初稿'})
+  await waitFor(() => expect(generate).toHaveProperty('disabled', false))
+  fireEvent.click(generate)
+  await waitFor(() => expect(preparePaperDraft).toHaveBeenCalledWith(expect.objectContaining({input:expect.objectContaining({
+    paper_plan_token:'a'.repeat(64), sources:[{id:'notes', kind:'document_version', file_id:'document', role:'methods'}],
+  })})))
+})
+
 it('searches from the same page using the project keywords and displays the returned abstract', async () => {
   const query = {research_topic:'Topic',source_context:{kind:'project_topic',label:'',text:'Topic'},query:'cohort',year_from:null,year_to:null,publication_types:[],sort:'relevance',limit:20,output_language:'en'}
   const task = {...literatureTask, status:'succeeded', display_status:'succeeded', reason_code:null}
@@ -287,6 +368,19 @@ it('searches from the same page using the project keywords and displays the retu
   const sent = api.mock.calls.find(([url]) => url.endsWith('/searches'))
   expect(JSON.parse(String(sent?.[1]?.body))).toEqual(query)
   expect(screen.getByText('Saved abstract.')).toBeTruthy()
+})
+
+it('places SCI draft generation after the references and their pagination', async () => {
+  serve('narrative_review', url => {
+    if (url === base + '/literature/references?page=1') {
+      const items = Array.from({length: 10}, (_, index) => ({...item, id:'ref' + index}))
+      return Response.json({project_id:'p1', items, total:11, page:1, page_size:10})
+    }
+  })
+  render(<SciDraftGenerator project={project} settings={settings} onSubmitted={vi.fn()} />)
+  const pagination = await screen.findByRole('navigation', {name:'候选文献分页'})
+  const generate = screen.getByRole('button', {name:'生成初稿'})
+  expect(pagination.compareDocumentPosition(generate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
 it('uses all selected pages, including choices outside the visible search', async () => {

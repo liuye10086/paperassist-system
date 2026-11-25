@@ -267,3 +267,21 @@ it('continues differential analysis from the server-designated reusable QC resul
   fireEvent.click(await screen.findByRole('button',{name:'从当前质控版本配置差异分析'}))
   expect(navigate).toHaveBeenCalledWith({view:'bio-insights',fileId:'',bulkView:'differential',processedId:'qc-v2'})
 })
+
+it.each([
+  ['waiting_confirmation',{import_id:'import-v1'},'继续核对本次导入',{view:'bio-import',fileId:'',bulkView:'data',importId:'import-v1'}],
+  ['succeeded',{dataset_id:'dataset1',dataset_version_id:'raw-v2'},'继续到样本质控',bulkRoute('qc')],
+] as const)('resumes an analyst Bulk data stage with status %s',async(status,refs,button,route)=>{
+  mockFetch.mockImplementation(async()=>Response.json({
+    ...overview,stages:overview.stages.map(stage=>stage.key==='data'?{...stage,status,refs}:stage),
+  }))
+  const navigate=vi.fn()
+  render(<BulkWorkflowWorkspace projectId="p1" navigation={{...bulkRoute('data'),
+    entry:{requirementVersionId:'req-1',scopeItemId:'customer.type.bulk'}}}
+    analysisOnly active allowNewAnalysis files={files} onNavigate={navigate}/>)
+  const next=await screen.findByRole('button',{name:button})
+  expect(next.className).toBe('button-primary')
+  fireEvent.click(next)
+  expect(navigate).toHaveBeenCalledWith(route)
+  expect(screen.getByRole('button',{name:'导入并核对 Bulk 矩阵'}).className).toBe('button-quiet')
+})

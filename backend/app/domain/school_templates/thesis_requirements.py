@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 from pydantic import Field, StringConstraints, model_validator
 
 from app.core.exceptions import StorageError
+from app.domain.manuscripts.school import SchoolWritablePurpose
 from app.domain.research_intake.paper_fields import ContentText, PaperKeywords, ShortText
 from .contracts import PROFILE_FIELDS, StrictModel
 from .front_matter import content_purposes
@@ -22,7 +23,7 @@ class ThesisBasics(StrictModel):
 
 class ThesisSectionNeed(StrictModel):
     chapter_id: str = Field(min_length=1, max_length=300)
-    purpose: Literal['materials_and_methods', 'results']
+    purpose: SchoolWritablePurpose
     content: ContentText
 
 
@@ -83,6 +84,10 @@ def thesis_requirements(store, project, changes: ThesisRequirementsWrite | None 
         profile = schools.profile_view(db, project, include_requirements=True)
         stored = profile.pop('requirements_json', None) or {}
         template, row = bound_template(schools, db, project, profile)
+        if template is not None:
+            sources, _ = schools.validate(db, row)
+            original = next(source for source in sources if source['role'] == 'template')
+            template['source_file'] = dict(file_id=original['file_id'], filename=original['filename'])
         if changes is None:
             return requirements_view(profile, language, stored, template)
 
@@ -104,7 +109,7 @@ def thesis_requirements(store, project, changes: ThesisRequirementsWrite | None 
                                        params={'position': position})
             plans[template['confirmation_id']] = [sections[key] for key in chapter_ids if key in sections]
         values = profile | {'school': basics.school, 'education_level': basics.education_level}
-        requirements = {'title': basics.title, 'keywords': basics.keywords, 'chapter_plans': plans}
+        requirements = stored | {'title': basics.title, 'keywords': basics.keywords, 'chapter_plans': plans}
         if (profile == values and requirements == stored and changes.language == language
                 and profile['revision'] in (changes.expected_revision, changes.expected_revision + 1)):
             return requirements_view(profile, language, stored, template)

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import type { Locale } from '../../shared/i18n'
 import { safeError, useI18n } from '../../shared/i18n'
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
@@ -14,7 +15,8 @@ type CommonProps = {
   registerLeaveGuard: RegisterLeaveGuard
 }
 type BasicsProps = CommonProps & {onLanguageChanged:() => void; onContinue?:() => void}
-type OrganizerProps = CommonProps & {onOpenTemplate:(hasTemplate:boolean) => void; onOpenProject?:() => void; onSectionsSaved?:() => void}
+type OrganizerProps = CommonProps & {onOpenTemplate:(hasTemplate:boolean) => void; onOpenProject?:() => void;
+  onSectionsSaved?:() => void; figureConfigRevision?: number}
 type Props = BasicsProps | OrganizerProps
 type Edit = {
   revision: number
@@ -48,23 +50,28 @@ function RequirementsPage(props: Props) {
   const { t } = useI18n()
   const url = projectBase(props.projectId) + '/thesis-requirements'
   const read = useResearchRead<ThesisRequirements>(url, true)
-  const heading = 'onOpenTemplate' in props ? '学校模板' : '毕业论文需求'
-  return <section className="customer-thesis-requirements" aria-label={t(heading)}>
-    <h2>{t(heading)}</h2>
+  const organizer = 'onOpenTemplate' in props
+  const content = <>
     {read.error && <div role="alert" className="error-panel">{t(read.error)}{' '}
       <button type="button" onClick={read.refresh}>{t('重试')}</button>
     </div>}
-    {read.data ? <RequirementsEditor {...props} url={url} receipt={read.data} refresh={read.refresh} /> :
+    {read.data ? <RequirementsEditor {...props} url={url} receipt={read.data} loading={read.loading} refresh={read.refresh} /> :
       !read.error && <p role="status">{t('正在读取毕业论文需求……')}</p>}
-  </section>
+  </>
+  return organizer ? <div className="thesis-template-page">{content}</div>
+    : <section className="customer-thesis-requirements" aria-label={t('毕业论文需求')}>
+      <h2>{t('毕业论文需求')}</h2>{content}
+    </section>
 }
 
 function RequirementsEditor(props: Props & {
-  url: string; receipt: ThesisRequirements; refresh: () => void
+  url: string; receipt: ThesisRequirements; loading: boolean; refresh: () => void
 }) {
   const { t } = useI18n()
   const {projectId, registerLeaveGuard, url, receipt, refresh} = props
   const organizer = 'onOpenTemplate' in props
+  const figureConfigRevision = organizer ? props.figureConfigRevision : undefined
+  const lastFigureConfigRevision = useRef(figureConfigRevision)
   const [basicEdit, setBasicEdit] = useResearchDraft<Edit | null>(projectId, 'customer-thesis-requirements', () => null)
   const [chapterEdit, setChapterEdit] = useResearchDraft<Edit | null>(projectId, 'customer-thesis-chapter-requirements', () => null)
   const [saved, setSaved] = useState<ThesisRequirements | null>(null)
@@ -81,7 +88,14 @@ function RequirementsEditor(props: Props & {
     ? basicEdit.sections : null
   const edit = organizer ? chapterEdit ?? (legacyChapters ? {...baseline,sections:legacyChapters} : null) : basicEdit
   const stale = !!edit && !sameBaseline(edit,baseline)
-  useDraftLeaveGuard(registerLeaveGuard, !!edit && JSON.stringify(edit) !== JSON.stringify(baseline), busy)
+  const dirty = !!edit && JSON.stringify(edit) !== JSON.stringify(baseline)
+  const syncingFigures = figureConfigRevision !== undefined && props.loading
+  useDraftLeaveGuard(registerLeaveGuard, dirty, busy)
+  useEffect(() => {
+    if (dirty || busy || figureConfigRevision === lastFigureConfigRevision.current) return
+    lastFigureConfigRevision.current = figureConfigRevision
+    refresh()
+  }, [busy, dirty, figureConfigRevision, refresh])
 
   function change(next: Edit | null) {
     if (organizer) {
@@ -99,8 +113,7 @@ function RequirementsEditor(props: Props & {
     if (!edit || stale || request.current) return
     const fields = prepareThesisBasics(organizer ? baseline.basics : edit.basics)
     if ('error' in fields) { setError(fields.error); return }
-    const sections = edit.sections.map(item => ({ ...item, content: item.content.trim() }))
-    if (organizer && sections.some(item => !item.content)) { setError('请填写已添加章节所需涵盖的内容。'); return }
+    const sections = edit.sections.map(item => ({ ...item, content: item.content.trim() })).filter(item => item.content)
     const chapterPlan = organizer && template && JSON.stringify(sections) !== JSON.stringify(current.sections)
       ? { confirmation_id: template.confirmation_id, sections } : undefined
     const controller = new AbortController()
@@ -156,25 +169,37 @@ function RequirementsEditor(props: Props & {
   </div>
   const errorNotice = error && <p role="alert" className="error-panel">{t(error)}</p>
   if (organizer) return <>
-    <div className="sci-inline-controls thesis-template-link">
-      <span>{template ? t('已采用学校模板 · {name}', {name:template.name}) : t('请上传学校 Word 模板，确认规则并采用后填写章节内容。')}</span>
-      <button type="button" className="button-quiet" disabled={busy} onClick={() => props.onOpenTemplate(!!template)}>
-        {t(template ? '管理学校模板' : '上传学校模板')}</button>
-    </div>
-    {template && <details className="thesis-requirements-edit" open={edit ? true : undefined}>
-      <summary>{t('逐章写作要求（选填）')}</summary>
-      <form aria-busy={busy} noValidate onSubmit={event => void save(event)}>
+    {template ? <>
+      <header className="thesis-template-heading">
+        <div>
+          <h2>{t('已采用学校模板 · {name}', {name:template.name})}</h2>
+          {template.source_file && template.source_file.filename !== template.name &&
+            <p className="muted">{template.source_file.filename}</p>}
+        </div>
+        <div className="sci-inline-controls thesis-template-actions">
+          {template.source_file && <ProjectDownloadLink
+            href={`${projectBase(projectId)}/files/${encodeURIComponent(template.source_file.file_id)}/download`}
+            filename={template.source_file.filename}>{t('下载模板原件')}</ProjectDownloadLink>}
+          <button type="button" className="button-quiet" disabled={busy} onClick={() => props.onOpenTemplate(true)}>{t('更换模板')}</button>
+        </div>
+      </header>
+      <form className="thesis-requirements-edit" aria-busy={busy} noValidate onSubmit={event => void save(event)}>
         {stale ? staleNotice : <ThesisChapterRequirements key={template.confirmation_id} template={template}
-          sections={edit?.sections ?? current.sections} disabled={busy}
+          sections={edit?.sections ?? current.sections} disabled={busy || syncingFigures}
           onChange={sections => change({...baseline,sections})}/>}
         {errorNotice}
         {props.onOpenProject && 'error' in prepareThesisBasics(baseline.basics) &&
           <button type="button" onClick={props.onOpenProject}>{t('填写毕业论文需求')}</button>}
-        <button type="submit" className="button-primary" disabled={busy || stale || !changed}>
-          {t(busy ? '正在保存……' : '保存章节要求')}</button>
+        <div className="thesis-chapter-save">
+          {saved && !edit && <span role="status">{t('章节内容已保存。')}</span>}
+          <button type="submit" className="button-primary" disabled={busy || syncingFigures || stale || !changed}>
+            {t(busy ? '正在保存……' : '保存章节内容')}</button>
+        </div>
       </form>
-    </details>}
-    {saved && !edit && <p role="status">{t('章节要求已保存。')}</p>}
+    </> : <div className="sci-inline-controls">
+      <p>{t('请上传学校 Word 模板，确认规则并采用后填写章节内容。')}</p>
+      <button type="button" className="button-primary" onClick={() => props.onOpenTemplate(false)}>{t('上传学校模板')}</button>
+    </div>}
   </>
   return <>
     {(!edit || stale) && <>

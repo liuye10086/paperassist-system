@@ -20,6 +20,7 @@ type Props = {
   projectId:string
   navigation:AnalysisNavigation
   active:boolean
+  analysisOnly?:boolean
   allowNewAnalysis:boolean
   files:ProjectFile[]
   outputLanguage?:'zh-CN'|'en'
@@ -39,7 +40,7 @@ export function BulkWorkflowNav({view,nested,onNavigate}:{
   </nav>
 }
 
-export default function BulkWorkflowWorkspace({projectId,navigation,active,allowNewAnalysis,files,outputLanguage,onNavigate,onUpload,deliveryTarget}:Props) {
+export default function BulkWorkflowWorkspace({projectId,navigation,active,analysisOnly,allowNewAnalysis,files,outputLanguage,onNavigate,onUpload,deliveryTarget}:Props) {
   const {t}=useI18n()
   const [reviewed,setReviewed]=useResearchDraft<BulkSensitivityRequest|{byComparison:Record<string,BulkSensitivityRequest>}|null>(
     projectId,'bulk-workflow-reviewed-sensitivity',()=>null)
@@ -51,6 +52,10 @@ export default function BulkWorkflowWorkspace({projectId,navigation,active,allow
   const stage=data?.stages.find(item=>item.key===view)
   const dataStage=data?.stages.find(item=>item.key==='data')
   const qcStage=data?.stages.find(item=>item.key==='qc')
+  const guided=analysisOnly&&!!navigation.entry
+  const importRoute:AnalysisNavigation={view:'bio-datasets',fileId:'',bulkView:'data',...(guided?{intent:'bulk_import'}:{})}
+  const pendingImport=guided&&dataStage&&['queued','running','waiting_confirmation'].includes(dataStage.status)&&dataStage.refs.import_id
+  const publishedData=guided&&dataStage?.status==='succeeded'&&!!dataStage.refs.dataset_version_id&&!dataStage.stale
   const reusableQc=qcStage?.reusable_processed_refs?.processed_version_id
   const differentialSource=reusableQc??(!qcStage?.stale?qcStage?.refs.processed_version_id:null)
   const comparisons=publishedBulkComparisons(data?.comparisons??[])
@@ -64,16 +69,21 @@ export default function BulkWorkflowWorkspace({projectId,navigation,active,allow
     <ReadState {...overview}/>
     {overview.data&&!data&&<p role="alert">{t('固定来源身份不匹配，请重新打开。')}</p>}
     {stage&&<StageVersions {...{projectId,view,stage,onNavigate}}/>}
+    {guided&&view==='data'&&<div className="intake-actions bulk-data-actions">
+      <button type="button" className={publishedData||pendingImport?'button-quiet':'button-primary'} disabled={overview.loading||!allowNewAnalysis} onClick={()=>onNavigate(importRoute)}>{t('导入并核对 Bulk 矩阵')}</button>
+      {publishedData&&<button type="button" className="button-primary" onClick={()=>onNavigate(bulkRoute('qc'))}>{t('继续到样本质控')}</button>}
+      {pendingImport&&<button type="button" className="button-primary" onClick={()=>onNavigate({view:'bio-import',fileId:'',bulkView:'data',importId:pendingImport})}>{t('继续核对本次导入')}</button>}
+    </div>}
     <div className="intake-actions">
-      {view==='data'&&<>
+      {view==='data'&&!guided&&<>
         {onUpload && <button type="button" onClick={onUpload}>{t('上传 counts 矩阵与样本表')}</button>}
-        <button type="button" onClick={()=>onNavigate({view:'bio-datasets',fileId:'',bulkView:'data'})}>{t('导入并核对 Bulk 矩阵')}</button>
+        <button type="button" onClick={()=>onNavigate(importRoute)}>{t('导入并核对 Bulk 矩阵')}</button>
       </>}
       {view==='qc'&&dataStage?.refs.dataset_id&&dataStage.refs.dataset_version_id&&allowNewAnalysis&&
-        <button type="button" onClick={()=>onNavigate({view:'bio-dataset',fileId:'',bulkView:'qc',
+        <button type="button" className={guided?'button-primary':undefined} onClick={()=>onNavigate({view:'bio-dataset',fileId:'',bulkView:'qc',
           datasetId:dataStage.refs.dataset_id!,versionId:dataStage.refs.dataset_version_id!})}>{t('从当前数据集配置质控')}</button>}
       {view==='differential'&&differentialSource&&allowNewAnalysis&&
-        <button type="button" onClick={()=>onNavigate({view:'bio-insights',fileId:'',bulkView:'differential',
+        <button type="button" className={guided?'button-primary':undefined} onClick={()=>onNavigate({view:'bio-insights',fileId:'',bulkView:'differential',
           processedId:differentialSource})}>{t('从当前质控版本配置差异分析')}</button>}
       {view==='functional'&&<>
         {comparison&&allowNewAnalysis&&<button type="button" onClick={()=>onNavigate({view:'bio-insight-result',fileId:'',bulkView:'functional',

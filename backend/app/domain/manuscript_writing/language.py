@@ -13,9 +13,9 @@ from .numeric_review import NUMERIC_VERSION,validation_version,language_markers
 
 
 def editable_fields(candidate):
-    from .article_contract import theme_sections, visible_illustration_groups
+    from .article_contract import combined_theme_group_ids, theme_sections, visible_illustration_groups
 
-    theme_group_ids = {s['id'] for s in theme_sections(candidate)}
+    theme_group_ids = {s['id'] for s in theme_sections(candidate)} | set(combined_theme_group_ids(candidate))
     visible_ids = {g['id'] for g in visible_illustration_groups(candidate)}
     fields=[]
     def item(path,text):

@@ -15,6 +15,13 @@ from app.domain.research_results.sources import ResearchSourceReader
 from app.domain.source_byte_verification import VerificationPhase
 
 
+MAX_REPORT_TABLE_CELLS = 5_000_000
+
+
+def table_cell_count(table):
+    return (table['expected_rows'] + 1) * len(table['columns'])
+
+
 def annotation_identity(view, row):
     return dict(version_id=view['id'], set_id=view['set_id'], view_sha256=digest(view),
                 **{key: row[key] for key in ('geometry_sha256', 'assignments_sha256', 'geometry_object_id', 'assignments_object_id')})
@@ -94,6 +101,7 @@ class MaterialBuilder:
         self.subset = None
         self.supporting = []
         self.selection = None
+        self.workbook_limited = False
 
     def source(self, kind, identifier):
         fixed = self.reader._read_source_in_phase(self.project, dict(source_kind=kind, source_id=identifier), db=self.db, phase=self.phase)
@@ -283,13 +291,16 @@ class MaterialBuilder:
             return list(dict.fromkeys(value for catalog in catalogs for value in getattr(catalog, field)))
         facts = {fact.id: fact.model_dump(mode='json') for catalog in catalogs for fact in catalog.facts}
         methods = {method.id: method.model_dump(mode='json') for catalog in catalogs for method in catalog.methods}
-        if len(self.images) > 50 or sum((t['expected_rows'] + 1) * len(t['columns']) for t in self.tables) > 5_000_000:
+        if len(self.images) > 50 or sum(map(table_cell_count, self.tables)) > MAX_REPORT_TABLE_CELLS:
             raise invalid('research_export_limit_exceeded', 422)
-        return checked_context_size(json.loads(canonical(dict(schema_version=1, title=request.title, language=request.language,
+        content = dict(schema_version=1, title=request.title, language=request.language,
             selection=self.selection or request.selection.model_dump(mode='json'), scientific=scientific, sources=self.sources,
             source_file_ids=sorted(self.file_ids), dependencies=self.dependencies, annotation=self.annotation, subset=self.subset,
             tables=self.tables, table_blobs=self.blobs, figures=self.images, facts=list(facts.values()), methods=list(methods.values()),
-            limitations=unique('limitations'), gaps=unique('gaps'), warnings=unique('warnings'), supporting_sources=self.supporting))))
+            limitations=unique('limitations'), gaps=unique('gaps'), warnings=unique('warnings'), supporting_sources=self.supporting)
+        if self.workbook_limited:
+            content['workbook_limited'] = True
+        return checked_context_size(json.loads(canonical(content)))
 
 
 def prepare_material(assets, db, project, request):

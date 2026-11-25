@@ -11,10 +11,17 @@ import sys
 
 from PIL import Image,ImageDraw,ImageFont
 
+from app.adapters.project_images import IMAGE_FORMATS, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE
+from app.domain.research_results.contracts import MAX_PAPER_FIGURE_PANELS
+
+
+PANEL_FORMATS = {pillow_format: file_type for file_type, pillow_format in IMAGE_FORMATS.items()}
+
 
 def renderer_identity():
     return dict(renderer_version='research_bitmap_v1',code_digest=hashlib.sha256(Path(__file__).read_bytes()+Path(__file__).with_name('research_figure_child.py').read_bytes()).hexdigest(),
-        pillow_version=Image.__version__,limits=dict(timeout_seconds=60,subprocess_memory_bytes=2*1024**3,worker_memory_bytes=4*1024**3,max_edge_pixels=8000,max_pixels=40_000_000))
+        pillow_version=Image.__version__,limits=dict(timeout_seconds=60,subprocess_memory_bytes=2*1024**3,
+            worker_memory_bytes=4*1024**3,max_edge_pixels=8000,max_pixels=40_000_000,max_panels=MAX_PAPER_FIGURE_PANELS))
 
 
 def label_font(config,panels,cell):
@@ -33,7 +40,10 @@ def render_figure(payload,output):
     if not config.get('formats') or any(fmt not in ('png','tiff','svg') for fmt in config['formats']):
         raise ValueError('unsupported figure output format; PDF export is retired')
     panels=[dict(p) for p in payload['panels']]
-    if config['mode'] not in ('reuse','composite') or not (len(panels)==1 if config['mode']=='reuse' else 2<=len(panels)<=6):raise ValueError('panel limit')
+    panel_count = len(panels)
+    if not ((config['mode'] == 'reuse' and panel_count == 1)
+            or (config['mode'] == 'composite' and 2 <= panel_count <= MAX_PAPER_FIGURE_PANELS)):
+        raise ValueError('panel limit')
     if config['mode']=='composite':
         used={p.get('label') for p in panels if p.get('label')}
         for index,panel in enumerate(panels):
@@ -52,9 +62,19 @@ def render_figure(payload,output):
     for panel in panels:
         raw=Path(panel['path']).read_bytes()
         if hashlib.sha256(raw).hexdigest()!=panel['sha256']:raise ValueError('source integrity')
-        with Image.open(io.BytesIO(raw)) as image:
-            if image.format not in ('PNG','JPEG') or max(image.size)>8000 or image.width*image.height>40_000_000:raise ValueError('source limit')
-            image.load();images.append((image.convert('RGBA'),raw,image.format,image.size))
+        with Image.open(io.BytesIO(raw), formats=list(PANEL_FORMATS)) as image:
+            if min(image.size)<1 or max(image.size)>MAX_IMAGE_SIDE or image.width*image.height>MAX_IMAGE_PIXELS:
+                raise ValueError('source limit')
+            fmt=PANEL_FORMATS[image.format]
+            if panel.get('format',fmt)!=fmt:raise ValueError('source format')
+            # TIFF loads frame zero. Every page is retained in the original member.
+            image.load()
+            if fmt=='tiff' and image.mode.startswith('I;16'):
+                with image.convert('I') as grayscale, grayscale.point(lambda value: value / 257) as display:
+                    raster=display.convert('RGBA')
+            else:
+                raster=image.convert('RGBA')
+            images.append((raster,raw,fmt,image.size))
             heights.append(max(1,round(cell*image.height/image.width)))
     rows=math.ceil(len(images)/columns);row_heights=[max(heights[i*columns:(i+1)*columns])+label_height for i in range(rows)]
     height=sum(row_heights)+(rows+1)*margin
@@ -75,7 +95,7 @@ def render_figure(payload,output):
         descriptors.append(dict(source=panel['source'],member_key=panel.get('member_key'),sha256=panel['sha256'],label=panel.get('label',''),note=panel.get('note',''),
             original_pixels=list(size),box=[x,y,cell,h],native_effective_dpi=round(native,3),effective_dpi=round(min(dpi,native),3),
             resolution_warning=native<dpi,original_member='original_'+str(index+1)))
-        leaf('original_'+str(index+1),'png' if fmt=='PNG' else 'jpeg',raw,'original_panel',descriptors[-1])
+        leaf('original_'+str(index+1),fmt,raw,'original_panel',descriptors[-1])
     for fmt in config['formats']:
         stream=io.BytesIO()
         if fmt=='svg':
@@ -93,7 +113,9 @@ def render_figure(payload,output):
         language_exception=config.get('figure_language','original') in ('original','unknown') or config.get('figure_language')!=config.get('language','zh-CN'),
         missing_caption_annotations=['n、单位、误差线、方法及统计标注仅以选定 caption_facts 为依据；未绑定内容视为用户未验证文字。'],
         limitations=['原图语言保留；位图 SVG 的科学面板内容不可编辑。','分辨率按原始像素报告；上采样不增加原图细节。'])
-    rebuild=dict(config=config,panels=[{**{k:v for k,v in p.items() if k!='path'},'path':d['original_member']+('.png' if images[i][2]=='PNG' else '.jpeg')} for i,(p,d) in enumerate(zip(panels,descriptors))])
+    if any(fmt=='tiff' for _,_,fmt,_ in images):
+        manifest['limitations'].append('TIFF 拼版使用首页。16 位无符号灰度按全量程映射到 8 位。TIFF 原件保留全部页面。')
+    rebuild=dict(config=config,panels=[{**{k:v for k,v in p.items() if k!='path'},'path':d['original_member']+'.'+images[i][2]} for i,(p,d) in enumerate(zip(panels,descriptors))])
     rebuild.update(renderer_identity=renderer_identity(),caption_facts=payload.get('caption_facts',[]))
     leaf('rebuild_config','json',json.dumps(rebuild,ensure_ascii=False,sort_keys=True).encode(),'rebuild_config')
     script='''# Requires matching PaperAssist source checkout and Pillow. Run beside original panels.\nimport json\nfrom pathlib import Path\nfrom app.adapters.research_figure_render import render_figure, renderer_identity\npayload=json.loads(Path("rebuild_config.json").read_text(encoding="utf-8"))\nassert payload.pop("renderer_identity")==renderer_identity(), "Renderer code or Pillow differs"\nPath("rebuilt").mkdir(exist_ok=True)\nrender_figure(payload,Path("rebuilt"))\n'''
@@ -155,7 +177,9 @@ def validate_figure_result(payload,result,output):
                 if len(images)!=1 or not images[0].attrib.get('{http://www.w3.org/1999/xlink}href','').startswith('data:image/png;base64,'):raise ValueError('figure SVG bitmap')
         elif item['key'].startswith('original_'):
             index=int(item['key'].split('_')[1])-1
-            if item['sha256']!=payload['panels'][index]['sha256'] or item['role']!='original_panel':raise ValueError('original panel identity')
+            source=payload['panels'][index]
+            if (item['sha256']!=source['sha256'] or item['role']!='original_panel' or item['format'] not in IMAGE_FORMATS
+                    or item['format']!=source.get('format',item['format'])):raise ValueError('original panel identity')
     for panel,source in zip(manifest['panels'],payload['panels']):
         if panel['source']!=source['source'] or panel['sha256']!=source['sha256']:raise ValueError('panel source identity')
         x,y,w,h=panel['box'];ow,oh=panel['original_pixels']

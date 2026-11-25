@@ -47,14 +47,14 @@ type MaterialsProps = {
 }
 
 type UploadActions = {onContinue: () => void; onUnavailable: () => void}
-type MaterialsView = ({kind: 'upload'} & UploadActions) | {kind: 'organizer'; onUpload: () => void; chapterRevision: number}
+type MaterialsView = ({kind: 'upload'} & UploadActions) | {kind: 'organizer'; chapterRevision: number}
 
-export function ThesisMaterialOrganizer({projectId, registerLeaveGuard, onUpload, chapterRevision = 0}: {
-  projectId: string; registerLeaveGuard: RegisterLeaveGuard; onUpload: () => void; chapterRevision?: number
+export function ThesisMaterialOrganizer({projectId, registerLeaveGuard, chapterRevision = 0}: {
+  projectId: string; registerLeaveGuard: RegisterLeaveGuard; chapterRevision?: number
 }) {
   const [picks] = useMaterialAnalysisPicks(projectId)
   return <MaterialsContent projectId={projectId} forWriting="thesis" registerLeaveGuard={registerLeaveGuard}
-    analysisPicks={picks} view={{kind:'organizer', onUpload, chapterRevision}} />
+    analysisPicks={picks} view={{kind:'organizer', chapterRevision}} />
 }
 
 export default function CustomerMaterials({onContinue, onUnavailable, ...props}: MaterialsProps & UploadActions) {
@@ -74,10 +74,12 @@ function MaterialsContent({ projectId, headingRef, view, registerLeaveGuard, for
   const filesUrl = projectBase(projectId) + '/files'
   const files = useResearchRead<FilePage>(`${filesUrl}?page=${page}&page_size=${pageSize}`, active)
   const pages = Math.max(1, Math.ceil((files.data?.total ?? 0) / pageSize))
-  const eligibleIds = forWriting ? files.data?.items.filter(paperMaterialKind).map(file => file.id) ?? [] : []
+  const eligibleIds = forWriting ? files.data?.items.filter(file => {
+    const material = paperMaterialKind(file)
+    return material && (forWriting !== 'sci' || material === 'table')
+  }).map(file => file.id) ?? [] : []
   const notes = useResearchRead<PaperMaterialsRead>(paperMaterialsUrl(projectId, eligibleIds),
-    active && (eligibleIds.length > 0 || simpleSci && files.data?.total === 0), undefined, view.kind === 'organizer' ? view.chapterRevision : 0)
-  const reviewFigures = simpleSci && notes.data?.review_figure_placement === true
+    active && eligibleIds.length > 0, undefined, view.kind === 'organizer' ? view.chapterRevision : 0)
   const noteByFile = new Map(notes.data?.items.map(item => [item.file_id, item]))
   const supplementing = !!supplement && !forWriting
   const [closed, setClosed] = useState<ClosedSupplement | null>(null)
@@ -103,13 +105,13 @@ function MaterialsContent({ projectId, headingRef, view, registerLeaveGuard, for
   }, [files.data, files.error, page])
 
   const FileListHeading = organizing ? 'h2' : 'h3'
-  return <div className="customer-section customer-materials">
+  return <div className="customer-section customer-materials" hidden={!active}>
     {supplementing && <ReturnBar target={supplement.returnTarget} onReturn={supplement.onReturn}>
       {t('正在为“{place}”补充资料', { place: supplement.returnTarget?.label ?? '' })}
     </ReturnBar>}
     {view.kind === 'upload' && <div className="customer-section-heading">
-      {forWriting && !simpleSci && !thesis ? <h2>{t('上传写作资料')}</h2> : <h1 ref={headingRef} tabIndex={-1}>{t(supplementing ? '补交资料' : '上传资料')}</h1>}
-      {!supplementing && <button type="button" className="button-primary" disabled={noteFile !== null} onClick={view.onContinue}>{t(thesis ? '下一步 模板与资料整理' : simpleSci ? '下一步 文献与初稿' : forWriting ? '下一步 稿件与复核' : '下一步 选择需求')}</button>}
+      {forWriting && !simpleSci && !thesis ? <h2>{t('上传写作资料')}</h2> :
+        <h1 ref={headingRef} tabIndex={-1} className={supplementing ? undefined : 'visually-hidden'}>{t(supplementing ? '补交资料' : '上传资料')}</h1>}
     </div>}
     {supplementing && <SupplementRequest progress={progress.data} error={progress.error} closed={closed}
       onRetry={progress.refresh} onProgress={supplement.onProgress} />}
@@ -124,7 +126,6 @@ function MaterialsContent({ projectId, headingRef, view, registerLeaveGuard, for
             className="button-quiet" onClick={() => setKind(value)}>{t(label)}</button>)}
         </div>}
         <div hidden={kind !== 'documents'}>
-          {reviewFigures && <p className="muted">{t('综述图片会自动安排到正文。上传后可在「设置配图」中指定章节、填写图注与出处。')}</p>}
           {onAnalysisResults && <button ref={analysisResultsRef} type="button" className="button-quiet" onClick={onAnalysisResults}>{t('从我的分析项目取用成果')}</button>}
           <BatchUpload {...uploadProps} active={active && !editing && kind === 'documents'} onUnavailable={view.onUnavailable} writingMaterials={forWriting} />
         </div>
@@ -143,7 +144,6 @@ function MaterialsContent({ projectId, headingRef, view, registerLeaveGuard, for
           refreshFiles()
           if ((inlineNotes || thesis) && eligibleIds.length > 0) notes.refresh()
         }}>{t('刷新资料')}</button>}
-        {view.kind === 'organizer' && <button type="button" className="button-quiet" onClick={view.onUpload}>{t('返回上传资料')}</button>}
       </div>
       {files.error && <p role="alert" className="error-panel">{t(files.error)}</p>}
       {eligibleIds.length > 0 && notes.error && <p role="alert" className="error-panel">{t(notes.error)}{' '}
@@ -155,9 +155,11 @@ function MaterialsContent({ projectId, headingRef, view, registerLeaveGuard, for
         : <ul className="customer-list" aria-label={t('已上传资料')}>
           {files.data.items.map(file => {
             const template = thesis && notes.data?.template_source_file_ids?.includes(file.id)
-            const note = template ? undefined : noteByFile.get(file.id)
-            const figure = (reviewFigures || organizing) && paperMaterialKind(file) === 'figure'
-            const linkedTable = organizing && paperMaterialKind(file) === 'table' && !!(note?.target_id || note?.worksheet_names?.length)
+            const kind = paperMaterialKind(file)
+            const allowsNotes = !!kind && (forWriting !== 'sci' || kind === 'table')
+            const note = template || !allowsNotes ? undefined : noteByFile.get(file.id)
+            const figure = organizing && kind === 'figure'
+            const linkedTable = organizing && kind === 'table' && !!(note?.target_id || note?.worksheet_names?.length)
             const useEditor = linkedTable || !!(onRequirements && forWriting && !thesis && !inlineNotes)
             const chooseWorksheets = organizing && file.file_type === 'xlsx' && !template && !linkedTable && !!notes.data?.targets.length
             const registration = note ? '编辑图表资料' : '填写图表资料'
@@ -179,10 +181,10 @@ function MaterialsContent({ projectId, headingRef, view, registerLeaveGuard, for
                 registerLeaveGuard={registerLeaveGuard} onDone={saved => { setNoteFile(null); if (saved) notes.refresh() }} />}
               </div>
               <div className="sci-inline-controls">
-                {inlineNotes && !template && !useEditor && paperMaterialKind(file) && noteFile !== file.id &&
+                {inlineNotes && !template && !useEditor && allowsNotes && noteFile !== file.id &&
                   <button type="button" className="button-quiet" disabled={!notes.data || notes.loading || !!notes.error || noteFile !== null}
                     onClick={() => setNoteFile(file.id)}>{t(figure ? '设置配图' : note ? '编辑说明' : '添加说明')}</button>}
-                {(useEditor || chooseWorksheets) && paperMaterialKind(file) && <button type="button" className="button-quiet" disabled={!notes.data || !!notes.error || noteFile !== null}
+                {(useEditor || chooseWorksheets) && allowsNotes && <button type="button" className="button-quiet" disabled={!notes.data || !!notes.error || noteFile !== null}
                   aria-label={chooseWorksheets ? undefined : t(note ? '编辑 {name} 的图表资料' : '填写 {name} 的图表资料', { name: file.filename })}
                   onClick={() => {
                     if (notes.data) setEditing({ file: { id: file.id, filename: file.filename, file_type: file.file_type }, note,
@@ -202,5 +204,10 @@ function MaterialsContent({ projectId, headingRef, view, registerLeaveGuard, for
       <button type="button" onClick={() => setPage(value => value + 1)}
         disabled={page >= pages || files.loading || noteFile !== null}>{t('下一页')}</button>
     </nav>}
+    {view.kind === 'upload' && !supplementing && <footer className="customer-step-actions">
+      <button type="button" className="button-primary" disabled={noteFile !== null} onClick={view.onContinue}>
+        {t(thesis || simpleSci ? '下一步 图件拼版' : forWriting ? '下一步 稿件与复核' : '下一步 选择需求')}
+      </button>
+    </footer>}
   </div>
 }

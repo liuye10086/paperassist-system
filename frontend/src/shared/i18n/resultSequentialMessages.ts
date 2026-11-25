@@ -14,6 +14,7 @@ export const resultSequentialMessages:Record<string,string>={
  '使用所选重绘图':'Use selected replots',
  '选定图件当前不可用':'The selected figure is currently unavailable',
  '打开正式报告':'Open formal report',
+ 'Word 可单独下载。大表可在原分析结果中按需下载。':'Download the Word report on its own. Large tables are available from the original analysis when needed.',
  '报告复现成果包':'Report reproduction bundle',
  '固定 Word 和 Excel 可在分析交付中选用。':'The fixed Word and Excel files are available in analysis delivery.',
  '带人工标签的报告':'Report with manual labels',

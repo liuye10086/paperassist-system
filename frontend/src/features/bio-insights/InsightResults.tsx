@@ -21,7 +21,7 @@ import {displayRaw} from './state'
 import {bulkRoute} from './bulkWorkflow'
 
 const analysisScopeLabels:Record<string,string>={sample_inference:'按独立样本推断',sample_exploratory:'样本探索',spot_exploratory:'区域探索',donor_inference:'按供者推断',external_result:'外部结果',visualization:'固定结果绘图'}
-export default function InsightResults({projectId,resultId,active,onResearch,onNavigate,onBulkPlan,allowNewAnalysis,resultRead,deliveryTarget,location,reportContextId}: {
+export default function InsightResults({projectId,resultId,active,onResearch,onNavigate,onBulkPlan,allowNewAnalysis,resultRead,deliveryTarget,location,reportContextId,compactBulk=false}: {
  projectId:string
  resultId:string
  active:boolean
@@ -33,6 +33,7 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
  deliveryTarget?:NativeDeliveryTarget
  location?:ReportLocation
  reportContextId?:string
+ compactBulk?:boolean
 }) {
  const {t} = useI18n()
  const fallback = useInsightRead<Result>(`${projectBase(projectId)}/bio-insight-results/${encodeURIComponent(resultId)}`,active&&!resultRead,true)
@@ -44,14 +45,56 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
   onCurve={bulkEnrichment&&data.kind==='gsea_prerank'&&allowNewAnalysis!==false&&onBulkPlan&&data.members.some(member=>member.key==='gsea_curves')
    ?(key,contrast)=>onBulkPlan(bulkEnrichmentFigureSeed(data,contrast||bulkEnrichmentResultContrast(data),{termRowKey:key}))
    :undefined}/>
+ const scope=data&&t(analysisScopeLabels[data.inference_scope]??'推断范围待核对')
+ const synthetic=data?.summary.synthetic===true&&
+  <p className="warning-panel">{t('合成工程样例，不代表真实客户供体验证或生物学验证。')}</p>
+ const delivery=data?.id===resultId&&<InsightDelivery key={'delivery:'+data.id}
+  {...{projectId,active,location,deliveryTarget,reportContextId}} result={data}/>
+ const researchResult=data&&<button type="button" onClick={()=>onResearch({source_kind:'bio_insight_result_version',
+  source_id:resultId,sha256:data.manifest_sha256,locator:{kind:'object'}})}>{t('将此固定结果送入研究发现')}</button>
+ const imageActions=data?.members.filter(member=>member.format==='png').map(member=><div className="intake-actions" key={member.id}>
+  <button type="button" onClick={()=>onResearch({source_kind:'bio_insight_result_member',source_id:member.id,sha256:member.sha256,locator:{kind:'image'}})}>{t('引用图件')} · {figureName(member.key,t,String(data.summary.figure_type??''))}</button>
+  {data.id===resultId&&data.task.status==='succeeded'&&<NativeDeliveryArtifact {...{projectId,deliveryTarget}}
+   source={{kind:'bio_insight_png',version_id:data.id,member_id:member.id}} name={resultFileName(member,t,String(data.summary.figure_type??''))}/>}
+ </div>)
+ const downloads=data&&<Members projectId={projectId} members={data.members} figureKind={String(data.summary.figure_type??'')}
+  publishedKind={data.id===resultId&&data.task.status==='succeeded'?data.kind:undefined}/>
+ const methodViews=data&&<ResultDetailViews key={'details:'+projectId+':'+data.id} data={data} tables={reviewedBulk?tables:undefined}/>
+ const impact=data&&<InsightImpact key={'impact:'+data.id} projectId={projectId} id={data.id}/>
+ const sensitivity=reviewedBulk&&data&&onNavigate&&
+  <button type="button" onClick={()=>onNavigate(bulkRoute('differential',data.id))}>{t('查看稳健性对照设置')}</button>
+
+ if(compactBulk&&reviewedBulk&&data){
+  const details=<>
+   {reportContextId&&delivery}
+   {downloads}
+   {!reportContextId&&delivery}
+   {imageActions}
+   {methodViews}
+   <DataDetails title="结果概况与样例标记" value={data.summary}/>
+   <TaskStatus projectId={projectId} task={data.task}/>
+   <div className="intake-actions">{researchResult}{sensitivity}</div>
+   {impact}
+  </>
+  return <section className="bulk-fixed-result">
+   <header className="bulk-fixed-result-heading">
+    <div><h2>{t('差异表达结果')}</h2><p className="muted">{scope}</p></div>
+    {onNavigate&&<button type="button" className="button-primary" onClick={()=>onNavigate(bulkRoute('delivery',data.id))}>{t('准备交付')}</button>}
+   </header>
+   <ReadState {...result}/>
+   {synthetic}
+   <BulkComparisons key={'bulk:'+data.id} {...{projectId,result:data,active,allowNewAnalysis}} onPlan={onBulkPlan}
+    compact={{details,reportContextId}}/>
+  </section>
+ }
  return <section>
   <h3>{t('固定分析结果详情')}</h3><ReadState {...result}/>
   {data&&<>
-   <p>{t(kindLabels[data.kind])} · <strong>{t(analysisScopeLabels[data.inference_scope]??'推断范围待核对')}</strong></p>
+   <p>{t(kindLabels[data.kind])} · <strong>{scope}</strong></p>
    <p className="warning-panel">{t('技术重复不增加独立样本量。解读结果前请核对研究设计与来源。')}</p>
-   {data.summary.synthetic===true&&<p className="warning-panel">{t('合成工程样例，不代表真实客户供体验证或生物学验证。')}</p>}
+   {synthetic}
    {reviewedBulk&&onNavigate&&<div className="intake-actions">
-    <button type="button" onClick={()=>onNavigate(bulkRoute('differential',data.id))}>{t('查看稳健性对照设置')}</button>
+    {sensitivity}
     <button type="button" onClick={()=>onNavigate(bulkRoute('delivery',data.id))}>{t('以此固定比较准备交付')}</button>
    </div>}
    {reviewedBulk&&<BulkComparisons key={'bulk:'+data.id} {...{projectId,result:data,active,allowNewAnalysis}} onPlan={onBulkPlan}/>}
@@ -59,19 +102,11 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
    <BulkEnrichmentFigureResult result={data} onNavigate={onNavigate}/>
    <BulkPublishedDetails result={data} onNavigate={onNavigate}/>
    <SingleCellInsightSummary result={data}/><SingleCellTopicSummary result={data}/>
-   {data.id===resultId&&<InsightDelivery key={'delivery:'+data.id} {...{projectId,active,location,deliveryTarget,reportContextId}} result={data}/>}
+   {delivery}
    <DataDetails title="结果概况与样例标记" value={data.summary}/><TaskStatus projectId={projectId} task={data.task}/>
-   <button type="button" onClick={()=>onResearch({source_kind:'bio_insight_result_version',source_id:resultId,sha256:data.manifest_sha256,locator:{kind:'object'}})}>{t('将此固定结果送入研究发现')}</button>
-   <ResultDetailViews key={'details:'+projectId+':'+data.id} data={data} tables={reviewedBulk?tables:undefined}/>
-   <InsightImpact key={'impact:'+data.id} projectId={projectId} id={data.id}/>
+   {researchResult}{methodViews}{impact}
    {!reviewedBulk&&tables}
-   {data.members.filter(member=>member.format==='png').map(member=><div className="intake-actions" key={member.id}>
-    <button type="button" onClick={()=>onResearch({source_kind:'bio_insight_result_member',source_id:member.id,sha256:member.sha256,locator:{kind:'image'}})}>{t('引用图件')} · {figureName(member.key,t,String(data.summary.figure_type??''))}</button>
-    {data.id===resultId&&data.task.status==='succeeded'&&<NativeDeliveryArtifact {...{projectId,deliveryTarget}}
-     source={{kind:'bio_insight_png',version_id:data.id,member_id:member.id}} name={resultFileName(member,t,String(data.summary.figure_type??''))}/>}
-   </div>)}
-   <Members projectId={projectId} members={data.members} figureKind={String(data.summary.figure_type??'')}
-    publishedKind={data.id===resultId&&data.task.status==='succeeded'?data.kind:undefined}/>
+   {imageActions}{downloads}
   </>}
  </section>
 }

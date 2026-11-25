@@ -102,7 +102,12 @@ async function writingAttempt({projectId, manuscriptId, attemptKey, signal}: Dra
     return list.items.find((v): v is LiveRequest => v.schema_version === 2 &&
       (v.execution?.logical_task_id === logical || v.model_calls.some(call => call.logical_task_id === logical))) ?? null
   }
-  return {logical, requestUrl, previewUrl, live, request, find}
+  async function getCapabilities(only = false) {
+    const result = await request(previewUrl + (only ? '?capabilities_only=true' : ''),
+      (v): v is {capabilities: WritingCapabilities} => object(v) && validCapabilities(v.capabilities))
+    return result.capabilities
+  }
+  return {logical, requestUrl, previewUrl, live, request, find, getCapabilities}
 }
 
 /** Reads this attempt's receipt without confirming or submitting anything. */
@@ -122,16 +127,29 @@ export async function submitPaperDraft(submission: DraftSubmission): Promise<Liv
   return submitPreparedInput(submission, attempt, version.id, draftInput(submission))
 }
 
-export async function submitPaperDraftRevision(submission: DraftAttempt & {requestId: string; revision: number; feedback: string}) {
+export function matchesDraftRevisionScope(input: PreviewInput, sectionIds?: string[], advice = false) {
+  return Boolean(input.draft_advice) === advice && canonicalJson(input.target_sections ?? []) === canonicalJson(sectionIds ?? [])
+}
+
+export async function submitPaperDraftRevision(submission: DraftAttempt & {
+  requestId: string; revision: number; feedback: string; targetSections?: string[]; advice?: boolean; newAttempt?: boolean
+}) {
   const attempt = await writingAttempt(submission)
-  const previous = await attempt.find()
+  const targetSections = submission.targetSections ?? []
+  const scoped = targetSections.length > 0
+  // Only the first send with a newly generated key can skip recovering an existing receipt.
+  const previous = scoped && submission.newAttempt ? null : await attempt.find()
   if (previous) {
-    if (previous.input.revision_of_request_id !== submission.requestId || previous.input.instructions !== submission.feedback) {
+    if (previous.input.revision_of_request_id !== submission.requestId || previous.input.instructions !== submission.feedback ||
+        !matchesDraftRevisionScope(previous.input, submission.targetSections, submission.advice)) {
       throw new Error(unknownResult)
     }
     return previous
   }
-  const original = await attempt.request(attempt.requestUrl + '/' + encodeURIComponent(submission.requestId), attempt.live)
+  const [original, capabilities] = await Promise.all([
+    attempt.request(attempt.requestUrl + '/' + encodeURIComponent(submission.requestId), attempt.live),
+    scoped ? attempt.getCapabilities(true) : undefined,
+  ])
   const version = original.task.input_version
   const kind = original.candidate?.article_type ?? original.input.article_type ?? 'research'
   const school = !!original.candidate?.thesis_context
@@ -140,21 +158,23 @@ export async function submitPaperDraftRevision(submission: DraftAttempt & {reque
       original.published_revision !== null || original.input.mode !== 'full_draft' || version.kind !== 'manuscript_writing' ||
       (school ? original.input.schema_version !== 3 : !['research', 'narrative_review'].includes(kind)) ||
       !submission.feedback.trim() || submission.feedback.length > 10000) {
-    throw new DraftNotSubmitted(school ? '请选择已生成的毕业论文并填写导师意见。' : '请选择已生成的 SCI 正文并填写审稿意见。')
+    throw new DraftNotSubmitted(school ? '请选择已生成的毕业论文初稿并填写修改要求。' : '请选择已生成的 SCI 正文并填写审稿意见。')
   }
-  const revisionInput = {...original.input, revision_of_request_id: original.id, instructions: submission.feedback}
-  const input: PreviewInput = school ? revisionInput : {...revisionInput, schema_version: 4, document_kind: 'sci', article_type: kind,
-    mode: 'full_draft', target_section: null, target_sections: [], target_paragraph_ids: [], paragraph_plan: [],
-    brief_limits: null, validation_source_ids: []}
-  return submitPreparedInput(submission, attempt, version.base_version_id, input)
+  const {target_sections: _priorSections, draft_advice: _priorAdvice, ...parentInput} = original.input
+  const revisionInput: PreviewInput = {...parentInput, revision_of_request_id: original.id, instructions: submission.feedback,
+    ...(submission.advice ? {draft_advice:true} : {})}
+  const input: PreviewInput = school ? {...revisionInput, ...(scoped ? {target_sections:targetSections} : {})}
+    : {...revisionInput, schema_version: 4, document_kind: 'sci', article_type: kind,
+      mode: 'full_draft', target_section: null, target_sections: targetSections, target_paragraph_ids: [], paragraph_plan: [],
+      brief_limits: null, validation_source_ids: []}
+  return submitPreparedInput(submission, attempt, version.base_version_id, input, capabilities)
 }
 
 async function submitPreparedInput({projectId, manuscriptId}: DraftAttempt, attempt: Awaited<ReturnType<typeof writingAttempt>>,
-  baseVersionId: string, input: PreviewInput) {
+  baseVersionId: string, input: PreviewInput, capabilities?: WritingCapabilities) {
   const {logical, requestUrl, previewUrl, live, request} = attempt
-  const available = await request(previewUrl, (v): v is {capabilities: WritingCapabilities} =>
-    object(v) && validCapabilities(v.capabilities))
-  if (!available.capabilities.real_calls_enabled) throw new DraftNotSubmitted('写作服务暂未开启，暂时不能生成正文。')
+  const available = capabilities ?? await attempt.getCapabilities()
+  if (!available.real_calls_enabled) throw new DraftNotSubmitted('写作服务暂未开启，暂时不能生成正文。')
   const bundle = await request(previewUrl, (v): v is Bundle => validBundle(v, projectId, manuscriptId),
     jsonRequest(input, logical + '-preview'))
   if (bundle.base_version_id !== baseVersionId || canonicalJson(bundle.request_json) !== canonicalJson(input) || !await intactBundle(bundle)) {

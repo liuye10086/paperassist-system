@@ -1,7 +1,10 @@
 import type {Locale} from '../../shared/i18n'
 import type {Profile,Chapter} from '../school-templates/contracts'
 import type {Issue} from './reviewTypes'
-export const schoolPurposes=['abstract','introduction','materials_and_methods','results','discussion','conclusion','references','acknowledgements','manual','other'] as const
+export const schoolWritingPurposes=['abstract','introduction','materials_and_methods','results','discussion','conclusion'] as const
+export type SchoolWritingPurpose=typeof schoolWritingPurposes[number]
+export const isSchoolWritingPurpose=(value:unknown):value is SchoolWritingPurpose=>schoolWritingPurposes.includes(value as SchoolWritingPurpose)
+export const schoolPurposes=[...schoolWritingPurposes,'references','acknowledgements','manual','other'] as const
 export type SchoolPurpose=typeof schoolPurposes[number]
 export const purposeLabels:Record<SchoolPurpose,string>={abstract:'摘要',introduction:'引言',materials_and_methods:'材料与方法',results:'结果',discussion:'讨论',conclusion:'结论',references:'参考文献',acknowledgements:'致谢',manual:'人工填写',other:'其他用途'}
 export type ChapterMapping={chapter_id:string;purpose:SchoolPurpose;output_language:Locale|'project';result_group_ids:string[]}

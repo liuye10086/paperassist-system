@@ -212,7 +212,7 @@ it('validates SCI inputs, creates a review project, and reads its saved SCI sett
   expect(dialog.queryByRole('button', { name: '添加小标题' })).toBeNull()
   fireEvent.click(dialog.getByRole('button', { name: '创建项目' }))
   expect(await screen.findByRole('heading', { name: '上传资料', level: 1 })).toBeTruthy()
-  expect(screen.queryByRole('navigation', { name: '项目操作步骤' })).toBeNull()
+  expect(screen.getByRole('button', { name: '第 2 步：上传资料', current: 'step' })).toBeTruthy()
   const [, create] = fetch.mock.calls.find(([url]) => url === '/api/v1/projects')!
   expect(JSON.parse(String(create?.body))).toMatchObject({ project_type: 'sci', sci_settings: settings })
   expect(JSON.parse(String(create?.body))).not.toHaveProperty('delivery_kinds')
@@ -264,7 +264,8 @@ it('opens an existing published analysis delivery from an older paper project', 
   render(<CustomerWorkspace />)
   expect(await screen.findByRole('heading', { name: '已发布交付' })).toBeTruthy()
   expect(await screen.findByText(delivery.title)).toBeTruthy()
-  expect(screen.queryByRole('navigation', { name: '项目操作步骤' })).toBeNull()
+  const stepper = within(screen.getByRole('navigation', { name: '项目操作步骤' }))
+  expect(stepper.queryByRole('button', { current: 'step' })).toBeNull()
 })
 
 it('confirms and explicitly binds a Word school template from the thesis customer workspace', async () => {
@@ -287,7 +288,8 @@ it('confirms and explicitly binds a Word school template from the thesis custome
     const body = init?.body ? JSON.parse(String(init.body)) : {}
     if (url === base) return Response.json({ ...project, project_type: 'thesis' })
     if (url === base + '/thesis-requirements') return Response.json({title:'', keywords:[], sections:[], language:'zh-CN', revision:profile.revision,
-      template:profile.bound_confirmation_id ? {name:template.name, confirmation_id:profile.bound_confirmation_id, chapters:template.analysis.chapters} : null})
+      template:profile.bound_confirmation_id ? {name:template.name, confirmation_id:profile.bound_confirmation_id,
+        chapters:template.analysis.chapters, source_file:{file_id:'template-word',filename:'论文模板.docx'}} : null})
     if (url === base + '/thesis-profile') {
       if (init?.method === 'PUT') {
         const { expected_revision, ...fields } = body
@@ -323,8 +325,8 @@ it('confirms and explicitly binds a Word school template from the thesis custome
   vi.stubGlobal('fetch', fetch)
   window.history.replaceState(null, '', `#customer-project=${project.id}&step=details&schoolView=list`)
   render(<CustomerWorkspace />)
-  const steps = await screen.findByRole('navigation', { name: '毕业论文项目步骤' })
-  expect(within(steps).getByRole('button', { name: '模板与资料整理' }).getAttribute('aria-current')).toBe('step')
+  const steps = await screen.findByRole('navigation', { name: '项目操作步骤' })
+  expect(within(steps).getByRole('button', { name: '第 4 步：模板与资料整理', current: 'step' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '学校资料' }))
   const school = screen.getByRole('textbox', { name: '学校' })
   await waitFor(() => expect(school.matches(':disabled')).toBe(false))
@@ -348,14 +350,15 @@ it('confirms and explicitly binds a Word school template from the thesis custome
   await screen.findByRole('heading', { name: '合成毕业论文模板' })
   // B04 task 5: one customer view; "采用这份模板" confirms and binds in one step.
   expect(screen.queryByRole('button', { name: '解析规则' })).toBeNull()
-  expect(screen.getByText('发布日期未注明')).toBeTruthy()
-  expect(screen.getByText('作者签名')).toBeTruthy()
+  expect(screen.getByRole('group', { name: '章节核对' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: '下载原文件' }).getAttribute('href')).toBe(base + '/files/template-word/download')
   const confirm = screen.getByRole('button', { name: '采用这份模板' })
   expect(confirm.matches(':disabled')).toBe(true)
   fireEvent.click(screen.getByRole('radio', { name: /12 磅/ }))
   fireEvent.click(confirm)
   await waitFor(() => expect(profile.bound_confirmation_id).toBe('rules-1'))
   expect(await screen.findByText('已采用学校模板 · 合成毕业论文模板')).toBeTruthy()
+  expect(screen.getByRole('link', { name: '下载模板原件' }).getAttribute('href')).toBe(base + '/files/template-word/download')
   expect(fetch.mock.calls.every(([url]) => !url.includes('rule-suggestion') && !url.includes('/tasks/'))).toBe(true)
   const call = fetch.mock.calls.find(([url]) => url.endsWith('/confirm'))!
   expect(JSON.parse(String(call[1]?.body))).toMatchObject({

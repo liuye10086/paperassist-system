@@ -4,7 +4,7 @@ import {afterEach,expect,it,vi} from 'vitest'
 import {apiFetch} from '../../shared/api/client'
 import ComparisonSetup from './ComparisonSetup'
 import {buildPlan,planIssues} from './state'
-import {defaultQuantitativeConfig,readQuantitativeSamples,type SampleContrast} from './quantitative'
+import {defaultBulkConfig,defaultQuantitativeConfig,readQuantitativeSamples,type SampleContrast} from './quantitative'
 import type {Config,Source} from './contracts'
 vi.mock('../../shared/api/client',()=>({apiFetch:vi.fn(),getApiUserId:()=> 'owner',onApiSessionChanged:()=>()=>{}}))
 afterEach(()=>{cleanup();vi.clearAllMocks()})
@@ -33,6 +33,27 @@ it('keeps bulk pairwise multi-contrast design and exposes structured covariates'
  expect(current).toMatchObject({mode:'bulk_counts',design:'multiple',method:'deseq2_wald'});expect((current.contrasts as SampleContrast[])[0].groups).toHaveLength(2)
  expect(screen.getByText('添加协变量')).toBeTruthy();fireEvent.click(screen.getByText('添加协变量'))
  expect((current.covariates as {field:string}[])).toHaveLength(1)
+})
+it('keeps existing Bulk rationale and manually selected samples when reading the fixed source',async()=>{
+ const config:Config={...defaultBulkConfig(),design_basis:'Comparison protocol',independence_basis:'Donor records',
+  namespace:'ensembl_gene_id',reference_version:'locked',species_taxon_id:9606,
+  contrasts:[{contrast_id:'contrast_1',name:'Reviewed selection',groups:[
+   {label:'treated',sample_keys:[{processed_version_id:'p1',sample_id:'T1'}]},
+   {label:'control',sample_keys:[{processed_version_id:'p1',sample_id:'C1'}]},
+  ]}]}
+ const onChange=vi.fn()
+ vi.mocked(apiFetch).mockResolvedValue(Response.json({items:[
+  {sample_id:'T1',condition:'treated',retained:true},{sample_id:'T2',condition:'treated',retained:true},
+  {sample_id:'C1',condition:'control',retained:true},
+ ],total:3,observation_level:'sample',scale:{namespace:'ensembl_gene_id',reference_version:'locked',species_taxon_id:9606}}))
+ render(<ComparisonSetup projectId="proj" config={config} sources={sources} onChange={onChange} bulkForm="basic"/>)
+ expect(screen.getByRole('textbox',{name:'样本设计与比较依据'})).toHaveProperty('value','Comparison protocol')
+ expect(screen.getByRole('textbox',{name:'独立性确认依据'})).toHaveProperty('value','Donor records')
+ fireEvent.click(screen.getByRole('button',{name:'读取固定样本'}))
+ await screen.findByRole('option',{name:'treated · 2 个样本'})
+ expect(screen.getByRole('combobox',{name:'分子组（比较组）'})).toHaveProperty('value','treated')
+ expect(screen.getByRole('option',{name:'treated · 1 个样本',selected:true})).toBeTruthy()
+ expect(onChange).not.toHaveBeenCalled()
 })
 it('allows unknown mixed-species identifiers without claiming a biological replicate',()=>{
  const c:Config={...defaultQuantitativeConfig(),namespace:'protein_label',reference_version:'MSstats-DDARawData',species_taxon_id:null,inference_unit:'technical'}
