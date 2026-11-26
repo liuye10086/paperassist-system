@@ -1,6 +1,7 @@
 """The launcher cannot route a test Worker to development data or leak secrets."""
 import json
 from io import StringIO
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -172,14 +173,17 @@ class WorkerStackTests(unittest.TestCase):
                 cached.parent.mkdir()
                 cached.write_bytes(b'generated cache')
                 self.assertEqual(previous, revision())
-                from app.domain.runtime_skills.registry import SkillError, publish
+                from app.domain.runtime_skills.registry import SkillError, check_release, publish
 
-                skill = root / 'SKILLS/bulk-result-reading/SKILL.md'
+                version = check_release(root / 'SKILLS').manifest.skills['statistical-reading'].version
+                skill = root / 'SKILLS/statistical-reading/SKILL.md'
                 text = skill.read_text(encoding='utf-8')
                 skill.write_text(text + '\nAnother rule.\n', encoding='utf-8')
                 with self.assertRaises(SkillError):
                     revision()
-                skill.write_text(text.replace('1.0.0', '1.1.0') + '\nAnother rule.\n', encoding='utf-8')
+                major, minor, patch_version = map(int, version.split('.'))
+                next_version = f'{major}.{minor}.{patch_version + 1}'
+                skill.write_text(text.replace(f'version: "{version}"', f'version: "{next_version}"') + '\nAnother rule.\n', encoding='utf-8')
                 publish(root / 'SKILLS')
                 self.assertNotEqual(previous, revision())
 
@@ -467,10 +471,13 @@ class WorkerStackTests(unittest.TestCase):
 
     def test_home_relative_assets_match_api_and_are_excluded_from_test_mounts(self):
         from app.core.config import get_data_dir
-        # All real filesystem changes stay in this newly created temporary tree.
-        with tempfile.TemporaryDirectory(dir=Path.home()) as directory, patch.object(worker_stack, 'protect_directory'):
+        with tempfile.TemporaryDirectory() as directory, patch.object(worker_stack, 'protect_directory'):
             root = Path(directory)
-            value = '~/' + root.name + '/assets'
+            try:
+                relative = os.path.relpath(root / 'assets', Path.home())
+            except ValueError:
+                self.skipTest('Home and the temporary test directory are on different volumes.')
+            value = '~/' + Path(relative).as_posix()
             values = {**self.values(), 'PAPERASSIST_DATA_DIR': value}
             with patch('app.core.config.local_config', return_value=values):
                 api_assets = get_data_dir()

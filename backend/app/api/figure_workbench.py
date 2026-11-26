@@ -45,7 +45,7 @@ def explanation_preview(project_id:str,file_id:str,run_id:str,figure_id:str,stor
     bundle=bundle_for(store,project_id,file_id,run_id,figure_id);payload=build_payload(bundle)
     if skill_approval.enabled(payload):
         with FigureWorkbenchStore(store).tasks.connection() as db:
-            preview, _ = skill_approval.prepare(payload, bundle['figure'], resolve(db),
+            preview, _ = skill_approval.prepare(payload, bundle, resolve(db),
                                                 skill_approval.delegated_approval(store.assignment))
             return preview
     return {'payload_sha256':digest(payload),'payload':payload,'requires_confirmation':True}

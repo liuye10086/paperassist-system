@@ -122,16 +122,23 @@ def build_payload(bundle,*,version=None):
     return payload
 
 
+def _artifact_payload(bundle, version, provenance):
+    from app.domain.figure_workbench.explanation_v5 import manuscript_payload
+    return manuscript_payload(build_payload(bundle, version=version), provenance.get('skills_trace'), bundle)
+
+
+_LOGISTIC_FOREST_SECTION_RENDERER = 'logistic_forest_v1'
+
+
 def render(bundle,draft,provenance,*,version=None):
-    from app.domain.explanation_content import render_explanation
-    figure=bundle['figure'];version=version_for(figure,version=version);payload=build_payload(bundle,version=version)
+    figure=bundle['figure'];version=version_for(figure,version=version);payload=_artifact_payload(bundle,version,provenance)
     if version in (V2_VERSION,V3_VERSION,V4_VERSION):
         from app.domain.figure_workbench.explanation_facts import validate_draft
         validate_draft(draft,payload)
-    if version==LATEST_VERSION:
-        from app.domain.figure_workbench.explanation_v5 import render_sections_v5
-        sections=render_sections_v5(draft,payload)
-    else:sections=render_explanation(draft,payload)
+    if version == LATEST_VERSION and 'method.outcome_encoding' in payload['facts'] and not provenance.get('reuse_only'):
+        # The renderer is selected locally after the model completes, outside the frozen request.
+        provenance = {**provenance, 'section_renderer': _LOGISTIC_FOREST_SECTION_RENDERER}
+    sections = _render_sections(draft, payload, version, figure, provenance.get('section_renderer'))
     if version in (V2_VERSION,V3_VERSION,V4_VERSION,LATEST_VERSION):
         limits=_limitations(bundle,version)
     else:limits=[verification_note(figure['language'],explanation=True)]
@@ -141,19 +148,22 @@ def render(bundle,draft,provenance,*,version=None):
         'verification':{'status':'references_checked','note':verification_note(figure['language'],explanation=True)},'engine':{'id':version,'provider':'openai','model':provenance.get('model')},'provenance':{**provenance,'prompt_version':version,'input_sha256':digest(payload)}}
 
 
-def _render_saved_sections(draft,payload,version):
+def _render_sections(draft, payload, version, figure, section_renderer):
+    if section_renderer is not None and (section_renderer != _LOGISTIC_FOREST_SECTION_RENDERER
+            or version != LATEST_VERSION or 'method.outcome_encoding' not in payload['facts']):
+        raise ValueError('Unsupported explanation section renderer')
     if version==LATEST_VERSION:
         from app.domain.figure_workbench.explanation_v5 import render_sections_v5
-        return render_sections_v5(draft,payload)
+        return render_sections_v5(draft, payload, figure=figure if section_renderer else None)
     from app.domain.explanation_content import render_explanation
     return render_explanation(draft,payload)
 
 
 def validate_saved(bundle,value):
     figure=bundle['figure']
-    from app.domain.explanation_content import render_explanation
     try:
-        version=version_for(figure,version=value['engine']['id']);payload=build_payload(bundle,version=version)
+        version=version_for(figure,version=value['engine']['id']);payload=_artifact_payload(bundle,version,value['provenance'])
+        section_renderer = value['provenance'].get('section_renderer')
         if version in (V2_VERSION,V3_VERSION,V4_VERSION,LATEST_VERSION):
             if version!=LATEST_VERSION:
                 from app.domain.figure_workbench.explanation_facts import validate_draft
@@ -167,12 +177,13 @@ def validate_saved(bundle,value):
                 if (value['provenance'].get('compatibility_sha256')!=digest(payload)
                     or not value.get('derived_from') or value['engine'].get('provider')!='local_reuse'
                     or original.get('input_sha256')!=digest(payload)
+                    or original.get('section_renderer') != section_renderer
                     or original.get('prompt_version')!=version):raise ValueError()
             if (value['limitations']!=_limitations(bundle,version) or value['provenance']['input_sha256']!=digest(payload)
                 or value['provenance']['prompt_version']!=version
                 or value['verification']['note']!=verification_note(figure['language'],explanation=True)):
                 raise ValueError()
-        if value['figure_id']!=figure['id'] or value['figure_sha256']!=figure['sha256'] or value['facts_sha256']!=figure['facts_sha256'] or value['source']!=figure['source'] or value['language']!=figure['language'] or value['payload_sha256']!=digest(payload) or value['verification']['status']!='references_checked' or value['engine']['id']!=version or value['sections']!=_render_saved_sections(value['draft'],payload,version):raise ValueError()
+        if value['figure_id']!=figure['id'] or value['figure_sha256']!=figure['sha256'] or value['facts_sha256']!=figure['facts_sha256'] or value['source']!=figure['source'] or value['language']!=figure['language'] or value['payload_sha256']!=digest(payload) or value['verification']['status']!='references_checked' or value['engine']['id']!=version or value['sections']!=_render_sections(value['draft'],payload,version,figure,section_renderer):raise ValueError()
         if not value['provenance'].get('reuse_only') and not (value['provenance'].get('model_call_id') and value['provenance'].get('response_id')):raise ValueError()
     except (KeyError,TypeError,ValueError,PlotError):raise StorageError('task_source_conflict','解释与冻结事实或新图绑定不一致。',409) from None
     return value
@@ -184,5 +195,11 @@ def reuse(old,new,explanation):
     version=explanation['engine']['id']
     a=old['configuration']['config'];b=new['configuration']['config']
     if semantic(a)!=semantic(b) or text_identity(a)!=text_identity(b) or build_payload(old,version=version)!=build_payload(new,version=version):raise StorageError('task_source_conflict','仅可为事实及文字完全一致的纯样式变化复用解释。',409)
-    value=render(new,explanation['draft'],{'reuse_only':True,'original_provenance':explanation['provenance'],'compatibility_sha256':digest(build_payload(new,version=version))},version=version)
+    original = explanation['provenance']
+    provenance = {'reuse_only': True, 'original_provenance': original}
+    for key in ('skills_trace', 'section_renderer'):
+        if key in original:
+            provenance[key] = original[key]
+    provenance['compatibility_sha256'] = digest(_artifact_payload(new, version, provenance))
+    value=render(new,explanation['draft'],provenance,version=version)
     value['derived_from']=explanation['id'];value['engine']['provider']='local_reuse';return value

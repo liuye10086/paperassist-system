@@ -279,6 +279,9 @@ def write_candidate(client, root, sources, evidence, quote, *, use_skills, monke
     wire = json.loads(envelope['input'])
     if use_skills:
         assert skills is not None and skills['trace']['workflow'] == 'thesis_initial_draft'
+        assert [(ref['name'], ref['version']) for ref in skills['trace']['skills'] if ref['name'] == 'thesis-writing'] == [
+            ('thesis-writing', '1.1.3'),
+        ]
         assert bundle['execution_contract']['school_presentation_version'] == 'school-presentation-v2'
         schema = envelope['text']['format']['schema']['$defs']['Presentation']['properties']
         for field in ('chapter_titles', 'figure_titles'):

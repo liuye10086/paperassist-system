@@ -113,42 +113,33 @@ it('opens the paginated sample QC table for a result with a compact Bulk summary
  expect(screen.queryByRole('button',{name:'查看固定 QC/PCA 预览'})).toBeNull()
 })
 it.each([
- ['qc','qc_missing','样本缺失比例',{sample_ids:['S1'],missing_fraction:[0.25]}],
- ['embedding','pca_scores','样本 PCA 得分',{sample_ids:['S1'],condition:['A'],scores:[[1.25,-2.5]],components:[1,2],variance_ratio:[0.75,0.25]}],
-] as const)('loads the %s fixed preview only after the analyst opens it',async(tab,panel,caption,values)=>{
- const bulk={...processed,source:{...processed.source,assay:'bulk_rna_counts'},tables:[],bulk_fixed_preview:true}
- const path='/api/v1/projects/p1/bio-processed-datasets/processed1/bulk-fixed-preview?panel='+panel
- const preview={
-  schema_version:1,project_id:'p1',processed_version_id:'processed1',
-  plot:{panel,source_id:'processed1',source_sha256:bulk.manifest_sha256,empty_reason:null,...values},
+ ['qc','sample_qc','样本质控','qc_missing_data','样本缺失比例数据.json'],
+ ['embedding','pca_scores','样本 PCA 得分','pca_data','样本 PCA 图数据.json'],
+] as const)('shows saved %s tables and plot data on the regular results page',async(tab,key,title,dataKey,filename)=>{
+ const path='/api/v1/projects/p1/bio-processed-datasets/processed1/members/plot-data/download'
+ const bulk={...processed,source:{...processed.source,assay:'bulk_rna_counts'},
+  tables:[...(tab==='embedding'?[{key:'pca_feature_selection',label:'PCA 特征选择',status:'completed',reason:null}]:[]),
+   {key,label:title,status:'completed',reason:null}],
+  members:[{id:'plot-data',key:dataKey,format:'json',sha256:'a'.repeat(64),size_bytes:10,download_url:path},
+   {id:'private',key:'pca_tool_versions',format:'json',sha256:'b'.repeat(64),size_bytes:10,download_url:path.replace('plot-data','private')}],
  }
- vi.mocked(apiFetch).mockImplementation(async(url)=>Response.json(String(url)===path?preview:bulk))
+ vi.mocked(apiFetch).mockImplementation(async(url)=>Response.json(String(url).includes(`/tables/${key}?`)
+  ?{key,columns:['sample_id'],items:[{sample_id:'S1'}],total:1,page:1,page_size:50}:bulk))
  render(<BioAnalysisResult projectId="p1" processedId="processed1" tab={tab} onNavigate={()=>{}}/>)
- const open=await screen.findByRole('button',{name:'查看固定 QC/PCA 预览'})
- expect(vi.mocked(apiFetch).mock.calls.some(call=>String(call[0])===path)).toBe(false)
- fireEvent.click(open)
- const table=await screen.findByRole('table',{name:caption})
+ const table=await screen.findByRole('table',{name:title})
  expect(within(table).getByText('S1')).toBeTruthy()
- if(tab==='embedding'){
-  expect(within(table).getByText('1.25')).toBeTruthy()
-  expect(within(await screen.findByRole('table',{name:'PCA 方差解释率'})).getByText('0.75')).toBeTruthy()
- }else expect(within(table).getByText('0.25')).toBeTruthy()
- expect(vi.mocked(apiFetch).mock.calls.find(call=>String(call[0])===path)?.[1]?.method).toBeUndefined()
+ expect(screen.getByRole('link',{name:filename}).getAttribute('href')).toBe(path)
+ expect(screen.queryByRole('link',{name:'分析记录.json'})).toBeNull()
+ expect(screen.queryByRole('button',{name:'查看固定 QC/PCA 预览'})).toBeNull()
 })
-it.each([
- ['another-version','固定来源身份不匹配，请重新打开。','alert'],
- ['processed1','样本或完整且非恒定的特征不足，固定版本未计算 PCA。','status'],
-])('handles a mismatched or noncomputable frozen PCA receipt for %s',async(sourceId,message,role)=>{
- const bulk={...processed,source:{...processed.source,assay:'bulk_rna_counts'},tables:[],bulk_fixed_preview:true}
- const preview={schema_version:1,project_id:'p1',processed_version_id:sourceId,
-  plot:{panel:'pca_scores',source_id:sourceId,source_sha256:bulk.manifest_sha256,
-   empty_reason:'insufficient_complete_nonconstant_features_or_samples',sample_ids:[],scores:[],components:[],variance_ratio:[]}}
- vi.mocked(apiFetch).mockImplementation(async(url)=>Response.json(String(url).includes('/bulk-fixed-preview?')?preview:bulk))
+it('keeps an uncomputed PCA result uncomputed in the normal tab',async()=>{
+ const bulk={...processed,source:{...processed.source,assay:'bulk_rna_counts'},
+  tables:[{key:'pca_scores',label:'pca_scores',status:'not_computable',reason:'insufficient_complete_features'}]}
+ vi.mocked(apiFetch).mockImplementation(async()=>Response.json(bulk))
  render(<BioAnalysisResult projectId="p1" processedId="processed1" tab="embedding" onNavigate={()=>{}}/>)
- fireEvent.click(await screen.findByRole('button',{name:'查看固定 QC/PCA 预览'}))
- const feedback=await screen.findByText(message)
- expect(feedback.getAttribute('role')).toBe(role)
- expect(screen.queryByRole('table',{name:'样本 PCA 得分'})).toBeNull()
+ expect(await screen.findByText('条件不足，未计算此结果表。')).toBeTruthy()
+ expect(screen.queryByRole('link',{name:'样本 PCA 图数据.json'})).toBeNull()
+ expect(screen.queryByText('PCA 用于探索样本分布，组间差异需另行检验。')).toBeNull()
 })
 it('opens a nonspatial raw version without requesting coordinates or calling its values raw counts',async()=>{
  vi.mocked(apiFetch).mockImplementation(async(url)=>Response.json(String(url).includes('/bio-analysis-capabilities')?capability:{id:'v1',dataset_id:'d1',version:1,manifest_sha256:'a'.repeat(64),shape:{features:3,observations:8,stored_entries:24},checks:[],members:[],source:raw,summary:{assay:'metabolomics',scale:capability.scale}}))

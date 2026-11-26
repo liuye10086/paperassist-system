@@ -62,9 +62,9 @@ def configuration():
             '请在 backend/.env 中填写 OPENAI_API_KEY 和支持 Code Interpreter 的 OPENAI_MODEL。'}
 
 
-def api_error(exc, *, uncertain=False):
+def api_error(exc):
     if isinstance(exc, (APITimeoutError, APIConnectionError)):
-        return PlotError('openai_connection', '连接 OpenAI 失败或超时。请重新读取任务状态；重试生成可能再次收费。', 503, uncertain)
+        return PlotError('openai_connection', '连接 OpenAI 失败或超时。请重新读取任务状态；重试生成可能再次收费。', 503)
     status = getattr(exc, 'status_code', None)
     messages = {401: 'OpenAI 密钥无效，请检查 backend/.env 中的 OPENAI_API_KEY。',
                 403: 'OpenAI 拒绝访问，请检查账号、项目权限及模型权限。',
@@ -72,8 +72,7 @@ def api_error(exc, *, uncertain=False):
                 429: 'OpenAI 额度不足或请求限流，请检查 API 余额和限制后重试。',
                 400: 'OpenAI 拒绝请求，请确认模型支持 Responses、后台执行和 Code Interpreter。'}
     return PlotError('openai_not_found' if status == 404 else 'openai_request_failed', messages.get(status, 'OpenAI 服务暂不可用，请稍后重新读取任务状态。'),
-                     503 if status == 429 or status and status >= 500 else 502,
-                     uncertain and (status is None or status >= 500))
+                     503 if status == 429 or status and status >= 500 else 502)
 
 
 class CloudPlot:
@@ -86,25 +85,6 @@ class CloudPlot:
         # Never inherit an unrelated proxy API endpoint from OPENAI_BASE_URL.
         self.client = OpenAI(api_key=local_config()['OPENAI_API_KEY'], base_url='https://api.openai.com/v1',
                              max_retries=0, timeout=45)
-
-    def start(self, payload, task_id, on_container):
-        submitting_response = False
-        try:
-            container = self.client.containers.create(name='paperassist-' + task_id,
-                memory_limit='1g', expires_after={'anchor': 'last_active_at', 'minutes': 20})
-            on_container(container.id)
-            self.client.containers.files.create(container.id, file=(
-                'data.json', json.dumps(payload, ensure_ascii=False, allow_nan=False).encode('utf-8'), 'application/json'))
-            submitting_response = True
-            response = self.client.responses.create(model=self.model, background=True, store=True,
-                instructions=INSTRUCTIONS, input='Use the python tool to read data.json, calculate and produce both required files.',
-                tools=[{'type': 'code_interpreter', 'container': container.id}],
-                tool_choice={'type': 'code_interpreter'}, include=['code_interpreter_call.outputs'], max_output_tokens=16000)
-            return response.id
-        except (APIConnectionError, APIStatusError) as exc:
-            raise api_error(exc, uncertain=submitting_response) from exc
-        finally:
-            self.client.close()
 
     def download(self, file_id, container_id, limit):
         chunks, size = [], 0

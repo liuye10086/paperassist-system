@@ -32,10 +32,11 @@ def test_installed_pack_is_deterministic_and_freezes_only_scoped_text(monkeypatc
     root = runtime.skills_root()
     pack = registry.check_release(root)
     assert tuple(pack.manifest.skills) == (
-        'bulk-result-reading', 'citation-verification', 'narrative-review', 'research-article', 'scientific-writing',
-        'single-cell-composition-reading', 'statistical-reading', 'thesis-writing',
+        'citation-verification', 'narrative-review', 'research-article', 'research-report-reading',
+        'scientific-writing', 'statistical-reading', 'thesis-writing',
     )
-    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'sci_narrative_review,bulk_fixed_preview')
+    assert {'bulk-result-reading@1.0.0', 'single-cell-composition-reading@1.0.0'} <= pack.manifest.history.keys()
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'sci_narrative_review,statistical_explanation')
     first = runtime.load_step(runtime.SCI_NARRATIVE_REVIEW, 'initial_draft').freeze_writing()
     second = runtime.load_step(runtime.SCI_NARRATIVE_REVIEW, 'initial_draft').freeze_writing()
     assert first == second
@@ -46,11 +47,10 @@ def test_installed_pack_is_deterministic_and_freezes_only_scoped_text(monkeypatc
     assert [ref.path for skill_ref in first.trace.skills for ref in skill_ref.resources] == [
         'references/evidence-scope.md',
     ]
-    assert 'abstract' in first.instructions and 'bulk-result-reading' not in first.instructions
-    bulk = runtime.load_step(runtime.BULK_FIXED_PREVIEW, 'qc_pca')
-    assert [ref.name for ref in bulk.trace.skills] == ['bulk-result-reading']
-    assert bulk.trace.tool.id == 'bulk_plot_data'
-    assert bulk.trace.manifest_sha256 == first.trace.manifest_sha256
+    assert 'abstract' in first.instructions and 'six-section' not in first.instructions
+    stats = runtime.load_step(runtime.STATISTICAL_EXPLANATION, 'explain_fixed_figure')
+    assert [ref.name for ref in stats.trace.skills] == ['statistical-reading']
+    assert stats.trace.manifest_sha256 == first.trace.manifest_sha256
 
 
 def test_statistical_step_freezes_only_the_fixed_figure_rules(monkeypatch):
@@ -59,7 +59,7 @@ def test_statistical_step_freezes_only_the_fixed_figure_rules(monkeypatch):
     loaded = runtime.load_step('statistical_explanation', 'explain_fixed_figure')
     assert loaded.trace.tool.id == 'figure_explanation'
     assert [ref.name for ref in loaded.trace.skills] == ['statistical-reading']
-    assert 'six-section' in loaded.instructions and 'evidence placeholders' in loaded.instructions
+    assert 'six-section' in loaded.instructions and 'short paragraph for a manuscript' in loaded.instructions
 
 
 def test_frozen_snapshot_replays_without_configuration_and_rejects_changed_text(monkeypatch, tmp_path):
@@ -210,20 +210,28 @@ def test_pack_loading_is_stage_scoped(monkeypatch, tmp_path):
     manifest_path = root / registry.MANIFEST_FILENAME
     manifest_path.write_bytes((runtime.skills_root() / registry.MANIFEST_FILENAME).read_bytes())
     monkeypatch.setenv('PAPERASSIST_SKILLS_DIR', str(root))
-    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'bulk_fixed_preview,sci_narrative_review')
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'statistical_explanation,sci_narrative_review')
     (root / 'scientific-writing' / 'SKILL.md').write_bytes(b'edited after publication')
-    assert runtime.load_step(runtime.BULK_FIXED_PREVIEW, 'qc_pca').trace.workflow == 'bulk_fixed_preview'
+    assert runtime.load_step(runtime.STATISTICAL_EXPLANATION, 'explain_fixed_figure').trace.workflow == 'statistical_explanation'
     with pytest.raises(StorageError, match='技能包'):
         runtime.load_step(runtime.SCI_NARRATIVE_REVIEW, 'initial_draft')
     monkeypatch.setenv('PAPERASSIST_SKILLS_MANIFEST_SHA256', 'f' * 64)
     with pytest.raises(StorageError, match='技能包'):
-        runtime.load_step(runtime.BULK_FIXED_PREVIEW, 'qc_pca')
+        runtime.load_step(runtime.STATISTICAL_EXPLANATION, 'explain_fixed_figure')
+
+
+def test_retired_workflows_do_not_block_active_workflows_in_saved_settings(monkeypatch):
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS',
+                       ' bulk_fixed_preview, statistical_explanation, single_cell_composition_preview ')
+    for retired in ('bulk_fixed_preview', 'single_cell_composition_preview'):
+        assert not runtime.is_enabled(retired)
+    assert runtime.load_step(runtime.STATISTICAL_EXPLANATION, 'explain_fixed_figure').trace.workflow == 'statistical_explanation'
 
 
 def test_unrecognized_workflow_flag_cannot_enable_a_step(monkeypatch):
-    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'bulk_fixed_preview,unknown')
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'statistical_explanation,unknown')
     with pytest.raises(StorageError) as error:
-        runtime.load_step(runtime.BULK_FIXED_PREVIEW, 'qc_pca')
+        runtime.load_step(runtime.STATISTICAL_EXPLANATION, 'explain_fixed_figure')
     assert error.value.code == 'runtime_skills_unavailable'
     assert not runtime.is_enabled('unknown')
 
@@ -231,11 +239,11 @@ def test_unrecognized_workflow_flag_cannot_enable_a_step(monkeypatch):
 def test_malformed_manifest_fails_only_the_new_step(monkeypatch, tmp_path, caplog):
     (tmp_path / registry.MANIFEST_FILENAME).write_bytes(b'{"schema_version":' + b'9' * 5000 + b'}')
     monkeypatch.setenv('PAPERASSIST_SKILLS_DIR', str(tmp_path))
-    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'bulk_fixed_preview')
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'statistical_explanation')
     runtime.log_configured_installation()
     assert 'skill release manifest is invalid' in caplog.text
     with pytest.raises(StorageError) as error:
-        runtime.load_step(runtime.BULK_FIXED_PREVIEW, 'qc_pca')
+        runtime.load_step(runtime.STATISTICAL_EXPLANATION, 'explain_fixed_figure')
     assert error.value.code == 'runtime_skills_unavailable'
 
 
@@ -249,12 +257,12 @@ def test_publish_reports_invalid_workflow_before_overwriting_lock(tmp_path):
 
 
 def test_allowed_tools_in_document_are_only_metadata(tmp_path):
-    source = runtime.skills_root() / 'bulk-result-reading' / 'SKILL.md'
-    installed = tmp_path / 'bulk-result-reading' / 'SKILL.md'
+    source = runtime.skills_root() / 'statistical-reading' / 'SKILL.md'
+    installed = tmp_path / 'statistical-reading' / 'SKILL.md'
     installed.parent.mkdir()
     installed.write_bytes(source.read_bytes().replace(b'\nmetadata:', b'\nallowed-tools: Bash\nmetadata:'))
     release = registry.publish(tmp_path)
-    assert release.manifest.skills['bulk-result-reading'].header.allowed_tools == 'Bash'
-    order = runtime.resolve_step(release.manifest, runtime.STEPS[runtime.BULK_FIXED_PREVIEW, 'qc_pca'], runtime.SKILLS)
-    assert order == ('bulk-result-reading',)
-    assert runtime.STEPS[runtime.BULK_FIXED_PREVIEW, 'qc_pca'].tool == 'bulk_plot_data'
+    assert release.manifest.skills['statistical-reading'].header.allowed_tools == 'Bash'
+    plan = runtime.STEPS[runtime.STATISTICAL_EXPLANATION, 'explain_fixed_figure']
+    assert runtime.resolve_step(release.manifest, plan, runtime.SKILLS) == ('statistical-reading',)
+    assert plan.tool == 'figure_explanation'

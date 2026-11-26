@@ -32,13 +32,11 @@ def configuration():
         raise StorageError('reader_report_not_configured', '详细报告的模型策略或输入上限尚未配置，请联系管理员。', 503) from None
 
 
-def policy():
-    return ModelPolicy.model_validate(configuration()['policy'])
-
-
-def bundle(material):
+def bundle(material, *, skills=None):
     config = configuration()
     prompt = instructions(material['language'])
+    if skills is not None:
+        prompt = prompt + '\n\n' + skills.instructions
     # The byte estimate and image margin reject oversized requests before transmission.
     minimum = len(prompt.encode('utf-8')) + input_text_bytes(material) + 8192 * len(material['figures']) + 4096
     if minimum > config['input_token_allowance']:
@@ -48,4 +46,6 @@ def bundle(material):
     value = {**config, 'schema_version': 1, 'instructions': prompt, 'material': material,
              'input_digest': input_digest(instructions=prompt, payload=material),
              'reserved_micro_usd': reserved, 'real_calls_enabled': real_calls_enabled()}
+    if skills is not None:
+        value['skills_snapshot'] = skills.model_dump(mode='json')
     return {**value, 'bundle_sha256': binding_digest({key: item for key, item in value.items() if key != 'real_calls_enabled'})}

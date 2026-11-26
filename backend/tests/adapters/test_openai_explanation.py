@@ -1,5 +1,3 @@
-import json
-
 import httpx2
 from openai import OpenAI
 import pytest
@@ -23,24 +21,6 @@ def sdk(monkeypatch, handler):
         assert kwargs['max_retries'] == 0
         return OpenAI(**kwargs, http_client=httpx2.Client(transport=httpx2.MockTransport(handler)))
     monkeypatch.setattr(openai_explanation, 'OpenAI', factory)
-
-
-def test_official_background_json_schema_contract_without_tools(monkeypatch):
-    calls = []
-    def handler(request):
-        calls.append(request)
-        body = json.loads(request.content)
-        assert request.url.path == '/v1/responses'
-        assert body['background'] and body['store']
-        assert not body.get('tools')
-        assert body['text']['format']['type'] == 'json_schema'
-        assert body['text']['format']['strict']
-        assert set(body['text']['format']['schema']['required']) == {'purpose', 'data', 'methods', 'results', 'interpretation', 'paper_text'}
-        assert json.loads(body['input']) == {'facts': {'overall.mean': {'value': '3'}}}
-        return httpx2.Response(200, json=response(status='queued', output=[]))
-    sdk(monkeypatch, handler)
-    assert openai_explanation.CloudExplanation().start({'facts': {'overall.mean': {'value': '3'}}}) == 'resp_explain'
-    assert len(calls) == 1
 
 
 def test_fetch_parses_text_and_retains_provenance(monkeypatch):
@@ -75,19 +55,19 @@ def test_invalid_or_refused_output_is_not_saved(monkeypatch, kind):
 def test_errors_are_sanitized_and_never_auto_retried(monkeypatch, status):
     calls = []
     def handler(request):
-        calls.append(request)
+        calls.append((request.method, request.url.path))
         return httpx2.Response(status, json={'error': {'message': 'test-secret private provider body'}})
     sdk(monkeypatch, handler)
     with pytest.raises(PlotError) as exc:
-        openai_explanation.CloudExplanation().start({})
+        openai_explanation.CloudExplanation().fetch({'response_id': 'resp_explain'})
     assert 'test-secret' not in str(exc.value) and 'private' not in str(exc.value)
-    assert len(calls) == 1
+    assert not exc.value.uncertain and calls == [('GET', '/v1/responses/resp_explain')]
 
 
-def test_submit_timeout_is_uncertain(monkeypatch):
+def test_timeout_retrieving_saved_explanation_has_no_submission_uncertainty(monkeypatch):
     def handler(request):
         raise httpx2.ReadTimeout('private', request=request)
     sdk(monkeypatch, handler)
     with pytest.raises(PlotError) as exc:
-        openai_explanation.CloudExplanation().start({})
-    assert exc.value.uncertain
+        openai_explanation.CloudExplanation().fetch({'response_id': 'resp_explain'})
+    assert exc.value.code == 'openai_connection' and not exc.value.uncertain

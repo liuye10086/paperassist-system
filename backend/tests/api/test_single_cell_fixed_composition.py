@@ -25,7 +25,7 @@ TABLE = (
 ).encode()
 
 
-def test_assigned_analyst_reads_fixed_propeller_table_and_rollback_keeps_original(monkeypatch, tmp_path):
+def test_assigned_analyst_reads_and_downloads_original_propeller_table(monkeypatch, tmp_path):
     with TestClient(app) as owner, TestClient(app) as staff, TestClient(app) as analyst, TestClient(app) as unassigned:
         sign_in(owner, 'propeller-owner@skills.test', 'customer')
         sign_in(staff, 'propeller-admin@skills.test', 'admin')
@@ -80,48 +80,39 @@ def test_assigned_analyst_reads_fixed_propeller_table_and_rollback_keeps_origina
         monkeypatch.setattr(results, 'checked_members', frozen_members)
         monkeypatch.setattr(BioInsightsService, 'require_sources', require_frozen_source)
         path = f'{base}/bio-insight-results/{result_id}'
-        endpoint = path + '/composition-preview'
-        original = analyst.get(path)
-        assert original.status_code == 200
-        assert 'composition_preview' not in original.json()
-        assert analyst.get(endpoint).status_code == 404
-
+        endpoint = path + '/tables/composition_results'
         monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'single_cell_composition_preview')
-        advertised = analyst.get(path).json()
-        assert advertised.pop('composition_preview') is True
-        assert advertised == original.json()
-        assert owner.get(endpoint).status_code == 403
+        original = analyst.get(path)
+        assert original.status_code == 200, original.text
+        assert 'composition_preview' not in original.json()
+        assert analyst.get(path + '/composition-preview').status_code == 404
         assert unassigned.get(endpoint).status_code == 404
-        assert analyst.get(f'{base}/bio-insight-results/{uuid4()}/composition-preview').status_code == 404
+        assert analyst.get(f'{base}/bio-insight-results/{uuid4()}/tables/composition_results').status_code == 404
 
         with database_connection() as db:
             before = db.execute('SELECT count(*) AS n FROM tasks WHERE project_id=%s', (project,)).fetchone()['n']
         response = analyst.get(endpoint, params={'page': 2, 'page_size': 2})
         assert response.status_code == 200, response.text
-        assert response.headers['Cache-Control'] == 'no-store'
-        preview = response.json()
-        assert (preview['project_id'], preview['result_version_id']) == (project, result_id)
-        assert preview['manifest_sha256'] == row['manifest_sha256']
-        assert preview['table_sha256'] == sha256(TABLE).hexdigest()
-        assert preview['trace']['workflow'] == 'single_cell_composition_preview'
-        assert preview['trace']['tool']['id'] == 'fixed_propeller_table'
-        assert preview['design'] == {'denominator': 'ctrl', 'numerator': 'stim', 'n_denominator': 4, 'n_numerator': 4}
-        assert preview['total'] == 3 and preview['page'] == 2
-        assert preview['rows'][0]['category'] == 'unknown'
-        assert preview['rows'][0]['proportion_difference'] == '-0.0400'
-        assert preview['rows'][0]['p_adjust'] == '0.11249980986901548'
+        table = response.json()
+        assert table['sha256'] == sha256(TABLE).hexdigest() and table['raw_text_values'] is True
+        assert table['inference_scope'] == 'donor_inference'
+        assert table['total'] == 3 and table['page'] == 2
+        item, = table['items']
+        assert (item['denominator'], item['numerator'], item['category']) == ('ctrl', 'stim', 'unknown')
+        assert item['proportion_difference'] == '-0.0400'
+        assert item['p_adjust'] == '0.11249980986901548'
+        assert original.json()['methods']['actual_units'] == row['methods_json']['actual_units']
         original_url = original.json()['members'][0]['download_url']
         assert analyst.get(original_url).content == TABLE
 
         with monkeypatch.context() as missing:
             missing.setenv('PAPERASSIST_SKILLS_DIR', str(tmp_path / 'missing'))
-            assert analyst.get(endpoint).status_code == 503
+            assert analyst.get(endpoint, params={'page': 2, 'page_size': 2}).json() == table
             assert analyst.get(original_url).content == TABLE
         assert assign(staff, base, None, 1).status_code == 200
         assert analyst.get(endpoint).status_code == 404
         assert assign(staff, base, analyst_id, 2).status_code == 200
         monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', '')
-        assert analyst.get(endpoint).status_code == 404
         assert analyst.get(path).json() == original.json()
         assert analyst.get(original_url).content == TABLE
         with database_connection() as db:

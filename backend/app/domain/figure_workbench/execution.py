@@ -110,17 +110,19 @@ def _execute(repository,lease,provider_factory,providers,explanation):
     if not refreshing:
         task,store,row,result,projection,payload,expected=_context(repository,lease)
         if explanation:
-            bundle=read_bundle(store.assets,task['project_id'],task['input_snapshot']['figure']['id']);payload=build_payload(bundle,version=task_version(task['input_snapshot']));instructions=explanation_instructions(payload)
-        else:instructions=instructions_for(payload)
+            bundle = read_bundle(store.assets, task['project_id'], task['input_snapshot']['figure']['id'])
+            payload = build_payload(bundle, version=task_version(task['input_snapshot']))
         from app.domain.admin_configuration.model_consumption import task_instructions
         with repository.connection() as db:
             if has_skills:
-                instructions = skill_approval.replay(db, task, payload)['effective_instructions']
+                material = skill_approval.replay(db, task, payload, bundle)
+                instructions, payload = material['effective_instructions'], material['payload']
                 unsubmitted = call is None or (call['status'] in ('released','reserved') and not call.get('provider_state'))
                 existing = db.execute('SELECT id FROM explanations WHERE figure_id=%s AND engine_version=%s',
                                       (bundle['figure']['id'], task_version(task['input_snapshot']))).fetchone() if unsubmitted else None
             else:
-                instructions=task_instructions(db,task,instructions,'explanation' if explanation else 'plot')
+                base = explanation_instructions(payload) if explanation else instructions_for(payload)
+                instructions = task_instructions(db, task, base, 'explanation' if explanation else 'plot')
                 existing = None
         if existing:
             cached = read_bundle(store.assets, task['project_id'], bundle['figure']['id'], existing['id'])
@@ -157,7 +159,8 @@ def _execute(repository,lease,provider_factory,providers,explanation):
     material = None
     if has_skills:
         with repository.connection() as db:
-            material = skill_approval.replay(db, task, payload)
+            material = skill_approval.replay(db, task, payload, bundle)
+        payload = material['payload']
         if input_digest(instructions=material['effective_instructions'], payload=payload) != call['input_digest']:
             raise source_conflict()
     validate_policy(task['input_snapshot']['explanation_policy' if explanation else 'boxplot_policy'],payload,

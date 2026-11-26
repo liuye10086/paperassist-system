@@ -23,14 +23,169 @@ def narrative(payload):
     return sentence_draft_v5(payload)
 
 
+def test_logistic_forest_explanation_projects_fixed_encoding_and_reference():
+    bundle = find('forest', 'zh-CN', 'logistic')
+    # The source may use text labels. Only the fitted model's normalized coding is part of the explanation.
+    bundle['result']['selection']['positive'] = {'kind': 'text', 'value': 'source label kept local'}
+    provenance = dict(model_call_id='offline', response_id='offline',
+                      skills_trace={'skills': [{'name': 'statistical-reading', 'version': '1.2.1'}]})
+    payload = e._artifact_payload(bundle, e.LATEST_VERSION, provenance)
+    assert payload['facts']['method.outcome_encoding']['raw'] == {
+        'column': 'A', 'name': 'Outcome', 'event': 1, 'non_event': 0,
+    }
+    assert payload['facts']['axis.x.reference']['raw'] == bundle['figure']['plot_config']['reference_line'] == 1
+    assert 'method.outcome_encoding' in payload['required_references']['methods']
+    assert 'axis.x.reference' in payload['required_references']['data']
+    assert 'source label kept local' not in json.dumps(payload)
+
+    draft = narrative(payload)
+    draft['methods'] += ' 估计针对完整记录，而不是通过新增插补扩充的记录。'
+    draft['paper_text'] = ('以{{scope.variables}}为范围，基于{{data.valid}}，采用{{purpose.kind}}呈现关联，'
+                           '主要参数见{{modeling.coefficients.1.inference}}。{{limitation.0}}。')
+    saved = e.render(bundle, draft, provenance)
+    assert saved['draft'] == draft
+    sections = {section['key']: section for section in saved['sections']}
+    assert '新增插补扩充' not in sections['methods']['text']
+    assert '主要参数见' in sections['paper_text']['text']
+    assert 'method.outcome_encoding' in {fact['key'] for fact in sections['methods']['evidence']}
+    paper_text = sections['paper_text']['text']
+    assert paper_text.count('Exposure (B)') == 1
+    assert '每增加 1 单位的比值比' in paper_text and '95% CI' in paper_text
+    assert '仅绘制非截距项' in sections['data']['text']
+    assert '基线概率' in sections['interpretation']['text']
+    assert e.validate_saved(bundle, saved) == saved
+    for invalid in (None, ' ', '字' * 4001):
+        with pytest.raises(PlotError):
+            e.render(bundle, {**draft, 'methods': invalid}, provenance)
+    with pytest.raises(PlotError):
+        e.render(bundle, {**draft, 'paper_text': draft['paper_text'].replace(
+            'modeling.coefficients.1.inference', 'modeling.aic')}, provenance)
+    provenance['skills_trace']['skills'][0]['version'] = '1.2.0'
+    historical = e._artifact_payload(bundle, e.LATEST_VERSION, provenance)
+    assert 'method.outcome_encoding' not in historical['facts']
+    assert 'axis.x.reference' not in historical['facts']
+
+
+@pytest.mark.parametrize(('language', 'bounds', 'wide'), [
+    ('zh-CN', None, True),
+    ('en', None, True),
+    ('zh-CN', (8.8, 9.2), False),
+    ('en', (None, None), False),
+])
+def test_logistic_forest_interprets_the_reported_or_interval(language, bounds, wide):
+    from app.domain.figure_workbench.explanation_v5 import render_sections_v5
+
+    bundle = find('forest', 'zh-CN', 'logistic')
+    figure = bundle['figure']
+    figure['language'] = language
+    coefficients = bundle['result']['statistics']['coefficients']
+    if bounds is not None:
+        coefficients[0].update(or_ci_low=0.01, or_ci_high=100)
+        coefficients[1].update(or_ci_low=bounds[0], or_ci_high=bounds[1])
+        figure['statistics']['effects'][0].update(ci_low=bounds[0], ci_high=bounds[1])
+    provenance = dict(model_call_id='offline', response_id='offline',
+                      skills_trace={'skills': [{'name': 'statistical-reading', 'version': '1.2.1'}]})
+    payload = e._artifact_payload(bundle, e.LATEST_VERSION, provenance)
+    draft = narrative(payload)
+    draft['paper_text'] = (
+        'The figure uses {{purpose.kind}} to describe {{scope.variables}}. The analysis uses {{data.valid}}. '
+        'The estimate is {{modeling.coefficients.1.inference}}. {{limitation.0}}.' if language == 'en' else
+        '以{{scope.variables}}为范围，基于{{data.valid}}，采用{{purpose.kind}}呈现关联，'
+        '主要参数见{{modeling.coefficients.1.inference}}。{{limitation.0}}。'
+    )
+    if not wide:
+        draft['paper_text'] += (' The stored parameter is {{modeling.coefficients.0.inference}}.' if language == 'en'
+                                else '保存的参数为{{modeling.coefficients.0.inference}}。')
+    saved = e.render(bundle, draft, provenance)
+    assert saved['draft'] == draft
+    assert saved['payload_sha256'] == e.digest(payload)
+    assert e.validate_saved(bundle, saved) == saved
+    sections = {section['key']: section for section in saved['sections']}
+    width = 'confidence interval for term B is wide' if language == 'en' else '参数 B 的 95% 比值比置信区间较宽'
+    span = 'more than ten times' if language == 'en' else '超过下限的 10 倍'
+    precision = 'limited precision' if language == 'en' else '估计精度有限'
+    boundary = ('cannot replace validation in an independent sample' if language == 'en' else '无法替代独立样本验证')
+    no_refit = 'without introducing an independent sample or refitting the model' if language == 'en' else '没有引入独立样本或重新拟合模型'
+    for key in ('interpretation', 'paper_text'):
+        section = sections[key]
+        assert boundary in section['text'] and no_refit in section['text']
+        assert all((phrase in section['text']) == wide for phrase in (width, span, precision))
+        if wide:
+            assert 'modeling.coefficients.1.inference' in {item['key'] for item in section['evidence']}
+    if wide:
+        assert '2.15086–37.6593' in sections['paper_text']['text']
+
+    historical = deepcopy(saved)
+    historical['provenance'].pop('section_renderer')
+    historical['sections'] = render_sections_v5(draft, payload)
+    assert all(boundary not in section['text'] for section in historical['sections'])
+    assert e.validate_saved(bundle, historical) == historical
+    for explanation in (saved, historical):
+        reused = e.reuse(bundle, bundle, explanation)
+        assert e.validate_saved(bundle, reused)['sections'] == explanation['sections']
+
+    unverified = deepcopy(bundle)
+    unverified['figure']['plot_config'].pop('verification_scope')
+    unverified_sections = e.render(unverified, draft, provenance)['sections']
+    assert all(boundary not in section['text'] for section in unverified_sections)
+
+
 @pytest.mark.parametrize('language', ['en', 'zh-CN'])
-def test_new_statistical_skills_preview_uses_the_validated_sentence_frames(language, monkeypatch):
+def test_statistical_skills_render_a_compact_manuscript_from_frozen_facts(language, monkeypatch):
     from app.domain.figure_workbench import skill_approval
 
     monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'statistical_explanation')
     bundle = find('line', language)
     payload = e.build_payload(bundle)
-    approved, base = skill_approval.prepare(payload, bundle['figure'], None, {})
+    approved, base = skill_approval.prepare(payload, bundle, None, {})
+
+    assert 'Validated sentence frames' not in base
+    snapshot = approved['skills_snapshot']
+    assert snapshot['trace']['skills'][0]['version'] == '1.2.1'
+    assert approved['effective_instructions'] == base + '\n\n' + snapshot['instructions']
+    manuscript = approved['payload']
+    assert manuscript['facts'] == payload['facts']
+    for section, refs in payload['required_references'].items():
+        if section != 'paper_text':
+            assert manuscript['required_references'][section] == refs
+    draft = narrative(payload)
+    draft['paper_text'] = (
+        'We used {{purpose.kind}} to describe {{scope.variables}}. '
+        'The plot includes {{data.valid}}, whereas the original analysis used {{data.original_n}}. '
+        'The values rose from {{projection.0.coordinates}}. {{limitation.0}}.' if language == 'en' else
+        '采用{{purpose.kind}}描述{{scope.variables}}。图中纳入{{data.valid}}。'
+        '观测值从{{projection.0.coordinates}}上升。{{limitation.0}}。'
+    )
+    provenance = dict(model_call_id='offline', response_id='offline', skills_trace=snapshot['trace'])
+    saved = e.render(bundle, draft, provenance)
+    assert e.validate_saved(bundle, saved) == saved
+    paper = saved['sections'][-1]
+    assert '(1.0, 2.0)' in paper['text'] and '(5.0, 20.0)' in paper['text']
+    assert 'Applicable limitation:' not in paper['text'] and '适用限制:' not in paper['text']
+    coordinates = next(item for item in paper['evidence'] if item['key'] == 'projection.0.coordinates')
+    assert coordinates['value'] == payload['facts']['projection.0.coordinates']['value']
+    derived = e.reuse(bundle, bundle, saved)
+    assert e.validate_saved(bundle, derived)['sections'] == saved['sections']
+
+    for invalid in ('{{limitation.0}}', '999'):
+        bad_paper = draft['paper_text'].replace('{{projection.0.coordinates}}', invalid)
+        with pytest.raises(PlotError):
+            e.render(bundle, {**draft, 'paper_text': bad_paper}, provenance)
+
+
+@pytest.mark.parametrize('language', ['en', 'zh-CN'])
+def test_legacy_statistical_skills_pack_retains_the_validated_sentence_frames(language, monkeypatch, tmp_path):
+    from app.domain.figure_workbench import skill_approval
+    from app.domain.runtime_skills import registry
+    from tests.domain.test_runtime_skills import skill
+
+    skill(tmp_path, 'statistical-reading')
+    registry.publish(tmp_path)
+    monkeypatch.setenv('PAPERASSIST_SKILLS_DIR', str(tmp_path))
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', 'statistical_explanation')
+    bundle = find('line', language)
+    payload = e.build_payload(bundle)
+    approved, base = skill_approval.prepare(payload, bundle, None, {})
     rules = 'Use the supplied sentence frames for numerical results, record populations, and limitations.'
     assert rules in base
     assert 'Keep literal count labels, metric names, and participant terminology inside their bound facts' in base

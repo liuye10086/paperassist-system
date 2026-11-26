@@ -5,7 +5,7 @@ from app.domain.manuscripts.illustrations import BODY_REFERENCE, check_reference
 from .context import NUMBER, RESEARCH_CLAIMS, WritingCitationScopeError
 from .live_notice import COMPOSITION_VERSION, update_notice
 from .numeric_review import NUMERIC_VERSION,validation_version,numbers as signed_numbers,value as numeric_value
-from .numeric_contract import REPORTED_RESULTS_LOCATION, is_numeric_v2, context_facts
+from .numeric_contract import REPORTED_RESULTS_LOCATION, is_numeric_v2, context_facts, written_cardinal_values
 from .frozen import wire_payload
 
 def body_digest(candidate):
@@ -107,7 +107,11 @@ def prepare(raw,snapshot,bundle,body,resolve_claim,*,numeric_version=NUMERIC_VER
                     source_ids.extend(paper_context_sources.get(bound['source_alias'], []))
                 elif bound['kind']=='literature':
                     evidence=[e for b in fragment.get('bindings',[]) for e in b['evidence'] if e['id']==bound['evidence_id']]
-                    if not literature or bound['source_alias'] is not None or bound['fact_path'] is not None or not evidence or value not in (signed_numbers if strict else NUMBER.findall)(evidence[0]['quote']): raise ValueError('Literature number lacks exact new-claim reviewed evidence')
+                    values = (signed_numbers if strict else NUMBER.findall)(evidence[0]['quote']) if evidence else []
+                    if evidence and strict and raw.get('article_type') == 'narrative_review':
+                        values.extend(written_cardinal_values(evidence[0]['quote']))
+                    if not literature or bound['source_alias'] is not None or bound['fact_path'] is not None or value not in values:
+                        raise ValueError('Literature number lacks exact new-claim reviewed evidence')
                 else:
                     raise ValueError('Unknown numeric decision kind')
             paragraph.update(verification_status='scientific_reviewed',numeric_bindings=deepcopy(bindings),

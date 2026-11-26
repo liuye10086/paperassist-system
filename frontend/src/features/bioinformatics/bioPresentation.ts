@@ -34,6 +34,8 @@ export const resultTableLabels:Record<string,string>={
  expression_distribution:'样本表达分布',figure_data:'绘图数据',normalization_factors:'标准化系数',
  tool_log:'运行日志',library_qc_table:'分文库质控统计',qc_cells:'逐细胞质控结果',
  pca_loadings:'PCA 特征载荷',pca_variance_ratio:'PCA 方差解释比例',pca_feature_raw_indices:'PCA 特征原始位置',
+ pca_scores:'样本 PCA 得分',qc_missing_data:'样本缺失比例数据',pca_data:'样本 PCA 图数据',
+ composition_counts:'细胞组成计数',composition_results:'细胞组成结果',
 }
 
 type Translate=(label:string, params?:Record<string,string|number>)=>string

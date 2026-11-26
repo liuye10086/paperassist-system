@@ -53,7 +53,10 @@ def test_unknown_without_response_does_not_construct_or_call_provider(monkeypatc
     snapshot=dict(manuscript_id='manuscript',execution=dict(bundle_id='bundle'))
     checked=[]
     def forbidden_source_check(*args): raise AssertionError('Started submissions must preserve recovery despite source changes')
-    service=SimpleNamespace(writing=SimpleNamespace(assert_current=forbidden_source_check,row=lambda *a: checked.append(a[1:])),bundle=lambda *a: {})
+    def saved_row(_db, *scope):
+        checked.append(scope)
+        return {}, task
+    service=SimpleNamespace(writing=SimpleNamespace(assert_current=forbidden_source_check,row=saved_row),bundle=lambda *a: {})
     repository=SimpleNamespace(connection=lambda: nullcontext(object()),require_lease=lambda *a: task,
         require_owner=lambda *a: None,config=SimpleNamespace(environment='development'),assets=SimpleNamespace(directory=None))
     monkeypatch.setattr(live_execution,'LiveWritingService',lambda *a: service)

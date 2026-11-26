@@ -23,7 +23,7 @@ UNSUPPORTED = re.compile(r'显著(?:高于|低于|增加|减少|改善|升高|�
     r'(?:具有|有)统计学意义|(?:证明|证实|导致|造成).{0,30}(?:因果|疗效|疾病|改善)|'
     r'因果关系(?:成立|明确)|[pPＰ]\s*(?:[值=<>＜＞]|[- ]?value)', re.IGNORECASE)
 # These fixed words contain numeral characters but do not state a quantity.
-NON_QUANTITIES = re.compile('四分位|百分位|一致|统一|单一|一般|一定|一些|一样|进一步|'
+NON_QUANTITIES = re.compile('四分位|百分位|参数|參數|参与|參與|参考|參考|参照|參照|一致|统一|单一|一般|一定|一些|一样|进一步|'
                            '一方面|另一方面|一同|一并|一概|一律|一一对应|之一|不一')
 LIMITATION_PREFIX = re.compile(r'(?:不能|无法|不足以|不应|不宜|尚不能)(?:据此)?'
     r'(?:说明|证明|认定|判断|推断|确定|声称|表明).{0,30}$|'

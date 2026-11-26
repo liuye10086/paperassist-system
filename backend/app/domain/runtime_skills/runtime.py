@@ -22,8 +22,8 @@ SCI_NARRATIVE_REVIEW = 'sci_narrative_review'
 SCI_RESEARCH_ARTICLE = 'sci_research_article'
 THESIS_INITIAL_DRAFT = 'thesis_initial_draft'
 STATISTICAL_EXPLANATION = 'statistical_explanation'
-BULK_FIXED_PREVIEW = 'bulk_fixed_preview'
-SINGLE_CELL_COMPOSITION_PREVIEW = 'single_cell_composition_preview'
+RESEARCH_REPORT_READING = 'research_report_reading'
+_RETIRED_WORKFLOWS = {'bulk_fixed_preview', 'single_cell_composition_preview'}
 MAX_INSTRUCTIONS = 8192
 _KEY = Annotated[str, Field(min_length=1, max_length=64, pattern=r'^[a-z][a-z0-9_]*$')]
 _log = logging.getLogger(__name__)
@@ -114,22 +114,23 @@ class Step:
 SKILLS = {
     'scientific-writing': SkillSpec(),
     'statistical-reading': SkillSpec(),
+    'research-report-reading': SkillSpec(),
     'narrative-review': SkillSpec(requires=('scientific-writing',)),
     'research-article': SkillSpec(requires=('scientific-writing',)),
     'thesis-writing': SkillSpec(requires=('scientific-writing',)),
     'citation-verification': SkillSpec(requires=('scientific-writing',), resources=('references/evidence-scope.md',)),
-    'bulk-result-reading': SkillSpec(),
-    'single-cell-composition-reading': SkillSpec(),
 }
 TOOLS = {
     'figure_explanation': ToolTrace(id='figure_explanation', version='1.0.0'),
+    'reader_report': ToolTrace(id='reader_report', version='1.0.0'),
     'manuscript_writing': ToolTrace(id='manuscript_writing', version='1.0.0'),
-    'bulk_plot_data': ToolTrace(id='bulk_plot_data', version='1.0.0'),
-    'fixed_propeller_table': ToolTrace(id='fixed_propeller_table', version='1.0.0'),
 }
 STEPS = {
     (STATISTICAL_EXPLANATION, 'explain_fixed_figure'): Step(
         '1.0.0', 'figure_explanation', ('statistical-reading',),
+    ),
+    (RESEARCH_REPORT_READING, 'explain_report'): Step(
+        '1.0.0', 'reader_report', ('research-report-reading',),
     ),
     (SCI_NARRATIVE_REVIEW, 'initial_draft'): Step(
         '1.0.0', 'manuscript_writing', ('narrative-review', 'citation-verification'),
@@ -139,10 +140,6 @@ STEPS = {
     ),
     (THESIS_INITIAL_DRAFT, 'initial_draft'): Step(
         '1.0.0', 'manuscript_writing', ('thesis-writing', 'citation-verification'),
-    ),
-    (BULK_FIXED_PREVIEW, 'qc_pca'): Step('1.0.0', 'bulk_plot_data', ('bulk-result-reading',)),
-    (SINGLE_CELL_COMPOSITION_PREVIEW, 'read_propeller'): Step(
-        '1.0.0', 'fixed_propeller_table', ('single-cell-composition-reading',),
     ),
 }
 WORKFLOWS = frozenset(workflow for workflow, _ in STEPS)
@@ -172,7 +169,8 @@ def _installed_release() -> Release:
 
 
 def _requested_workflows() -> tuple[str, ...]:
-    return tuple(name.strip() for name in os.getenv('PAPERASSIST_SKILL_WORKFLOWS', '').split(',') if name.strip())
+    names = (value.strip() for value in os.getenv('PAPERASSIST_SKILL_WORKFLOWS', '').split(','))
+    return tuple(name for name in names if name and name not in _RETIRED_WORKFLOWS)
 
 
 def _validate_workflows(requested: tuple[str, ...]) -> None:
@@ -260,10 +258,11 @@ def verify_steps(release: Release) -> None:
 
 
 def load_step(workflow: str, step: str) -> LoadedStep:
-    if not is_enabled(workflow):
+    requested = _requested_workflows()
+    if workflow not in WORKFLOWS or workflow not in requested:
         raise StorageError('runtime_skills_disabled', '此技能流程尚未启用。', 404)
     try:
-        _validate_workflows(_requested_workflows())
+        _validate_workflows(requested)
         return _load(_installed_release(), workflow, step)
     except SkillError as exc:
         _log.warning('Skills step unavailable (%s/%s): %s', workflow, step, exc)
@@ -278,11 +277,9 @@ def log_configured_installation() -> None:
     try:
         _validate_workflows(requested)
         release = _installed_release()
-        for (workflow, _), plan in STEPS.items():
+        for workflow, step in STEPS:
             if workflow in requested:
-                for name in resolve_step(release.manifest, plan, SKILLS):
-                    for path in ('SKILL.md', *SKILLS[name].resources):
-                        release.resource(name, path)
+                _load(release, workflow, step)
         _log.info('Skills manifest %s for %s', release.sha256, ','.join(requested))
     except SkillError as exc:
         _log.warning('Skills installation unavailable: %s', exc)

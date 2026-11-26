@@ -324,7 +324,8 @@ def test_receipt_event_key_is_stable_across_poll_request_ids():
     assert records[0]['request_id'] != records[1]['request_id']
 
 
-def real_gateway_setup():
+@pytest.fixture
+def real_gateway(postgres_schema):
     """Build only synthetic rows in the autouse fixture's isolated test schema."""
     from app.auth.service import create_user
     from app.db.database import database_connection
@@ -348,10 +349,10 @@ def real_gateway_setup():
     return service, req
 
 
-def test_real_transactions_are_committed_before_network_and_usage_before_output():
+def test_real_transactions_are_committed_before_network_and_usage_before_output(real_gateway):
     gateway, _ = modules()
     from app.db.database import database_connection, get_database_config
-    service, req = real_gateway_setup()
+    service, req = real_gateway
     calls = []
     class DatabaseProvider:
         def create(self, **kwargs):
@@ -384,10 +385,10 @@ def test_real_transactions_are_committed_before_network_and_usage_before_output(
         assert db.execute('SELECT count(*) AS n FROM usage_events').fetchone()['n'] == 1
 
 
-def test_real_database_receipt_failure_fences_post(monkeypatch):
+def test_real_database_receipt_failure_fences_post(monkeypatch, real_gateway):
     gateway, _ = modules()
     from app.db.database import DatabaseConnection, database_connection
-    service, req = real_gateway_setup()
+    service, req = real_gateway
     calls = []
     class DatabaseProvider:
         def create(self, **kwargs):
@@ -439,10 +440,10 @@ def test_sdk_usage_preserves_missing_fields_and_explicit_null(details):
     ({'cached_tokens': 0, 'cache_write_tokens': 96,
       'cache_write_tokens_details': {'ttl_12h_tokens': 0, 'ttl_30m_tokens': 96}}, 'estimated'),
 ])
-def test_sdk_receipt_accounting_only_settles_complete_pricing_evidence(details, expected):
+def test_sdk_receipt_accounting_only_settles_complete_pricing_evidence(details, expected, real_gateway):
     gateway, adapter = modules()
     from app.db.database import database_connection
-    service, req = real_gateway_setup()
+    service, req = real_gateway
     usage = {'input_tokens': 100, 'output_tokens': 10, 'input_tokens_details': details}
     with httpx2.Client(transport=httpx2.MockTransport(lambda request: httpx2.Response(200,
         json=sdk_response(status='completed', usage=usage)))) as http_client:

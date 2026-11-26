@@ -358,6 +358,9 @@ def build_bundle(base,request,frozen,*,include_reported_results=True,revision_se
         from .numeric_contract import add_reported_results
         add_reported_results(base,request,payload,local,safe_text)
     if request['article_type']=='narrative_review' and not school:
+        from .numeric_contract import add_literature_numbers, includes_written_literature_counts
+        if includes_written_literature_counts(frozen):
+            add_literature_numbers(payload['evidence'], include_written_cardinals=True)
         allowed = review_material_ids(base)
         prohibited=[s for s in payload['sources']
                     if local['sources'][s['alias']] not in allowed

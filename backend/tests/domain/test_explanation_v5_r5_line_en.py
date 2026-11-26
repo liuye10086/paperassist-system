@@ -41,6 +41,16 @@ def test_original_line_complete_render_saved_and_exact_frozen_input():
     'The saved results report the complete ordered coordinates as {{projection.0.coordinates}}.',
     'The original statistical record count is {{data.original_n}}, which is reported separately from the projection record counts rather than as an independent participant count.',
     'The distinction between statistical records, projection records and independent participants is governed by {{limitation.1}}.',
+    'The descriptive scope limits inference: {{limitation.0}}.',
+    'Association does not justify an effectiveness claim: {{limitation.3}}.',
+    'The saved series shows a decreasing vertical value, with the complete ordered coordinates and their valid-record and missing-record counts reported in {{projection.0.coordinates}}.',
+    'The observation declaration qualifies the procedure rather than verifying independence: {{design.structure}}.',
+    'These counts describe records rather than verified independent participants, as qualified by {{limitation.1}}.',
+    'The procedure handles missing grouping information according to {{method.rule.missing_group}}.',
+    'The vertical values decrease as the horizontal values increase across the saved series.',
+    'Local reference checks do not resolve scientific applicability: {{limitation.8}}.',
+    'The original analysis reports {{data.original_n}}; this is a separate record population, not an interchangeable count of independent participants.',
+    'The retained records supply the plotted coordinates rather than establishing independently verified participant units.',
 ])
 def test_normal_finite_prose_and_bound_population_caveats(text):check(text)
 
@@ -60,6 +70,18 @@ def test_normal_finite_prose_and_bound_population_caveats(text):check(text)
     'The distinction between statistical records, projection records and independent participants is governed by {{limitation.3}}.',
     'This figure follows {{method.summary}}, which proves causation.',
     'The saved results report weighted complete ordered coordinates as {{projection.0.coordinates}}.',
+    'The saved series shows the plotted pattern, with the complete ordered coordinates and their valid-record and missing-record counts reported in {{data.valid}}.',
+    'The saved series shows the plotted pattern, with weighted complete ordered coordinates reported in {{projection.0.coordinates}}.',
+    'The observation declaration qualifies the procedure rather than verifying independence: {{design.status}}.',
+    'The observation declaration verifies independence: {{design.structure}}.',
+    'The procedure confirms independence rather than verifying independence: {{design.structure}}.',
+    'These counts describe records rather than verified independent participants, as qualified by {{limitation.3}}.',
+    'These counts describe verified independent participants, as qualified by {{limitation.1}}.',
+    'The procedure handles missing grouping information according to {{axis.x.label}}.',
+    'The procedure handles grouping according to a journal study and follows {{method.rule.missing_group}}.',
+    'Association justifies an effectiveness claim: {{limitation.3}}.',
+    'The original analysis used independent participants, not a reported count of independent participants.',
+    'The data confirm independent participants rather than establishing independently verified participant units.',
 ])
 def test_wrong_metric_scope_or_affirmative_and_fragment_remains_rejected(text):
     with pytest.raises(PlotError):check(text)

@@ -12,6 +12,7 @@ from app.domain.dataset_preparation.service import append_checkpoint, require_ke
 from app.domain.model_usage.provenance import public_provider_provenance
 from app.domain.model_usage.service import TERMINAL
 from app.domain.research_results.contracts import ResearchReportRequest
+from app.domain.runtime_skills import runtime
 
 from .contracts import CALL_KEY, RETRYABLE_FAILURES, TASK_TYPE, WORKFLOW, NarrativeRequest, ReaderReportInputVersion
 
@@ -39,15 +40,21 @@ def public_material(material):
                                   for item in material['figures']]}
 
 
-def _material(content, figures):
+def _report_images(figures):
     from app.adapters.research_report_images import as_png
+
+    return [{'config': item['config'], 'caption_facts': item.get('caption_facts', []),
+             'content': item['raw'] if item['format'] == 'png' else as_png(item['raw'], item['format'])}
+            for item in figures]
+
+
+def _material(content, payload, *, include_table_evidence=False):
     from .content import make_material
 
     try:
-        images = [{'config': item['config'], 'caption_facts': item.get('caption_facts', []),
-                   'content': item['raw'] if item['format'] == 'png' else as_png(item['raw'], item['format'])}
-                  for item in figures]
-        return make_material(content, images)
+        return make_material(content, _report_images(payload['figures']),
+                             table_raws=payload['table_raws'] if include_table_evidence else None,
+                             trajectory_import=payload.get('trajectory_import'))
     except (OSError, TypeError, ValueError) as exc:
         raise StorageError('reader_report_input_limit', '所选事实或图件超出解读输入范围，请核对图件和资料。', 422) from exc
 
@@ -67,29 +74,40 @@ class ReaderReportService(ResearchResultsStore):
             if parent['revision'] != report.expected_revision:
                 raise invalid('research_revision_conflict')
         content, bindings, payload = ResearchReportService(self.assets).freeze(db, project, report, attach_reader=False)
-        return content, sorted({fid for source in bindings for fid in source.source_file_ids}), payload['figures']
+        return content, sorted({fid for source in bindings for fid in source.source_file_ids}), payload
 
     def _prepare(self, db, project, report):
         from .content import binding_digest
         from .policy import bundle
 
-        content, files, figures = self._base(db, project, report, check_revision=True)
-        return binding_digest(content), files, bundle(_material(content, figures))
+        skills = None
+        if runtime.is_enabled(runtime.RESEARCH_REPORT_READING):
+            skills = runtime.SkillSnapshot.from_step(runtime.load_step(runtime.RESEARCH_REPORT_READING, 'explain_report'))
+        content, files, payload = self._base(db, project, report, check_revision=True)
+        if skills is not None:
+            from .table_evidence import trajectory_import_counts
+
+            payload['trajectory_import'] = trajectory_import_counts(self.assets, db, project, content)
+        material = _material(content, payload, include_table_evidence=skills is not None)
+        frozen = bundle(material, skills=skills) if skills is not None else bundle(material)
+        return binding_digest(content), files, frozen
 
     def _lock_binding(self, db, project, binding):
         self.lock(db, project, 'reader-report-binding:' + binding)
 
     def _reusable(self, db, project, binding, bundle, *, exclude_id=None, reuse_reservation=False,
                   ignore_unreserved_budget_wait=False, confirmed_sha=None):
-        # Old hashes include the retired cap. Match the immutable policy, instructions and
-        # material digest across that change, including the exact image bytes via input_digest.
+        # A retired cap or a change elsewhere in the installed skill pack does not change the
+        # approved request. The selected skill hashes, instructions and exact material still match.
         ignored = ['bundle_sha256', 'task_limit_micro_usd', 'real_calls_enabled']
         comparable = {k: v for k, v in bundle.items() if k not in ignored}
         comparable['material'] = public_material(comparable['material'])
         return db.execute("""SELECT n.id,t.status FROM reader_report_narratives n JOIN tasks t ON t.id=n.task_id
             LEFT JOIN model_calls c ON c.task_id=t.id AND c.project_id=t.project_id AND c.user_id=t.user_id AND c.call_key=%s
             WHERE n.project_id=%s AND n.user_id=%s AND n.binding_sha256=%s AND
-              (n.bundle_sha256=%s OR (n.input_snapshot->'bundle') - %s::text[] = %s)
+              (n.bundle_sha256=%s OR ((n.input_snapshot->'bundle') - %s::text[])
+                    #- '{skills_snapshot,trace,manifest_sha256}'::text[]
+                    = (%s::jsonb #- '{skills_snapshot,trace,manifest_sha256}'::text[]))
               AND (%s::text IS NULL OR n.bundle_sha256=%s)
               AND n.id IS DISTINCT FROM %s
               AND NOT (%s AND t.status='waiting_confirmation' AND t.reason_code IS NOT DISTINCT FROM 'budget_exceeded'
@@ -258,18 +276,24 @@ class ReaderReportService(ResearchResultsStore):
 
     def material_for_task(self, db, row, task):
         """Re-read content, including the exact image bytes, before new outbound work."""
-        from .content import binding_digest
+        from .content import binding_digest, make_figure_inputs
         from app.domain.model_usage.gateway import input_digest
 
         report = ResearchReportRequest.model_validate(row['request_json']['report'])
-        content, files, figures = self._base(db, task['project_id'], report)
+        content, files, payload = self._base(db, task['project_id'], report)
         if binding_digest(content) != row['binding_sha256'] or files != task['input_snapshot']['source_file_ids']:
             raise source_conflict()
-        material = _material(content, figures)
         frozen = row['input_snapshot']['bundle']
-        if public_material(material) != frozen['material'] or input_digest(
-            instructions=frozen['instructions'], payload=material,
-        ) != frozen['input_digest']:
+        # Text and figure descriptors were frozen at consent. Only reattach the
+        # bytes read from the matching immutable source before transmission.
+        try:
+            images = make_figure_inputs(_report_images(payload['figures']))
+            figures = [{**saved, 'image_url': current['image_url']}
+                       for saved, current in zip(frozen['material']['figures'], images, strict=True)]
+        except (OSError, TypeError, ValueError) as exc:
+            raise source_conflict() from exc
+        material = {**frozen['material'], 'figures': figures}
+        if input_digest(instructions=frozen['instructions'], payload=material) != frozen['input_digest']:
             raise source_conflict()
         return material
 

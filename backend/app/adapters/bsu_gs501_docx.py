@@ -224,7 +224,12 @@ def insert_submission_forms(document, template, snapshot, plan):
         _connect_graphics(document, forms, archive)
     protected_nodes = _fill_known_values(forms, snapshot['title'], plan['options'].get('english_title', ''),
                                          bsu_gs501.submission_values(plan))
+    complex_script_font = qn('w:cs')
     for node in forms:
+        for fonts in node.iter(qn('w:rFonts')):
+            if fonts.get(complex_script_font) == 'LiSu+1':
+                # The original GS501 font table declares Times New Roman as this alias's fallback.
+                fonts.set(complex_script_font, 'Times New Roman')
         for cached_break in list(node.iter(qn('w:lastRenderedPageBreak'))):
             cached_break.getparent().remove(cached_break)
         for choice in node.iter('{http://schemas.openxmlformats.org/markup-compatibility/2006}Choice'):

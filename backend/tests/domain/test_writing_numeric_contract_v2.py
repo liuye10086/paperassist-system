@@ -115,6 +115,38 @@ def test_literature_numeric_quote_can_be_suggested_but_stays_unreviewed():
     assert p['study_numeric_bindings'] == [] and len(p['literature_numeric_bindings']) == 1
 
 
+def test_explicit_written_literature_counts_keep_their_own_excerpt_bindings():
+    from app.domain.manuscript_writing.numeric_contract import add_literature_numbers, validate_bindings
+
+    evidence = [dict(alias='e1', quote='We examined six anatomical regions in 3 samples.'),
+                dict(alias='e2', quote='Spatial features were mapped in eight regions.'),
+                dict(alias='e3', quote='Details include one hundred and six, − eight, one and a half, and two-thirds.')]
+    original = deepcopy(evidence)
+    add_literature_numbers(original)
+    assert [row['numeric_facts'] for row in original] == [[dict(fact_path='/quote/numbers/0', value='3')], [], []]
+    add_literature_numbers(evidence, include_written_cardinals=True)
+    assert [row['quote'] for row in evidence] == [row['quote'] for row in original]
+    assert [row['numeric_facts'] for row in evidence] == [
+        [dict(fact_path='/quote/numbers/0', value='3'), dict(fact_path='/quote/cardinals/0', value='6')],
+        [dict(fact_path='/quote/cardinals/0', value='8')], [],
+    ]
+    payload = dict(sources=[], numeric_context=[], evidence=evidence)
+    binding = dict(source_alias='e1', fact_path='/quote/cardinals/0', value='6')
+    paragraph = dict(text='The study examined 6 regions.', source_aliases=[], evidence_aliases=['e1'],
+                     study_numeric_bindings=[binding])
+    assert validate_bindings(paragraph, payload)['literature'] == [binding]
+    with pytest.raises(ValueError, match='Unknown exact literature value'):
+        validate_bindings({**paragraph, 'evidence_aliases': ['e2']}, payload)
+
+
+@pytest.mark.parametrize(('version', 'expected'), [('1.0.0', False), ('1.1.1', True), ('1.1.2', True)])
+def test_review_prose_revision_preserves_frozen_literature_cardinal_projection(version, expected):
+    from app.domain.manuscript_writing.numeric_contract import includes_written_literature_counts
+
+    frozen = dict(skills_snapshot=dict(trace=dict(skills=[dict(name='narrative-review', version=version)])))
+    assert includes_written_literature_counts(frozen) is expected
+
+
 def test_old_quote_numeric_exemption_and_wrong_path_rejection_are_unchanged():
     snapshot, bundle, output = legacy_fixture()
     output['sections'][2]['paragraphs'][0].update(text='The published study reports 42 observations.', evidence_aliases=['e1'])

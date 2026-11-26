@@ -41,43 +41,30 @@ it('identifies descriptive composition, donor n and cell n while preserving the 
  expect(screen.queryByRole('link',{name:'下载 Word 分析报告'})).toBeNull()
 })
 
-it('opens read-only Propeller interpretation from the saved composition results', async () => {
+it('opens the saved Propeller table in the regular results and explains the contrast', async () => {
  const manifest = 'c'.repeat(64), tableHash = 'd'.repeat(64)
  const table = {id:'table',key:'composition_results',role:'table',format:'tsv',sha256:tableHash,size_bytes:70,download_url:'/download'}
+ const counts = {...table,id:'counts',key:'composition_counts'}
  const result = {id:'comp',kind:'comparison',provenance:'system_computed',inference_scope:'donor_inference',
-  composition_preview:true,summary:{},methods:{config:{schema_version:5,mode:'donor_unpaired'}},manifest:{},
-  manifest_sha256:manifest,task:{id:'task',status:'succeeded'},members:[table]}
- const preview = {schema_version:1,project_id:'p1',result_version_id:'comp',manifest_sha256:manifest,table_sha256:tableHash,
-  design:{denominator:'ctrl',numerator:'stim',n_denominator:4,n_numerator:4},runtime:{speckle:'1.6.0'},
-  total:2,page:1,page_size:50,rows:[
-   {category:'label',label_id:'T',mean_proportion_denominator:'0.3300',mean_proportion_numerator:'0.5875',
-    proportion_difference:'0.2575',p_adjust:'0.00048353808306252034',inference_status:'tested',reason:''},
-   {category:'unknown',label_id:'',mean_proportion_denominator:'0',mean_proportion_numerator:'0',
-    proportion_difference:'0',p_adjust:'',inference_status:'not_computable',reason:'no_variation'},
-  ]}
- let blocked = false
- const fetcher = vi.mocked(apiFetch).mockImplementation(async url => {
-  if (url.includes('/composition-preview?')) return blocked
-   ? Response.json({detail:{code:'project_not_found'}},{status:404}) : Response.json(preview)
+  summary:{actual_units:[{contrast_id:'composition',observation_level:'donor',numerator:'stim',denominator:'ctrl',n_numerator:4,n_denominator:4}]},
+  methods:{name:'speckle_propeller',config:{schema_version:5,method:'single_cell_composition',mode:'donor_unpaired',numerator:'stim',denominator:'ctrl'}},
+  manifest:{},manifest_sha256:manifest,task:{id:'task',status:'succeeded'},members:[counts,table]}
+ const row = {label_id:'T',mean_proportion_denominator:'0.3300',mean_proportion_numerator:'0.5875',
+  proportion_difference:'0.2575',p_adjust:'0.00048353808306252034',inference_status:'tested'}
+ vi.mocked(apiFetch).mockImplementation(async url => {
+  if (url.includes('/tables/composition_results?')) return Response.json({columns:Object.keys(row),items:[row],total:1,matched_total:1,page:1,page_size:50})
   if (url.includes('/tables/')) return Response.json({columns:[],items:[],total:0,matched_total:0,page:1,page_size:50})
   if (url.endsWith('/figures')) return Response.json({items:[]})
   return Response.json(result)
  })
  render(<InsightResults projectId="p1" resultId="comp" active onResearch={()=>{}}/>)
- const open = await screen.findByRole('button',{name:'查看固定组成解读'})
- expect(fetcher.mock.calls.every(([url]) => !url.includes('/composition-preview?'))).toBe(true)
- fireEvent.click(open)
- const view = await screen.findByRole('table',{name:'固定组成比例与检验'})
- expect(within(view).getByRole('columnheader',{name:'ctrl'})).toBeTruthy()
- expect(within(view).getByRole('columnheader',{name:'stim'})).toBeTruthy()
+ const view = await screen.findByRole('table',{name:'完整结果表'})
+ expect(screen.getByRole('combobox',{name:'完整结果表'})).toHaveProperty('value','composition_results')
+ expect(screen.getByText('差值为分子组减参照组。相对比例的变化不能证明绝对丰度变化或因果关系。')).toBeTruthy()
+ expect(screen.getByRole('columnheader',{name:'分子组供者 n'})).toBeTruthy()
  expect(within(view).getByText('0.3300')).toBeTruthy()
  expect(within(view).getByText('0.00048353808306252034')).toBeTruthy()
- expect(within(view).getByText('no_variation')).toBeTruthy()
- expect(fetcher.mock.calls.every(([,init]) => !init?.method || init.method === 'GET')).toBe(true)
- blocked = true
- fireEvent.click(open)
- await within(screen.getByRole('region',{name:'固定组成解读'})).findByRole('alert')
- expect(screen.queryByRole('table',{name:'固定组成比例与检验'})).toBeNull()
+ expect(screen.queryByRole('button',{name:'查看固定组成解读'})).toBeNull()
 })
 
 it('renders donor units from the actual DE methods shape without a config wrapper',async()=>{

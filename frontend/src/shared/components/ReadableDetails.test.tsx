@@ -11,6 +11,11 @@ describe('customer result details',()=>{
  const {container}=render(<ReadableDetails value={{status:'unrecognized',notes:'{"source_id":"secret","sha256":"'+'c'.repeat(64)+'"}'}}/> )
  expect(container.textContent).not.toContain('已通过');expect(container.textContent).not.toContain('secret');expect(container.textContent).not.toContain('{');expect(screen.getByText('unrecognized（待核对）')).toBeTruthy()
  })
+ it('shows a recorded test exclusion in the outbound material preview',()=>{
+  render(<ReadableDetails value={{status:'excluded',reason:'minimum_total_counts'}} readerView/>)
+  expect(screen.getByText('已排除')).toBeTruthy()
+  expect(screen.getByText('低于总计数阈值')).toBeTruthy()
+ })
 })
 
 it('retains observation mapping fields, comparison roles and unfamiliar scientific columns',()=>{

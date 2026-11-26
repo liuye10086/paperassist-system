@@ -16,7 +16,6 @@ import type {ReportLocation} from '../bio-reader-reports/navigation'
 import InsightImpact from './InsightImpact'
 import {DataDetails, Field, Members, Paging, ReadState, TaskStatus} from './InsightShared'
 import SingleCellInsightSummary from './SingleCellInsightSummary'
-import FixedCompositionReading from './FixedCompositionReading'
 import SingleCellTopicSummary from './SingleCellTopicSummary'
 import {displayRaw} from './state'
 import {bulkRoute} from './bulkWorkflow'
@@ -103,7 +102,6 @@ export default function InsightResults({projectId,resultId,active,onResearch,onN
    <BulkEnrichmentFigureResult result={data} onNavigate={onNavigate}/>
    <BulkPublishedDetails result={data} onNavigate={onNavigate}/>
    <SingleCellInsightSummary result={data}/><SingleCellTopicSummary result={data}/>
-   {data.id===resultId&&data.composition_preview===true&&<FixedCompositionReading key={data.id} {...{projectId,active}} result={data}/>}
    {delivery}
    <DataDetails title="结果概况与样例标记" value={data.summary}/><TaskStatus projectId={projectId} task={data.task}/>
    {researchResult}{methodViews}{impact}
@@ -157,6 +155,12 @@ function BulkPublishedDetails({result,onNavigate}:{result:Result;onNavigate?:(na
  </section>
 }
 
+const compositionColumns:Record<string,string>={
+ category:'细胞类别',label_id:'细胞标签',numerator:'比较组',denominator:'参照组',
+ mean_proportion_denominator:'参照组平均比例',mean_proportion_numerator:'比较组平均比例',
+ proportion_difference:'比例差值',p_adjust:'校正 P 值',inference_status:'检验状态',reason:'原因',
+}
+
 function ResultTables({projectId,data,active,onResearch,onCurve}:{projectId:string;data:Result;active:boolean;onResearch:(source:ResearchSource)=>void;onCurve?:(rowKey:string,contrast:string)=>void}) {
  const {t} = useI18n()
  const [key,setKey] = useState(''),[page,setPage] = useState(1),[search,setSearch] = useState(''),[query,setQuery] = useState(''),[column,setColumn] = useState('')
@@ -164,8 +168,9 @@ function ResultTables({projectId,data,active,onResearch,onCurve}:{projectId:stri
  const candidate = data.kind==='candidate'&&validBulkSelection(data.methods.bulk_selection)
  const enrichment = isBulkEnrichmentResult(data)
  const label = candidate?'候选结果表':'完整结果表'
- const defaultTable = candidate?'bulk_candidate_top':enrichment?'enrichment_results':undefined
+ const defaultTable = candidate?'bulk_candidate_top':enrichment?'enrichment_results':'composition_results'
  const selected = tables.find(member=>member.key===key)??tables.find(member=>member.key===defaultTable)??tables[0]
+ const columnLabel = (name:string) => selected?.key==='composition_results'?t(compositionColumns[name]??name):name
  const curve = selected?.key==='enrichment_results'?onCurve:undefined
  const table = useInsightRead<TablePage>(selected?`${projectBase(projectId)}/bio-insight-results/${encodeURIComponent(data.id)}/tables/${encodeURIComponent(selected.key)}?page=${page}&page_size=50${query?'&search='+encodeURIComponent(query):''}`:'',active&&!!selected,true)
  const resultColumn = column||table.data?.columns.find(name=>!['row_key','contrast_id','feature_id'].includes(name))||table.data?.columns[0]||''
@@ -189,9 +194,9 @@ function ResultTables({projectId,data,active,onResearch,onCurve}:{projectId:stri
   <ReadState {...table}/>
   {table.data&&<>
    <p>{t('完整文件总行数')} {table.data.total} · {t('搜索匹配')} {table.data.matched_total} · {t('原始文本值保持，0 与 NA 不互换。')}</p>
-   <Field label="引用到研究发现的结果列" value={resultColumn} onChange={setColumn}>{table.data.columns.map(name=><option key={name}>{name}</option>)}</Field>
+   <Field label="引用到研究发现的结果列" value={resultColumn} onChange={setColumn}>{table.data.columns.map(name=><option key={name} value={name}>{columnLabel(name)}</option>)}</Field>
    <div className="field-table-scroll"><table className="field-table" aria-label={t(label)}>
-    <thead><tr>{curve&&<th>{t('GSEA 曲线')}</th>}{table.data.columns.map(name=><th key={name}>{name}</th>)}<th>{t('研究引用')}</th></tr></thead>
+    <thead><tr>{curve&&<th>{t('GSEA 曲线')}</th>}{table.data.columns.map(name=><th key={name}>{columnLabel(name)}</th>)}<th>{t('研究引用')}</th></tr></thead>
     <tbody>{table.data.items.map((row,index)=><tr key={String(row.row_key??index)}>
      {curve&&<td>{typeof row.row_key==='string'&&row.row_key&&<button type="button"
       aria-label={t('绘制已保存 GSEA 曲线 · {term}',{term:String(row.term_id??row.row_key)})}

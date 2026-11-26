@@ -1,8 +1,7 @@
 """Owner-scoped spatial analysis routes; all writes have stable request identity."""
-import logging
 from typing import Annotated,Literal
 from urllib.parse import quote
-from fastapi import APIRouter,Query,Request,Response
+from fastapi import APIRouter,Query,Response
 from pydantic import BeforeValidator
 from app.api.bio_datasets import Store,Key,Page
 from app.api.bio_reader_reports import ReportVersion, fixed_legacy_word
@@ -16,12 +15,8 @@ from app.domain.bioinformatics.analysis_contracts import (BioObservationMapReque
 from app.domain.bioinformatics.single_cell_contracts import SingleCellSetupRequest,SingleCellAnalysisStartRequest,SingleCellSubsetRequest
 from app.domain.bioinformatics.annotation_contracts import BioAnnotationRunRequest
 from app.domain.bioinformatics.tabular_contracts import TabularAnalysisSetupRequest
-from app.domain.bio_insights.fixed_bulk_preview import (
-    BulkFixedPanel, BulkFixedPreview, available_on_fixed_result, read_fixed_bulk_preview,
-)
 router=APIRouter(prefix='/api/v1/projects',tags=['空间转录组分析'])
 Size=Annotated[int,Query(ge=1,le=100),BeforeValidator(decimal_query_integer)]
-skills_log = logging.getLogger('app.core.request_id').getChild('skills')
 
 
 def download(pair):
@@ -66,26 +61,7 @@ def confirm(project_id:str,run_id:str,request:BioAnalysisConfirmRequest,store:St
 def qc_member(project_id:str,run_id:str,member_id:str,store:Store):return download(BioAnalysisService(store).qc_member(project_id,run_id,member_id))
 @router.get('/{project_id}/bio-processed-datasets/{version_id}')
 def processed(project_id:str,version_id:str,store:Store):
-    result = BioAnalysisStore(store).processed(project_id,version_id)
-    if store.assignment is not None and available_on_fixed_result(result):
-        result['bulk_fixed_preview'] = True
-    return result
-
-@router.get('/{project_id}/bio-processed-datasets/{version_id}/bulk-fixed-preview', response_model_exclude_unset=True)
-def bulk_fixed_preview(project_id:str,version_id:str,panel:BulkFixedPanel,store:Store,
-                       request:Request,response:Response) -> BulkFixedPreview:
-    result = read_fixed_bulk_preview(store,project_id,version_id,panel)
-    response.headers['Cache-Control'] = 'no-store'
-    trace = result.trace
-    skills = ','.join(f'{skill.name}@{skill.version}:{skill.sha256}' for skill in trace.skills)
-    member_hashes = ','.join(f'{key}:{sha}' for key,sha in result.plot.source_members.items())
-    skills_log.info(
-        'bulk fixed preview request_id=%s processed_version_id=%s panel=%s workflow=%s@%s step=%s '
-        'tool=%s@%s manifest_sha256=%s skills=%s source_sha256=%s source_members=%s',
-        request.state.request_id,result.processed_version_id,panel,trace.workflow,trace.workflow_version,trace.step,
-        trace.tool.id,trace.tool.version,trace.manifest_sha256,skills,result.plot.source_sha256,member_hashes,
-    )
-    return result
+    return BioAnalysisStore(store).processed(project_id,version_id)
 
 @router.get('/{project_id}/bio-processed-datasets/{version_id}/report.docx')
 def single_cell_report(project_id:str,version_id:str,store:Store,annotation_version_id:Annotated[str|None,Query(min_length=1,max_length=64)]=None,

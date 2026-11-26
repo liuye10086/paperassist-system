@@ -130,6 +130,63 @@ def test_only_exact_frozen_source_rows_supply_extra_feature_names():
     assert '9.2' not in str(material)
 
 
+def test_reader_explains_bulk_prefilter_from_the_bound_comparison_and_counts():
+    from app.domain.reader_reports.content import make_material
+
+    source = snapshot()
+    source['finding']['content']['sources'] = [{
+        'source_kind': 'bio_report_context', 'title': 'Fixed count report',
+        'content': {'assay': 'bulk_rna_counts', 'summary': {'contrasts': [{'contrast_id': 'B_A'}]}},
+    }]
+    source['tables'] = [
+        {'key': key, 'format': 'tsv', 'expected_rows': count,
+         'source': {'source_kind': 'bio_insight_result_member', 'result_version_id': 'fixed'}}
+        for key, count in [('comparison_results', 2), ('model_counts', 1)]
+    ]
+    raws = [
+        b'contrast_id\tfeature_id\ttest_status\treason\nB_A\tf3\texcluded\tminimum_total_counts\nC_A\tf4\texcluded\tminimum_total_counts\n',
+        b'model_id\tfeature_id\tprivate_sample_one\tprivate_sample_two\nbulk_model_1\tf3\t1\t5\n',
+    ]
+
+    material = make_material(source, [], table_raws=raws)
+
+    assert material['facts']['table_evidence']['bulk_testing_limits'] == [{
+        'contrast': 'B_A', 'feature': 'f3', 'status': 'excluded', 'reason': 'minimum_total_counts',
+        'model_input_total_count': 6, 'model_input_count_scope': 'model_cohort',
+    }]
+    assert 'f4' not in str(material['facts']['table_evidence'])
+    assert 'private_sample' not in str(material)
+
+
+def test_reader_keeps_trajectory_evidence_without_cell_or_sample_identifiers():
+    from app.domain.reader_reports.content import make_material
+
+    source = snapshot()
+    source['finding']['content']['sources'] = [{
+        'source_kind': 'bio_report_context', 'title': 'Fixed trajectory', 'content': {'assay': 'slingshot'},
+    }]
+    source['tables'] = [
+        {'key': 'trajectory_results', 'format': 'tsv', 'expected_rows': 2,
+         'source': {'source_kind': 'bio_insight_result_member'}},
+        {'key': 'topic_units', 'format': 'tsv', 'expected_rows': 1,
+         'source': {'source_kind': 'bio_insight_result_member'}},
+    ]
+    raws = [
+        b'barcode\tcluster\tlineage_id\tpseudotime\tweight\tcovered\nprivate-barcode\t0\tL1\t0.0\t1.0\tTrue\nother-cell\t1\tL1\t\t0.0\tFalse\n',
+        b'unit_id\tsamples\nprivate-unit\t"[""private-sample""]"\n',
+    ]
+
+    material = make_material(source, [], table_raws=raws)
+
+    evidence = material['facts']['table_evidence']['trajectory']
+    assert evidence['known_selected_sample_count'] == 1
+    assert evidence['rows'] == [
+        {'cluster': '0', 'lineage': 'L1', 'pseudotime': '0.0', 'weight': '1.0', 'covered': True},
+        {'cluster': '1', 'lineage': 'L1', 'pseudotime': None, 'weight': '0.0', 'covered': False},
+    ]
+    assert 'private-' not in str(material)
+
+
 @pytest.mark.parametrize('field', ['caption_facts', 'source_caption'])
 def test_cumulative_text_cap_includes_figure_metadata(monkeypatch, field):
     from app.domain.reader_reports import content

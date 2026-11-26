@@ -4,6 +4,8 @@
 
 ## 1. 基线与启用范围
 
+本页保留 B03 当时的工作流和读数证据。B09 撤下组成试点入口，供者组、方向、组成比例、调整后 P 值和原表使用正式结果页。 [当前入口与试点退役记录](2026-11-26-PaperAssist-Skills-B09整理与验收记录.md#1-整理清单)
+
 - 分支 `feat/runtime-skills`，主线基线 `5de3df8c219c4cd0db325b1a45a9c9dcedd9926b`，承接当前工作树 B00–B02 的未提交修改。B03 无数据库迁移。真实验证用 B02 的原件、账号、回执和灰度服务独立保留。 [B00 固定基线](2026-11-25-PaperAssist-Skills-B00实施与验证记录.md)
 - `PAPERASSIST_SKILL_WORKFLOWS` 按流程逐个启用。新增的四个标识默认关闭。API 和 Worker 读取同一份技能包，可用 `PAPERASSIST_SKILLS_MANIFEST_SHA256` 固定发布清单。当前清单含八个技能、六条流程，SHA-256 为 `5136e50e3a8d083e19d612b46343d537cb7e776194bea376f061dd56efb3c524`。Windows CLI、隔离 Linux API 和开发 Worker 对当前只读源得到相同摘要。 [环境示例](../../../backend/.env.example) · [跨镜像校验回执](../../../script/.runtime/pa-skills-b03/skills-linux-verification.json)
 - 开关只控制相应 Skills 路径。写作和图件解释继续受各自的外发、授权和模型账本控制。离线实施阶段数据库在独立本机测试容器中运行，模型用替身，真实 OpenAI 提交和外部文献 API 请求均为 0。随后在另一隔离环境按已确认额度做真实补验。 [B03 补验记录](2026-11-25-PaperAssist-Skills-B03待验证项补验记录.md)
@@ -17,7 +19,7 @@
 | 固定图件统计解释，获指派分析员 `statistical_explanation` | 延用 v5 固定图件解释，启用 Skills 时用 v8 授权合同绑定图件 ID、PNG 摘要、原事实、完整指令和确认记录。 | 六节解释沿用原证据校验。冻结外发摘要与实际发送指令一致，原图可继续下载。相同任务和已有解释优先复用，已有响应 ID 可续取。关闭 Skills 后新预览使用 v7。 [图件入口用例](../../../backend/tests/integration/test_b07_repair_versions.py) |
 | 固定单细胞组成结果，获指派分析员 `single_cell_composition_preview` | 从单细胞结果页读取已发布 schema 5 `speckle_propeller` 的 `composition_results.tsv`，限定 `donor_unpaired`、`asin`、无批次调整和已确认的标签。 | 显示供体组、方向、原值、调整后 p 值和成员散列，沿用来源、成员和权限校验。支持分页、撤权及开关回退。只读请求新增任务和模型调用均为 0，原结果 API 和下载仍可使用。 [角色与下载用例](../../../backend/tests/api/test_single_cell_fixed_composition.py) |
 
-SCI 与毕业论文从原客户工作台进入。首稿预览核对冻结材料、技能版本和指令后，再走原写作授权。退出确认后，同一份材料可以继续使用原冻结预览。修改材料须重新准备。局部修订、完整修订和建议沿用既有合同。保留仍服务于历史任务、候选、图件和 Word 的入口及恢复逻辑。 [写作入口](../../../frontend/src/features/customer/SciDraftGenerator.tsx) · [写作授权](../../../frontend/src/features/manuscripts/CustomerWritingConfirm.tsx) · [组成结果入口](../../../frontend/src/features/bio-insights/FixedCompositionReading.tsx)
+SCI 与毕业论文从原客户工作台进入。首稿预览核对冻结材料、技能版本和指令后，再走原写作授权。退出确认后，同一份材料可以继续使用原冻结预览。修改材料须重新准备。局部修订、完整修订和建议沿用既有合同。保留仍服务于历史任务、候选、图件和 Word 的入口及恢复逻辑。 [写作入口](../../../frontend/src/features/customer/SciDraftGenerator.tsx) · [写作授权](../../../frontend/src/features/manuscripts/CustomerWritingConfirm.tsx) · [当前组成结果入口](../../../frontend/src/features/bio-insights/InsightResults.tsx)
 
 统计解释回执保留实际确认人和分配修订，任务与计费保留项目归属。首次 POST 在提交账本事务中复验确认人的当前角色、分配及外发停用状态。已有响应 ID 按原账本续取，撤权的分析员无法访问任务和成果。待运行的 v8 同图解释与 v5 本地复用在写入时协调。已有合规解释、调用仅预留且尚未提交时，释放预留并读取原解释。 [授权与恢复](../../../backend/app/domain/figure_workbench/skill_approval.py) · [提交准入](../../../backend/app/domain/model_usage/service.py)
 

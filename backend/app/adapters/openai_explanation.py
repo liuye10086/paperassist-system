@@ -49,18 +49,6 @@ class CloudExplanation:
         self.client = OpenAI(api_key=local_config()['OPENAI_API_KEY'], base_url='https://api.openai.com/v1',
                              max_retries=0, timeout=45)
 
-    def start(self, payload):
-        try:
-            response = self.client.responses.create(model=self.model, background=True, store=True,
-                instructions=INSTRUCTIONS, input=json.dumps(payload, ensure_ascii=False, allow_nan=False),
-                text={'format': {'type': 'json_schema', 'name': 'analysis_explanation', 'strict': True, 'schema': SCHEMA}},
-                max_output_tokens=10000)
-            return response.id
-        except (APIConnectionError, APIStatusError) as exc:
-            raise api_error(exc, uncertain=True) from exc
-        finally:
-            self.client.close()
-
     def fetch(self, job):
         try:
             response = self.client.responses.retrieve(job['response_id'])

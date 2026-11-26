@@ -5,7 +5,9 @@ from app.auth.project_access import ProjectAssignment, require_current_assignmen
 from app.core.exceptions import StorageError
 from app.domain.admin_configuration import bindings, model_consumption
 from app.domain.external_processing import digest
-from app.domain.figure_workbench.explanation_v5 import instructions_v5
+from app.domain.figure_workbench.explanation_v5 import (
+    CONTRACT_INSTRUCTIONS_V5, MANUSCRIPT_INSTRUCTIONS_V5, MANUSCRIPT_SKILL_VERSIONS, instructions_v5, manuscript_payload,
+)
 from app.domain.runtime_skills import runtime
 
 
@@ -40,20 +42,28 @@ def require_new_submission(db, task, *, synthetic_fixture):
                 raise StorageError('model_configuration_disabled', '当前配置已停用真实模型调用。', 409)
 
 
-def _material(payload, figure, skills, base, configuration, delegation):
+def _material(payload, bundle, skills, base, configuration, delegation):
     effective = model_consumption.instructions(base + '\n\n' + skills.instructions, configuration, 'explanation')
-    material = dict(payload=payload, figure_binding={'id':figure['id'], 'sha256':figure['sha256']},
-                    skills_snapshot=skills.model_dump(mode='json'), effective_instructions=effective)
+    frozen = skills.model_dump(mode='json')
+    figure = bundle['figure']
+    material = dict(payload=manuscript_payload(payload, frozen['trace'], bundle),
+                    figure_binding={'id':figure['id'], 'sha256':figure['sha256']},
+                    skills_snapshot=frozen, effective_instructions=effective)
     return dict(**material, payload_sha256=digest({'version': 8, **material, **delegation}), requires_confirmation=True)
 
 
-def prepare(payload, figure, configuration, delegation):
+def prepare(payload, bundle, configuration, delegation):
     step = runtime.load_step(runtime.STATISTICAL_EXPLANATION, 'explain_fixed_figure')
-    base = instructions_v5(payload, use_validated_frames=True)
-    return _material(payload, figure, runtime.SkillSnapshot.from_step(step), base, configuration, delegation), base
+    base = CONTRACT_INSTRUCTIONS_V5
+    if step.trace.skills[0].version == '1.0.0':
+        # Restoring the original pack restores its exact preview instructions.
+        base = instructions_v5(payload, use_validated_frames=True)
+    elif step.trace.skills[0].version in MANUSCRIPT_SKILL_VERSIONS:
+        base = MANUSCRIPT_INSTRUCTIONS_V5
+    return _material(payload, bundle, runtime.SkillSnapshot.from_step(step), base, configuration, delegation), base
 
 
-def replay(db, task, payload):
+def replay(db, task, payload, bundle):
     snapshot = task['input_snapshot']
     external = snapshot['external_processing']
     skills = runtime.SkillSnapshot.model_validate(snapshot['skills_snapshot'])
@@ -76,7 +86,7 @@ def replay(db, task, payload):
         delegation = {'confirmed_by': actor, 'assignment_revision': revision}
     elif external['confirmed_by'] != task['user_id']:
         raise source_conflict()
-    material = _material(payload, snapshot['figure'], skills, snapshot['explanation_base_instructions'], configuration, delegation)
+    material = _material(payload, bundle, skills, snapshot['explanation_base_instructions'], configuration, delegation)
     expected_request = dict(version_id=external['version_id'], figure_id=snapshot['figure']['id'],
                             external={'confirmed': True, 'payload_sha256': material['payload_sha256']})
     if external['payload_sha256'] != material['payload_sha256'] or digest(expected_request) != task['input_digest']:

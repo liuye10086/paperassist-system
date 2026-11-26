@@ -72,6 +72,7 @@ def validate_policy(value,payload,*,explanation=False,instructions=None):
 def require_task_sources(repository,db,task):
     repository.require_owner(db,task) if hasattr(repository,'require_owner') else TaskStore(task['user_id'],repository.config).require_project(db,task['project_id'])
     snapshot=task['input_snapshot'];assets=assets_for(repository,task['user_id']);workbench=FigureWorkbenchStore(assets)
+    bundle = None
     try:
         result=snapshot['result'];v=snapshot['figure_workbench']['version_id']
         row,current,computed,payload,expected=workbench.material(task['project_id'],result['file_id'],result['id'],v)
@@ -85,7 +86,7 @@ def require_task_sources(repository,db,task):
         external=snapshot['external_processing']
         if external['confirmed'] is not True or external['version_id']!=v:raise ValueError()
         if 'skills_snapshot' in snapshot or external.get('version') == 8:
-            skill_approval.replay(db, task, payload)
+            skill_approval.replay(db, task, payload, bundle)
         elif external['confirmed_by']!=task['user_id'] or external['payload_sha256']!=digest(payload):raise ValueError()
     except (KeyError,TypeError,ValueError):raise source_conflict() from None
     return snapshot
@@ -121,7 +122,8 @@ def submit(workbench,project_id,file_id,run_id,version_id,request,*,figure_id=No
         if direct_v5 and skill_approval.enabled(payload):
             # The write transaction already locked and rechecked the assigned project scope.
             delegation = skill_approval.delegated_approval(workbench.assets.assignment)
-            preview, base = skill_approval.prepare(payload, bundle['figure'], configuration, delegation)
+            preview, base = skill_approval.prepare(payload, bundle, configuration, delegation)
+            payload = preview['payload']
             skill_fields = dict(skills_snapshot=preview['skills_snapshot'], explanation_base_instructions=base)
         approved_digest = preview['payload_sha256'] if preview else digest(payload)
         if external['payload_sha256'] != approved_digest:raise source_conflict()

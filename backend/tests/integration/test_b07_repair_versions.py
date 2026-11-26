@@ -40,7 +40,12 @@ class SyntheticSentenceProvider(FigureExplanationProvider):
         receipt=super().create(**kwargs)
         receipt['model'] = receipt['response']['model'] = kwargs['policy'].model
         payload=kwargs['payload']
-        receipt['response']['output'][0]['content'][0]['text']=json.dumps(sentence_draft_v5(payload))
+        draft = sentence_draft_v5(payload)
+        if payload.get('paper_text_format') == 'manuscript_v1':
+            refs = payload['required_references']
+            result, limitation = refs['results'][0], refs['interpretation'][0]
+            draft['paper_text'] += f' The display records {{{{{result}}}}}. {{{{{limitation}}}}}.'
+        receipt['response']['output'][0]['content'][0]['text']=json.dumps(draft)
         if self.pending:
             self.completed = deepcopy(receipt)
             receipt['status'] = receipt['response']['status'] = 'in_progress'
@@ -198,7 +203,12 @@ def test_authenticated_v5_pipeline_preserves_figure_version_and_exact_word_png(c
     assert preview.status_code==200,preview.text
     payload=preview.json()['payload']
     assert payload['figure_explanation_contract']==5
-    assert payload==build_payload(bundle)
+    legacy = build_payload(bundle)
+    assert payload['facts'] == legacy['facts']
+    if skills:
+        assert payload['paper_text_format'] == 'manuscript_v1'
+    else:
+        assert payload == legacy
     body={'idempotency_key':'b07-v5','external_processing':{'confirmed':True,'payload_sha256':preview.json()['payload_sha256']}}
     if skills:
         assert preview.json()['payload_sha256'] != digest(payload)

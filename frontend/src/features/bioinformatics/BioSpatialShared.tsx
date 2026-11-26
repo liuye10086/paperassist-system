@@ -11,9 +11,9 @@ export function BioSource({source}:{source:RawBioSource}){
  return <dl className="bio-source"><dt>{t('分析输入')}</dt><dd>{t(analysis)} · {t('{count} 个来源文件',{count:source.source_file_ids.length})}</dd></dl>
 }
 export function BioWriteStatus({writer}:{writer:{error:string;unknown:boolean;busy:boolean;lookup:()=>Promise<void>}}){const {t}=useI18n();return <>{writer.error&&<p role="alert" className="error-panel">{t(writer.error)}</p>}{writer.busy&&<p role="status">{t('正在保存或核对原请求……')}</p>}{writer.unknown&&<button type="button" disabled={writer.busy} onClick={()=>void writer.lookup()}>{t('按原请求身份核对')}</button>}</>}
-export function BioSpatialMembers({projectId,members}:{projectId:string;members:SpatialMember[]}){
+export function BioSpatialMembers({projectId,members,plotDataKey}:{projectId:string;members:SpatialMember[];plotDataKey?:string}){
  const {t}=useI18n()
- const files=members.filter(m=>!isTechnicalResultFile(m.key,m.format)&&m.format.toLowerCase()!=='pdf'&&
+ const files=members.filter(m=>(m.key===plotDataKey&&m.format==='json'||!isTechnicalResultFile(m.key,m.format))&&m.format.toLowerCase()!=='pdf'&&
   (!members.some(member=>member.format.toLowerCase()==='pdf')||m.format.toLowerCase()!=='zip')&&m.download_url?.startsWith(projectBase(projectId)+'/'))
  return <ul className="bio-member-list">{files.map(m=>{
   const name=resultFileName(m,t)

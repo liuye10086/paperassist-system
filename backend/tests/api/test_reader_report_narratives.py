@@ -109,6 +109,95 @@ def narrative_fixture():
                            for key in NARRATIVE_FIELDS}, figures=[])
 
 
+def test_reader_runs_both_frozen_instruction_versions_after_switching_the_skill(client, monkeypatch):
+    from app.domain.runtime_skills.runtime import RESEARCH_REPORT_READING
+
+    endpoint, report = report_request(client)
+    request, original = queue_narrative(client, endpoint, report)
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', RESEARCH_REPORT_READING)
+    enhanced_preview = client.post(endpoint + '/preview', json=report)
+    assert enhanced_preview.status_code == 200, enhanced_preview.text
+    enhanced_preview = enhanced_preview.json()
+    assert enhanced_preview['binding_sha256'] == original['binding_sha256']
+    assert enhanced_preview['bundle_sha256'] != request['bundle_sha256']
+    response = client.post(endpoint, headers={'Idempotency-Key': 'new-rules'},
+                           json={**request, 'bundle_sha256': enhanced_preview['bundle_sha256']})
+    assert response.status_code == 202, response.text
+    enhanced = response.json()
+
+    original_provider = Fixture(narrative_fixture())
+    assert worker(original, original_provider)['status'] == 'succeeded'
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', '')
+    enhanced_provider = Fixture(narrative_fixture())
+    assert worker(enhanced, enhanced_provider)['status'] == 'succeeded'
+
+    with database_connection() as db:
+        bundle = db.execute('SELECT input_snapshot FROM reader_report_narratives WHERE id=%s',
+                            (enhanced['id'],)).fetchone()['input_snapshot']['bundle']
+    assert bundle['skills_snapshot']['trace']['workflow'] == RESEARCH_REPORT_READING
+    assert enhanced_provider.posts[0]['instructions'] == bundle['instructions']
+    assert bundle['instructions'].startswith(original_provider.posts[0]['instructions'] + '\n\n')
+    assert client.get(endpoint + '/' + original['id']).json()['result'] is not None
+
+
+def test_trajectory_reader_freezes_input_library_and_feature_counts(client, monkeypatch, tmp_path):
+    from app.adapters.bio_analysis_store import BioAnalysisStore
+    from app.domain.runtime_skills.runtime import RESEARCH_REPORT_READING
+    from tests.helpers.bio_report_topics import published_trajectory
+
+    base, _, result = published_trajectory(client, monkeypatch, tmp_path)
+    prepared = client.post(base + '/bio-reader-reports/prepare', headers={'Idempotency-Key': 'trajectory-report'},
+                           json=dict(title='Trajectory report', language='en',
+                                     selection=dict(kind='insight', result_version_id=result['id'], figure_version_ids=[])))
+    assert prepared.status_code == 201, prepared.text
+    endpoint = base + '/research-report-narratives'
+    report = prepared.json()['report']
+    _, previous = queue_narrative(client, endpoint, report)
+
+    lineage_checks = 0
+    check_lineage = BioAnalysisStore._processed_lineage_in_phase
+
+    def count_lineage_checks(self, *args, **kwargs):
+        nonlocal lineage_checks
+        lineage_checks += 1
+        return check_lineage(self, *args, **kwargs)
+
+    monkeypatch.setattr(BioAnalysisStore, '_processed_lineage_in_phase', count_lineage_checks)
+    assert client.post(endpoint + '/preview', json=report).status_code == 200
+    original_checks = lineage_checks
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', RESEARCH_REPORT_READING)
+    response = client.post(endpoint + '/preview', json=report)
+    assert response.status_code == 200, response.text
+    assert lineage_checks - original_checks == original_checks
+    preview = response.json()
+    assert preview['binding_sha256'] == previous['binding_sha256']
+    assert preview['facts']['table_evidence']['trajectory']['source_import'] == {'library_count': 1, 'feature_count': 2}
+    request = dict(report=report, bundle_sha256=preview['bundle_sha256'], confirmed_external_processing=True)
+    posted = client.post(endpoint, headers={'Idempotency-Key': 'trajectory-dimensions'}, json=request)
+    assert posted.status_code == 202, posted.text
+    queued = posted.json()
+
+    draft = narrative_fixture()
+    draft['narrative']['design_and_data'] = 'The original import contained 2 features from 1 library.'
+    figure, = preview['figures']
+    draft['figures'] = [dict(number=1, title=figure['title'], reading='Read the projected PCA coordinates.',
+                            observations='There are four selected observations in the saved trajectory.',
+                            interpretation='The pseudotime values describe relative ordering.',
+                            limitations='The single import library gives no evidence of independent replication.')]
+    # Both queued tasks retain the exact material already confirmed, including after the Skill is turned off.
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', '')
+    original_provider = Fixture({**draft, 'narrative': narrative_fixture()['narrative']})
+    assert worker(previous, original_provider)['status'] == 'succeeded'
+    assert 'table_evidence' not in original_provider.posts[0]['payload']['facts']
+    provider = Fixture(draft)
+    assert worker(queued, provider)['status'] == 'succeeded'
+    sent = provider.posts[0]['payload']
+    assert sent['facts']['table_evidence'] == preview['facts']['table_evidence']
+    assert sent['figures'][0]['image_url'] == original_provider.posts[0]['payload']['figures'][0]['image_url']
+    reading = client.get(endpoint + '/' + queued['id']).json()['result']
+    assert reading['narrative']['design_and_data'] == draft['narrative']['design_and_data']
+
+
 def test_reader_needs_no_budget_and_reuses_paid_pre_upgrade_result(client, monkeypatch):
     endpoint, report = report_request(client)
     from app.domain.reader_reports import policy
@@ -161,6 +250,32 @@ def test_reader_needs_no_budget_and_reuses_paid_pre_upgrade_result(client, monke
         with pytest.raises(StorageError):
             service.record_for(db, task['project_id'], queued['id'], base | {'title': 'Changed after admission'})
     assert record['provenance']['artifact_sha256'] == saved['artifact_sha256']
+
+
+def test_reader_reuses_saved_result_when_only_the_skill_pack_changes(client, monkeypatch):
+    from app.domain.runtime_skills import runtime
+
+    endpoint, report = report_request(client)
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', runtime.RESEARCH_REPORT_READING)
+    active = runtime.load_step(runtime.RESEARCH_REPORT_READING, 'explain_report')
+    prior_trace = active.trace.model_copy(update={'manifest_sha256': 'a' * 64})
+    with monkeypatch.context() as previous:
+        previous.setattr(runtime, 'load_step', lambda *_: runtime.LoadedStep(prior_trace, active.instructions))
+        prior_request, queued = queue_narrative(client, endpoint, report)
+    provider = Fixture(narrative_fixture())
+    assert worker(queued, provider)['status'] == 'succeeded'
+
+    response = client.post(endpoint + '/preview', json=report)
+    assert response.status_code == 200, response.text
+    preview = response.json()
+    assert preview['bundle_sha256'] != prior_request['bundle_sha256']
+    assert preview['cached'] and preview['reserved_micro_usd'] == 0
+    for key, request in [('older-confirmation', prior_request),
+                         ('new-confirmation', prior_request | {'bundle_sha256': preview['bundle_sha256']})]:
+        replay = client.post(endpoint, json=request, headers={'Idempotency-Key': key})
+        assert replay.status_code == 200, replay.text
+        assert replay.json()['id'] == queued['id']
+    assert len(provider.posts) == 1
 
 
 def test_unknown_submission_cannot_create_another_billable_attempt(client):

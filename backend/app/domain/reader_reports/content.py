@@ -144,13 +144,9 @@ def _finding_material(content, language):
     return result
 
 
-def make_material(snapshot, figures):
-    language = snapshot.get('language', 'zh-CN')
-    if language not in ('zh-CN', 'en') or len(figures) > MAX_IMAGES:
-        raise ValueError('Unsupported language or too many selected figures')
-    facts = _finding_material(snapshot.get('finding', {}).get('content', {}), language)
-    facts['report_title'] = _science(str(snapshot.get('title', '')))
-    facts['selected_tables'] = _science(snapshot.get('tables', []))
+def make_figure_inputs(figures):
+    if len(figures) > MAX_IMAGES:
+        raise ValueError('Too many selected figures')
     images = []; total = 0
     for number, figure in enumerate(figures, 1):
         raw = figure['content']
@@ -165,8 +161,24 @@ def make_material(snapshot, figures):
                        'caption_facts': _science(figure.get('caption_facts', [])),
                        'source_caption': _science(figure.get('config', {}).get('caption', '')),
                        'image_url': 'data:image/png;base64,' + base64.b64encode(raw).decode('ascii')})
+    return images
+
+
+def make_material(snapshot, figures, *, table_raws=None, trajectory_import=None):
+    language = snapshot.get('language', 'zh-CN')
+    if language not in ('zh-CN', 'en'):
+        raise ValueError('Unsupported reader language')
+    facts = _finding_material(snapshot.get('finding', {}).get('content', {}), language)
+    facts['report_title'] = _science(str(snapshot.get('title', '')))
+    facts['selected_tables'] = _science(snapshot.get('tables', []))
+    if table_raws is not None:
+        from .table_evidence import project_table_evidence
+
+        evidence = project_table_evidence(snapshot, table_raws, trajectory_import=trajectory_import)
+        if evidence:
+            facts['table_evidence'] = _science(evidence)
     material = {'standard_version': STANDARD_VERSION, 'language': language, 'report_kind': 'research',
-                'facts': facts, 'figures': images}
+                'facts': facts, 'figures': make_figure_inputs(figures)}
     if input_text_bytes(material) > MAX_FACT_BYTES:
         raise ValueError('Selected scientific facts and figure text exceed the reader input limit')
     return material

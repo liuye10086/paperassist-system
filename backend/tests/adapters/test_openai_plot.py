@@ -1,6 +1,4 @@
 from io import BytesIO
-import json
-from types import SimpleNamespace
 
 import httpx2
 import pytest
@@ -40,32 +38,6 @@ def completed():
         'usage': {'input_tokens': 100, 'output_tokens': 200, 'total_tokens': 300}}
 
 
-def test_sdk_submits_only_to_official_container_and_background_response(monkeypatch):
-    calls, container_saved = [], []
-    def handler(request):
-        calls.append(request)
-        path = request.url.path
-        if path == '/v1/containers':
-            body = json.loads(request.content)
-            assert body['memory_limit'] == '1g'
-            return httpx2.Response(200, json={'id': 'cntr_1', 'created_at': 1, 'name': 'test', 'object': 'container', 'status': 'running'})
-        if path == '/v1/containers/cntr_1/files':
-            assert b'data.json' in request.content and b'"values": [1, 2, 3]' in request.content
-            return httpx2.Response(200, json={'id': 'file_1', 'container_id': 'cntr_1', 'object': 'container.file', 'created_at': 1, 'bytes': 30, 'path': '/mnt/data/data.json', 'source': 'user'})
-        if path == '/v1/responses':
-            body = json.loads(request.content)
-            assert body['background'] and body['store']
-            assert body['model'] == 'test-model'
-            assert body['tools'] == [{'type': 'code_interpreter', 'container': 'cntr_1'}]
-            assert 'code_interpreter_call.outputs' in body['include']
-            assert body['tool_choice'] == {'type': 'code_interpreter'}
-            return httpx2.Response(200, json={**completed(), 'status': 'queued', 'output': []})
-        raise AssertionError(path)
-    sdk(monkeypatch, handler)
-    assert openai_plot.CloudPlot().start({'values': [1, 2, 3]}, 'task', container_saved.append) == 'resp_1'
-    assert container_saved == ['cntr_1'] and len(calls) == 3
-
-
 def test_sdk_retrieves_executed_code_and_downloads_cited_files(monkeypatch):
     routes = []
     def handler(request):
@@ -89,25 +61,22 @@ def test_sdk_retrieves_executed_code_and_downloads_cited_files(monkeypatch):
 def test_provider_errors_are_sanitized_and_never_automatically_retried(monkeypatch, status):
     calls = []
     def handler(request):
-        calls.append(request)
+        calls.append((request.method, request.url.path))
         return httpx2.Response(status, json={'error': {'message': 'SECRET must not reach UI', 'type': 'test', 'code': 'test'}})
     sdk(monkeypatch, handler)
     with pytest.raises(openai_plot.PlotError) as error:
-        openai_plot.CloudPlot().start({}, 'task', lambda _: None)
-    assert 'SECRET' not in error.value.message and len(calls) == 1
+        openai_plot.CloudPlot().fetch({'response_id': 'resp_1'})
+    assert 'SECRET' not in error.value.message and not error.value.uncertain
+    assert calls == [('GET', '/v1/responses/resp_1')]
 
 
-def test_timeout_after_response_submission_is_uncertain(monkeypatch):
+def test_timeout_retrieving_saved_plot_has_no_submission_uncertainty(monkeypatch):
     def handler(request):
-        if request.url.path == '/v1/containers':
-            return httpx2.Response(200, json={'id': 'cntr_1'})
-        if request.url.path.endswith('/files'):
-            return httpx2.Response(200, json={'id': 'file_1'})
         raise httpx2.ReadTimeout('simulated network timeout', request=request)
     sdk(monkeypatch, handler)
     with pytest.raises(openai_plot.PlotError) as error:
-        openai_plot.CloudPlot().start({}, 'task', lambda _: None)
-    assert error.value.uncertain
+        openai_plot.CloudPlot().fetch({'response_id': 'resp_1'})
+    assert error.value.code == 'openai_connection' and not error.value.uncertain
 
 
 @pytest.mark.parametrize('change', ['no_execution', 'wrong_container', 'missing_png', 'invalid_json', 'incomplete'])

@@ -216,7 +216,7 @@ def test_legacy_explanation_constructor_restores_policy(monkeypatch, caplog):
         return OpenAI(**kwargs, http_client=httpx2.Client(transport=httpx2.MockTransport(handler)))
 
     monkeypatch.setattr(openai_explanation, 'OpenAI', factory)
-    assert openai_explanation.CloudExplanation().start({'label': 'SYNTHETIC_INPUT_918'}) == 'resp_synthetic'
+    assert openai_explanation.CloudExplanation().fetch({'response_id': 'resp_synthetic'}) is None
     assert 'SYNTHETIC_' not in caplog.text
 
 

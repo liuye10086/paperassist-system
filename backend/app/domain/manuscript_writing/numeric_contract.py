@@ -1,5 +1,6 @@
 """Versioned numeric catalogs; provided prose never becomes computed evidence."""
 from copy import deepcopy
+import re
 from app.domain.manuscripts.illustrations import BODY_REFERENCE
 from .numeric_review import numbers, value as numeric_value
 
@@ -37,14 +38,42 @@ def text_facts(text, prefix):
             for i, v in enumerate(numbers(BODY_REFERENCE.sub('', text)))]
 
 
-def add_literature_numbers(evidence):
+_CARDINALS = {word: str(value) for value, word in enumerate(
+    'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split()
+)}
+_CARDINALS.update(dict(zip('twenty thirty forty fifty sixty seventy eighty ninety'.split(), map(str, range(20, 100, 10)), strict=True)))
+_NUMBER_TERM = (r'\b(?:' + '|'.join(_CARDINALS)
+                + r'|hundred|thousand|million|billion|trillion|dozen|point|half|halves|quarters?|thirds?|'
+                  r'first|second[s]?|fourth[s]?|fifth[s]?|sixth[s]?|seventh[s]?|eighth[s]?|ninth[s]?|tenth[s]?)\b')
+_WRITTEN_NUMBER = re.compile(
+    r'(?:(?:\b(?:minus|negative|plus|positive)\s+)|(?<!\w)[−-]\s*)?'
+    + _NUMBER_TERM + r'(?:[\s\-‑]+(?:and\s+(?:a\s+)?)?' + _NUMBER_TERM + r')*', re.IGNORECASE)
+
+
+def written_cardinal_values(text):
+    """Recognize standalone English cardinals without extracting part of a compound."""
+    return [_CARDINALS[term] for match in _WRITTEN_NUMBER.finditer(text)
+            if (term := match[0].lower()) in _CARDINALS]
+
+
+def includes_written_literature_counts(frozen):
+    skills = (frozen.get('skills_snapshot') or {}).get('trace', {}).get('skills', ())
+    return any(skill['name'] == 'narrative-review' and skill['version'] in ('1.1.0', '1.1.1', '1.1.2') for skill in skills)
+
+
+def add_literature_numbers(evidence, *, include_written_cardinals=False):
     for excerpt in evidence:
+        quote = excerpt['quote']
         try:
-            excerpt['numeric_facts'] = text_facts(excerpt['quote'], '/quote/numbers')
+            excerpt['numeric_facts'] = text_facts(quote, '/quote/numbers')
         except ValueError:
             # Keep the exact published excerpt for qualitative citation. An ambiguous
             # sign or instrument name cannot authorize a numerical claim from it.
             excerpt['numeric_facts'] = []
+            continue
+        if include_written_cardinals:
+            excerpt['numeric_facts'].extend(dict(fact_path=f'/quote/cardinals/{i}', value=value)
+                                            for i, value in enumerate(written_cardinal_values(quote)))
 
 
 def add_reported_results(base, request, payload, local, safe_text):

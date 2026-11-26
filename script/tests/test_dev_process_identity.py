@@ -83,14 +83,17 @@ catch { $failure = $_.Exception.Message }
 
 @unittest.skipUnless(os.name == 'nt' and POWERSHELL, 'Windows PowerShell launcher')
 class DevProcessIdentityTests(unittest.TestCase):
-    def test_reads_only_api_runtime_manifests_with_process_overrides(self):
+    def test_reads_only_api_runtime_settings_with_process_overrides(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = root / '.env'
             receipt = (root / 'science results' / 'tabular.json').as_posix()
+            pin = 'a' * 64
             config.write_text(
                 f'PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST="{receipt}"\n'
                 'PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST=file-value\n'
+                'PAPERASSIST_SKILL_WORKFLOWS=sci_narrative_review\n'
+                f'PAPERASSIST_SKILLS_MANIFEST_SHA256={pin}\n'
                 'PAPERASSIST_LAUNCHER_TEST_PRIVATE=ignored\n', encoding='utf-8-sig',
             )
             harness = root / 'manifests.ps1'
@@ -101,17 +104,21 @@ $tokens = $null
 $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($Launcher, [ref]$tokens, [ref]$errors)
 $definition = $ast.Find({ param($node)
-    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Import-ApiRuntimeManifests'
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Import-ApiRuntimeSettings'
 }, $false)
-if (-not $definition) { throw 'No API runtime manifest loader.' }
+if (-not $definition) { throw 'No API runtime settings loader.' }
 . ([scriptblock]::Create($definition.Extent.Text))
 Remove-Item Env:PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST -ErrorAction SilentlyContinue
 Remove-Item Env:PAPERASSIST_LAUNCHER_TEST_PRIVATE -ErrorAction SilentlyContinue
+Remove-Item Env:PAPERASSIST_SKILLS_MANIFEST_SHA256 -ErrorAction SilentlyContinue
 $env:PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST = 'process-value'
-Import-ApiRuntimeManifests $Python $Config
+$env:PAPERASSIST_SKILL_WORKFLOWS = 'statistical_explanation'
+Import-ApiRuntimeSettings $Python $Config
 [pscustomobject]@{
     tabular = $env:PAPERASSIST_BIO_TABULAR_RUNTIME_MANIFEST
     bulk = $env:PAPERASSIST_BULK_MODEL_RUNTIME_MANIFEST
+    workflows = $env:PAPERASSIST_SKILL_WORKFLOWS
+    pin = $env:PAPERASSIST_SKILLS_MANIFEST_SHA256
     private = $env:PAPERASSIST_LAUNCHER_TEST_PRIVATE
 } | ConvertTo-Json -Compress
 ''', encoding='utf-8')
@@ -121,7 +128,8 @@ Import-ApiRuntimeManifests $Python $Config
                 capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW,
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(json.loads(result.stdout), dict(tabular=receipt, bulk='process-value', private=None))
+        self.assertEqual(json.loads(result.stdout), dict(tabular=receipt, bulk='process-value', private=None,
+                                                       workflows='statistical_explanation', pin=pin))
 
     def test_status_runs_worker_with_workspace_python_from_another_directory(self):
         with tempfile.TemporaryDirectory() as directory:

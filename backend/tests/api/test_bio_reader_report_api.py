@@ -13,7 +13,7 @@ from tests.api.test_bio_reader_report_annotation import labels, native_figure
 from tests.api.test_bio_reader_reports import service_for
 from tests.api.test_customer_workspace import create_customer_project, sign_in, write_requirements
 from tests.api.test_projects import client, create_project
-from tests.api.test_reader_report_narratives import authorize_user_and_project, reader_policy, worker
+from tests.api.test_reader_report_narratives import reader_policy, worker
 from tests.api.test_school_rule_suggestions import Fixture
 from tests.api.test_single_cell_batch4_flow import parent_result
 from tests.helpers.research_report import sample_reader_record
@@ -74,7 +74,6 @@ def create_report(client, base, context, tmp_path):
         bundle_sha256=preview.json()['bundle_sha256'], confirmed_external_processing=True))
     assert narrative.status_code == 202, narrative.text
     queued = narrative.json()
-    authorize_user_and_project(queued)
     sample = sample_reader_record(snapshot)
     provider = Fixture(dict(narrative=sample['narrative'], figures=[
         {k: v for k, v in figure.items() if k != 'caption'} for figure in sample['figures']]))

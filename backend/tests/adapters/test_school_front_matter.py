@@ -358,6 +358,12 @@ def test_gs501_submission_forms_reuse_original_layout_and_fill_only_known_slots(
     assert not any('/embeddings/' in name for name in parts(raw))
     declarations = original.find(qn('w:body'))[39:63]
     assert [''.join(el.itertext()) for el in front[39:63]] == [''.join(el.itertext()) for el in declarations]
+    authorization_fonts = qn('w:pPr') + '/' + qn('w:rPr') + '/' + qn('w:rFonts')
+    source_fonts = original.find(qn('w:body'))[49].find(authorization_fonts)
+    assert source_fonts.get(qn('w:cs')) == 'LiSu+1'
+    assert dict(front[49].find(authorization_fonts).attrib) == dict(source_fonts.attrib) | {
+        qn('w:cs'): 'Times New Roman',
+    }
     content = text(raw)
     assert 'Frozen English title' in content and 'English title（英文）' not in content
     assert content.count(declaration['title']) == 1

@@ -96,6 +96,28 @@ def test_mixed_claim_still_requires_new_literature_evidence_for_its_literature_n
     with pytest.raises(ValueError):prepare(raw,snap,bundle,body,resolve)
 
 
+def test_reviewed_narrative_claim_can_use_the_same_source_cardinal_as_the_draft():
+    raw, snapshot, bundle, body, _ = sample()
+    raw['article_type'] = 'narrative_review'
+    paragraph = raw['sections'][2]['paragraphs'][0]
+    paragraph['text'] = 'The publication reports 6 regions.'
+    decision = body['paragraphs'][2]
+    decision.update(classification='literature_claim', text_sha256=digest(paragraph['text']),
+                    numeric_bindings=[dict(occurrence=0, value='6', kind='literature', evidence_id='new-evidence',
+                                           source_alias=None, fact_path=None)])
+    body['candidate_sha256'] = digest(raw)
+    body['consistency']['body_sha256'] = body_digest(raw)
+
+    def resolve(_decision, text):
+        return dict(kind='claim', text=text, bindings=[dict(evidence=[dict(id='new-evidence', quote='Six regions were profiled.')])])
+
+    candidate, _ = prepare(raw, snapshot, bundle, body, resolve)
+    assert candidate['sections'][2]['paragraphs'][0]['numeric_bindings'] == decision['numeric_bindings']
+    decision['numeric_bindings'][0]['evidence_id'] = 'unreviewed'
+    with pytest.raises(ValueError, match='Literature number lacks exact new-claim reviewed evidence'):
+        prepare(raw, snapshot, bundle, body, resolve)
+
+
 @pytest.mark.parametrize('reference',['Figure 1A','Figure 2','Figure 1B','Table 1'])
 def test_figure_identity_is_checked_separately_from_study_and_context_occurrences(reference):
     raw,snap,bundle,body,resolve=context_case()
