@@ -14,6 +14,7 @@ export type Section = { id: string; heading: string; level: number; purpose?: st
   paragraphs: Paragraph[]; groups: Group[]; keywords?: string[] }
 export type Draft = {
   title: string; english_title?: string; output_language: 'en' | 'zh-CN'; sections: Section[]; keywords: string[]; acknowledgements: string
+  title_fields?: string[]
   references: {number: number; project_reference_id: string; text: string}[]
   reference_heading?: {heading: string; level: number}
 }

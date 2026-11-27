@@ -33,12 +33,7 @@ export default function SciSettingsSummary({ settings }: { settings: SciSettings
     <dt>{t('关键词')}</dt><dd>{settings.keywords.join(' · ')}</dd>
     {isLegacySciSettings(settings) && <LegacySciFields settings={settings} />}
     {requirements?.article_type === 'research' && requirements.figure_findings.length > 0 && <>
-      <dt>{t('主要发现')}</dt><dd><ol className="sci-figure-findings">{requirements.figure_findings.map((item, index) =>
-        <li key={item.id}><strong>{t('发现 {number}', { number: index + 1 })}</strong><p>{item.finding}</p></li>)}</ol></dd>
-    </>}
-    {requirements?.article_type === 'narrative_review' && requirements.review_sections.length > 0 && <>
-      <dt>{t('综述内容')}</dt><dd><ol>{requirements.review_sections.map(item =>
-        <li key={item.id}><strong>{item.heading}</strong><p>{item.content}</p></li>)}</ol></dd>
+      <dt>{t('主要发现')}</dt><dd>{requirements.figure_findings.map(item => item.finding).join('\n\n')}</dd>
     </>}
   </dl>
 }

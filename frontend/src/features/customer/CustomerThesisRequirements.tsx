@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
+import CustomerDownloadLink from './CustomerDownloadLink'
 import type { Locale } from '../../shared/i18n'
 import { safeError, useI18n } from '../../shared/i18n'
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
@@ -56,11 +56,11 @@ function RequirementsPage(props: Props) {
       <button type="button" onClick={read.refresh}>{t('重试')}</button>
     </div>}
     {read.data ? <RequirementsEditor {...props} url={url} receipt={read.data} loading={read.loading} refresh={read.refresh} /> :
-      !read.error && <p role="status">{t('正在读取毕业论文需求……')}</p>}
+      !read.error && <p className="visually-hidden" role="status">{t('正在读取毕业论文需求……')}</p>}
   </>
   return organizer ? <div className="thesis-template-page">{content}</div>
     : <section className="customer-thesis-requirements" aria-label={t('毕业论文需求')}>
-      <h2>{t('毕业论文需求')}</h2>{content}
+      {!read.data && <h2>{t('毕业论文需求')}</h2>}{content}
     </section>
 }
 
@@ -177,10 +177,10 @@ function RequirementsEditor(props: Props & {
             <p className="muted">{template.source_file.filename}</p>}
         </div>
         <div className="sci-inline-controls thesis-template-actions">
-          {template.source_file && <ProjectDownloadLink
+          {template.source_file && <CustomerDownloadLink
             href={`${projectBase(projectId)}/files/${encodeURIComponent(template.source_file.file_id)}/download`}
-            filename={template.source_file.filename}>{t('下载模板原件')}</ProjectDownloadLink>}
-          <button type="button" className="button-quiet" disabled={busy} onClick={() => props.onOpenTemplate(true)}>{t('更换模板')}</button>
+            filename={template.source_file.filename}>{t('下载模板原件')}</CustomerDownloadLink>}
+          <button type="button" className="button-accent" disabled={busy} onClick={() => props.onOpenTemplate(true)}>{t('更换模板')}</button>
         </div>
       </header>
       <form className="thesis-requirements-edit" aria-busy={busy} noValidate onSubmit={event => void save(event)}>
@@ -191,8 +191,8 @@ function RequirementsEditor(props: Props & {
         {props.onOpenProject && 'error' in prepareThesisBasics(baseline.basics) &&
           <button type="button" onClick={props.onOpenProject}>{t('填写毕业论文需求')}</button>}
         <div className="thesis-chapter-save">
-          {saved && !edit && <span role="status">{t('章节内容已保存。')}</span>}
-          <button type="submit" className="button-primary" disabled={busy || syncingFigures || stale || !changed}>
+          {saved && !edit && <span className="visually-hidden" role="status">{t('章节内容已保存。')}</span>}
+          <button type="submit" className="button-accent" disabled={busy || syncingFigures || stale || !changed}>
             {t(busy ? '正在保存……' : '保存章节内容')}</button>
         </div>
       </form>
@@ -202,6 +202,12 @@ function RequirementsEditor(props: Props & {
     </div>}
   </>
   return <>
+    <header className="sci-settings-heading">
+      <h2>{t('毕业论文需求')}</h2>
+      {!edit && <button type="button" className="button-accent" onClick={() => change(baseline)}>
+        {t(current.title ? '编辑资料' : '填写毕业论文需求')}
+      </button>}
+    </header>
     {(!edit || stale) && <>
       <dl className="sci-settings-summary">
         <dt>{t('学位层次')}</dt><dd>{current.education_level ? t(current.education_level) : t('未填写')}</dd>
@@ -211,7 +217,6 @@ function RequirementsEditor(props: Props & {
         <dt>{t('关键词')}</dt><dd>{current.keywords.join(' · ') || t('未填写')}</dd>
       </dl>
     </>}
-    {!edit && <button type="button" onClick={() => change(baseline)}>{t(current.title ? '编辑毕业论文需求' : '填写毕业论文需求')}</button>}
     {edit && <form className="thesis-requirements-edit" aria-busy={busy} noValidate onSubmit={event => void save(event)}>
       {stale ? staleNotice :
         <ThesisBasicsFields draft={edit.basics} disabled={busy} onChange={basics => change({ ...edit, basics })} onError={setError} />}

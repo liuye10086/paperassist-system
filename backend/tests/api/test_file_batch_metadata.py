@@ -61,6 +61,10 @@ def test_summary_pages_details_purposes_legacy_and_ownership(client):
             assert response.status_code == 200, response.text
             seen.update({item['id']: item['upload_batch'] for item in response.json()['items']})
         assert seen == expected
+    outside = client.get(base + '?page=1&page_size=1&outside_document_batches=true')
+    assert outside.status_code == 200, outside.text
+    assert outside.json()['total'] == 1
+    assert [item['id'] for item in outside.json()['items']] == [historical['id']]
     for file_id, summary in expected.items():
         assert client.get(base + '/' + file_id + '/details').json()['upload_batch'] == summary
         assert client.get(base + '/' + file_id + '/download').content[:2] == b'PK'
@@ -80,6 +84,28 @@ def test_summary_pages_details_purposes_legacy_and_ownership(client):
         assert other.get(base + '?page=1').status_code == 404
         assert other.get(url + '/details').status_code == 404
         assert other.put(url + '/purposes', json=body).status_code == 404
+
+
+def test_other_files_exclude_only_the_visible_batch_profile_before_paging(client):
+    project = create_project(client)
+    _, document_files = batch_files(client, project)
+    base = f"/api/v1/projects/{project['id']}"
+    item = str(uuid4())
+    content = b'feature,count\na,4\n'
+    batches = base + '/bio-upload-batches'
+    registered = client.post(batches, headers={'Idempotency-Key': 'sequencing-batch'}, json={
+        'items': [{'client_id': item, 'filename': 'counts.csv', 'size_bytes': len(content)}],
+    })
+    assert registered.status_code == 201, registered.text
+    saved = client.post(f"{batches}/{registered.json()['id']}/items/{item}", files={'file': ('counts.csv', content)})
+    assert saved.status_code == 202, saved.text
+
+    for filter_query, expected in [('outside_batch_profile=bioinformatics_v1', document_files[0]),
+                                   ('outside_document_batches=true', saved.json()['file_id'])]:
+        response = client.get(base + f'/files?page=1&page_size=1&{filter_query}')
+        assert response.status_code == 200, response.text
+        assert response.json()['total'] == 1
+        assert [file['id'] for file in response.json()['items']] == [expected]
 
 
 def test_page_uses_one_batch_query_and_rejects_broken_reverse_link(client):

@@ -19,13 +19,13 @@ def digest(value): return hashlib.sha256(canonical(value).encode('utf-8')).hexdi
 
 
 def defaults():
-    from app.domain.manuscript_writing.policy import installed_policy as policy, MAX_INPUT
+    from app.domain.manuscript_writing.policy import installed_policy as policy, SCI_INITIAL_MAX_INPUT
     from app.domain.literature_live.batch06 import MODEL_POLICY
     from app.domain.review_rounds.planning import propose
     from app.domain.explanation_policy import _small_text
     config=local_config()
     models={'writing':dict(execution=dict(policy=policy().model_dump(mode='json'),
-        input_token_allowance=MAX_INPUT),price_source='installed_code')}
+        input_token_allowance=SCI_INITIAL_MAX_INPUT),price_source='installed_code')}
     models['literature']=dict(execution=dict(policy=MODEL_POLICY,input_token_allowance=12000),price_source='installed_code')
     sources={domain:'installed_code' for domain in DOMAINS}
     # Only deployment-selected known files, never user-provided paths; allowlist parse before storage.

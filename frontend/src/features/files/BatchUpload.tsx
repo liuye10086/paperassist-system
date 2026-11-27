@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useI18n, apiError } from '../../shared/i18n';
 import { onApiSessionChanged } from '../../shared/api/client';
 import { useDocumentVisible } from '../tasks/useDocumentVisible';
-import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink';
-import { batchRequest, isBatch, mergeBatch, uploadQueue, validateFile, validateSelection, type BatchItem, type UploadBatch, type BatchPage } from './batchUploadApi';
+import { batchRequest, isBatch, mergeBatch, uploadQueue, uploadStatusLabels, validateFile, validateSelection, type BatchItem, type UploadBatch, type BatchPage } from './batchUploadApi';
 import { formatFileSize } from './fileSize';
-import './batchUpload.css';
+import { UploadBatchCard, UploadFileRow, UploadHistory, type MaterialHistory } from './UploadHistory';
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard';
-const statusLabels = { pending: '等待上传', rejected: '上传被拒绝', queued: '已保存，等待解析', parsing: '文件解析中', parsed: '解析完成', failed: '解析失败', stored: '已上传' };
-export default function BatchUpload({ projectId, active, onUnavailable, onChanged, trackedItems, registerLeaveGuard, embedded = false, customerView = false, writingMaterials, schoolTemplate = false, reviewDocument = false }: {
+
+export default function BatchUpload({ projectId, active, onUnavailable, onChanged, trackedItems, registerLeaveGuard,
+    embedded = false, customerView = false, writingMaterials, materialHistory, schoolTemplate = false, reviewDocument = false }: {
     projectId: string;
     active: boolean;
     onUnavailable: () => void;
@@ -19,6 +19,7 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
     embedded?: boolean;
     customerView?: boolean;
     writingMaterials?: 'sci' | 'thesis';
+    materialHistory?: MaterialHistory;
     schoolTemplate?: boolean;
     reviewDocument?: boolean;
 }) {
@@ -47,7 +48,7 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
     const [local, setLocal] = useState<Record<string, string>>({});
     const [refresh, setRefresh] = useState(0);
     const [page, setPage] = useState(1);
-    const [total, setTotal] = useState(0);
+    const [total, setTotal] = useState<number | null>(null);
     useDraftLeaveGuard(registerLeaveGuard, selection.length > 0, busy);
     const mounted = useRef(true);
     const controllers = useRef(new Set<AbortController>());
@@ -183,7 +184,7 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
             form.append('file', file);
             await request(`${base}/${encodeURIComponent(batch.id)}/items/${encodeURIComponent(itemId)}`, (v): v is UploadBatch['items'][number] => {
                 const i = v as UploadBatch['items'][number];
-                return !!i && i.id === itemId && i.filename === file.name && Object.hasOwn(statusLabels, i.status);
+                return !!i && i.id === itemId && i.filename === file.name && Object.hasOwn(uploadStatusLabels, i.status);
             }, { method: 'POST', body: form });
             if (!mounted.current)
                 return;
@@ -282,17 +283,63 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
                 setBusy(false);
         }
     }
+    const editLocked = materialHistory?.editing;
+    const visibleBatches = batches.filter(batch => snapshots.current.has(batch.id));
+    const historyTitle = t('已上传批次');
+
+    function historyRow(item: BatchItem, batch: UploadBatch) {
+        const fileType = item.filename.split('.').at(-1)?.toLowerCase() ?? '';
+        const material = materialHistory?.describe(item.file_id, item.filename, fileType);
+        const retryControls = item.status === 'pending' && !formatError(item.filename) && <>
+            {!files.current.has(item.id) && <label>{t('重新选择同一文件')}
+                <input type="file" accept={accepted} disabled={editLocked} onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (!file || file.name !== item.filename || file.size !== item.size_bytes) {
+                        setError('请选择名称和大小一致的原文件。');
+                        return;
+                    }
+                    files.current.set(item.id, file);
+                    setLocal(values => ({ ...values, [item.id]: '' }));
+                }}/>
+            </label>}
+            <button type="button" disabled={busy || editLocked || !files.current.has(item.id) || local[item.id] === '正在上传'}
+                onClick={() => void retry(batch, item.id)}>{t('核对后上传')}</button>
+        </>;
+        return <UploadFileRow key={item.id} projectId={projectId} filename={item.filename} fileId={item.file_id}
+            status={item.status} statusLabel={local[item.id]} material={material} retry={retryControls}
+            error={item.error ? apiError(item.error, '文件处理失败，请重试。') : undefined} />;
+    }
+
     const filePicker = <label className="upload-file-picker">
         {t(schoolTemplate || !embedded ? selectionLabel : '选择文件（可多选）')}
-        <input aria-label={t(selectionLabel)} type="file" accept={accepted} multiple disabled={busy} onChange={e => {
+        <input aria-label={t(selectionLabel)} type="file" accept={accepted} multiple disabled={busy || editLocked} onChange={e => {
             setSelection(Array.from(e.target.files ?? []));
             registration.current = null;
             setError('');
         }}/>
     </label>;
-    const uploadButton = <button type="button" className="button-primary" disabled={busy || !selection.length || selection.length > 10}
+    const uploadButton = <button type="button" className="button-primary" disabled={busy || editLocked || !selection.length || selection.length > 10}
         onClick={() => void start()}>{t(busy ? '正在上传' : '开始上传')}</button>;
     const showRefresh = !embedded || Boolean(loadError || error) || batches.length > 0 || Object.values(local).some(Boolean);
+    const batchPagination = total !== null && total > 5 && <nav className="upload-batch-pagination" aria-label={t('上传批次')}>
+        <button type="button" disabled={page === 1 || editLocked} onClick={() => {
+            setBatches([]);
+            setPage(value => value - 1);
+        }}>{t('上一页')}</button>
+        <span>{customerView ? `${page} / ${Math.ceil(total / 5)}` : page}</span>
+        <button type="button" disabled={page * 5 >= total || editLocked} onClick={() => {
+            setBatches([]);
+            setPage(value => value + 1);
+        }}>{t('下一页')}</button>
+    </nav>;
+
+    const batchCards = visibleBatches.map(batch => <UploadBatchCard key={batch.id}
+        title={`${t('上传批次')} · ${new Date(batch.created_at).toLocaleString(locale)}`} showColumns={!!materialHistory}
+        actions={!materialHistory && <p role="status">{t('已解析 {count} / {total}', {
+            count: batch.items.filter(item => item.status === 'parsed').length, total: batch.items.length,
+        })}</p>}>
+        {batch.items.map(item => historyRow(item, batch))}
+    </UploadBatchCard>);
 
     return <section className={`batch-upload${embedded ? ' is-embedded' : ''}`} aria-label={t(uploadLabel)}>
         {!embedded && <h2>{t(uploadLabel)}</h2>}
@@ -302,26 +349,17 @@ export default function BatchUpload({ projectId, active, onUnavailable, onChange
      const invalid = validateMaterial(f);
      return <li key={i}>{f.name} · {formatFileSize(f.size, locale, t)}{invalid && <span className="file-failed"> {t(invalid)}</span>}</li>;
  })}</ul>}
-        {(!customerView || showRefresh) && <div className="upload-submit-actions">
+        {(!customerView || showRefresh && !materialHistory) && <div className="upload-submit-actions">
             {!customerView && uploadButton}
             {showRefresh && <button type="button" onClick={() => setRefresh(v => v + 1)}>{t('重新读取批次')}</button>}
         </div>}
  {selection.length > 10 && <p role="alert">{t('每批最多选择 10 个文件。')}</p>}{error && <p role="alert">{t(error)}</p>}{loadError && <p role="alert">{t(loadError)}</p>}
- {batches.some(b => snapshots.current.has(b.id)) && <h3 className="upload-batches-title">{t('已上传批次')}</h3>}
- {batches.filter(b => snapshots.current.has(b.id)).map(batch => <article key={batch.id}><h3>{t('上传批次')} · {new Date(batch.created_at).toLocaleString(locale)}</h3><p role="status">{t(writingMaterials ? '已保存原件 {count} / {total}' : '已解析 {count} / {total}', { count: batch.items.filter(i => writingMaterials ? !!i.file_id : i.status === 'parsed').length, total: batch.items.length })}</p><ul>{batch.items.map(item => <li key={item.id}><strong>{item.filename}</strong> · {t(local[item.id] || statusLabels[item.status])}{item.error && <p>{t(apiError(item.error, '文件处理失败，请重试。'))}</p>}{item.file_id && <ProjectDownloadLink href={`/api/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(item.file_id)}/download`} filename={item.filename}>{t('下载原文件')}</ProjectDownloadLink>}{item.status === 'pending' && !formatError(item.filename) && <>{!files.current.has(item.id) && <label>{t('重新选择同一文件')}<input type="file" accept={accepted} onChange={e => {
-                            const f = e.target.files?.[0];
-                            if (!f || f.name !== item.filename || f.size !== item.size_bytes) {
-                                setError('请选择名称和大小一致的原文件。');
-                                return;
-                            }
-                            files.current.set(item.id, f);
-                            setLocal(s => ({ ...s, [item.id]: '' }));
-                        }}/></label>}<button type="button" disabled={busy || !files.current.has(item.id) || local[item.id] === '正在上传'} onClick={() => void retry(batch, item.id)}>{t('核对后上传')}</button></>}</li>)}</ul></article>)}
- {total > 5 && <div className="upload-batch-pagination"><button disabled={page === 1} onClick={() => {
-                setBatches([]);
-                setPage(v => v - 1);
-            }}>{t('上一页')}</button><span>{customerView ? `${page} / ${Math.ceil(total / 5)}` : page}</span><button disabled={page * 5 >= total} onClick={() => {
-                setBatches([]);
-                setPage(v => v + 1);
-            }}>{t('下一页')}</button></div>}{(!embedded || busy) && <p className="muted">{t('离开项目会停止本地传输；服务端已接收的解析任务继续处理。')}</p>}</section>;
+        {materialHistory ? <UploadHistory projectId={projectId} history={materialHistory} batchPagination={batchPagination}
+            emptyBatches={!loadError && total === 0} onRefresh={() => setRefresh(value => value + 1)}>{batchCards}</UploadHistory>
+            : visibleBatches.length > 0 && <section className="upload-batch-history" aria-label={historyTitle}>
+                <h3 className="upload-batches-title">{historyTitle}</h3>{batchCards}
+            </section>}
+        {!materialHistory && batchPagination}
+        {(!embedded || busy) && <p className="muted">{t('离开项目会停止本地传输；服务端已接收的解析任务继续处理。')}</p>}
+    </section>;
 }

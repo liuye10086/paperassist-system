@@ -356,7 +356,7 @@ export default function CustomerWorkspace() {
         <div key={project.id} className="customer-step-content">
           {activeStep === 'details' && <div className="customer-section customer-project-details project-details-card">
             <h1 ref={heading} tabIndex={-1} className="visually-hidden">{t('项目资料')}</h1>
-            <div>
+            <div className="customer-project-details-fields">
               {landing?.failed && landing.projectId === project.id && <div className="customer-landing-error">
                 <p role="alert" className="error-panel">{t('暂时无法读取项目进度。')}</p>
                 <button type="button" onClick={retryLanding}>{t('重新读取')}</button>
@@ -375,7 +375,7 @@ export default function CustomerWorkspace() {
           {isThesis && activeStep === 'school' && <section className="customer-section thesis-organizer">
             <div className="customer-section-heading">
               <h1 ref={heading} tabIndex={-1} className={schoolPanel ? undefined : 'visually-hidden'}>{t(schoolPanel ? '学校模板' : '模板与资料整理')}</h1>
-              {schoolPanel && <button type="button" className="button-quiet" onClick={() => chooseStep('school')}>{t('返回模板与资料整理')}</button>}
+              {schoolPanel && <button type="button" className="button-accent" onClick={() => chooseStep('school')}>{t('返回模板与资料整理')}</button>}
             </div>
             {schoolPanel ? (templateId && !validCustomerRouteId(templateId) ? <p role="alert">{t('指定学校模板版本不可用。')}</p>
               : <SchoolTemplates projectId={project.id} active customerView registerLeaveGuard={registerLeaveGuard}

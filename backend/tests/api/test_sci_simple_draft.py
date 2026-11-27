@@ -106,9 +106,73 @@ def test_sci_template_confirmation_freezes_edited_chapter_names_and_order_in_new
         latest = owner.get(paper + '/manuscripts/candidates').json()['paper_plan']
         assert latest['sci_template']['id'] == 'scientific-reports-article-v1'
         assert latest['token'] != plan['token']
+        old_draft = owner.get(reader, params={'revision': 1})
+        assert old_draft.status_code == 200, old_draft.text
+        assert old_draft.json()['draft']['sci_template_name'] == template['name']
         old_word = owner.get(reader + '/word', params={'revision': 1})
         assert old_word.status_code == 200, old_word.text
         assert [p.text for p in Document(BytesIO(old_word.content)).paragraphs] == paragraphs
+
+
+def test_cell_press_research_template_preserves_manuscript_format_and_optional_sections(monkeypatch):
+    monkeypatch.setenv('PAPERASSIST_SKILL_WORKFLOWS', '')
+    with TestClient(app) as owner:
+        sign_in(owner, 'cell-press-template@example.test', 'customer')
+        paper = sci_project(owner)
+        template_url = paper + '/sci-template'
+        catalog = owner.get(template_url).json()
+        template = next(row for row in catalog['templates'] if row['id'] == 'cell-press-research-v1')
+        assert template['article_type'] == 'research'
+        guide = template['format_guide']
+        author_fields = ['Author list', 'Author affiliations and footnotes', 'Contact information']
+        assert [field['en'] for field in guide['title_fields']] == author_fields
+        assert guide['keywords']['en'] == 'Keywords'
+        assert 'notes' not in guide
+        assert all('note' not in item for item in [*guide['title_fields'], guide['keywords'], *guide['optional_sections']])
+        design, supplemental = guide['optional_sections']
+        assert design['section']['en'] == 'Design' and design['after'] == 'introduction'
+        assert supplemental['section']['en'] == 'Supplemental information'
+        headings = ['Title', 'Summary', 'Introduction', 'Results', 'Discussion', 'Materials and Methods', 'References']
+        assert [section['en'] for section in template['sections']] == headings
+        saved = owner.put(template_url, json=dict(expected_revision=catalog['revision'], template_id=template['id']))
+        assert saved.status_code == 200, saved.text
+        assert owner.get(template_url).json()['selected_sections'] == template['sections']
+
+        sections = [*template['sections'][:-1], supplemental['section'], template['sections'][-1]]
+        saved = owner.put(template_url, json=dict(expected_revision=saved.json()['revision'],
+                                                  template_id=template['id'], sections=sections))
+        assert saved.status_code == 200, saved.text
+        assert owner.get(template_url).json()['selected_sections'] == sections
+
+        plan = owner.get(paper + '/manuscripts/candidates').json()['paper_plan']
+        assert plan['sci_template']['id'] == template['id']
+        assert 'format_guide' not in plan['sci_template']
+        root, _ = create_fact(owner, paper, body(title=plan['title'], paper_plan_token=plan['token']))
+        preview = post(owner, root + '/writing-previews', article_request('research'), 'cell-press-preview')
+        assert preview.status_code == 201, preview.text
+        bundle = preview.json()
+        assert bundle['execution_contract'].get('skills_snapshot') is None
+        payload = json.loads(json.loads(bundle['wire_json'])['input'])
+        assert [section['heading'] for section in payload['article_structure']] == [section['en'] for section in sections]
+        provider = SciFixtureProvider({sid: dict(text='Synthetic template test prose.')
+                                       for sid in payload['writing_scope']['output_section_ids']})
+        reader, _ = submit_candidate(owner, paper, root, bundle, provider)
+        detail = owner.get(reader, params={'revision': 1})
+        assert detail.status_code == 200, detail.text
+        rendered = detail.json()['draft']
+        assert rendered['sci_template_name'] == template['name']
+        assert rendered['title_fields'] == author_fields
+        assert [section['heading'] for section in rendered['sections']] == [section['en'] for section in sections[:-1]]
+        word = owner.get(reader + '/word', params={'revision': 1})
+        assert word.status_code == 200, word.text
+        lines = [p.text for p in Document(BytesIO(word.content)).paragraphs]
+        assert [line.rstrip(': ') for line in lines[1:4]] == author_fields
+        assert lines[4] == 'Summary'
+        [keywords] = [line for line in lines if line.startswith('Keywords')]
+        assert keywords == 'Keywords: ' + ', '.join(SCI_SETTINGS['keywords'])
+        assert lines.index('Summary') < lines.index(keywords) < lines.index('Introduction')
+        assert lines.index('Results') < lines.index('Discussion') < lines.index('Materials and Methods')
+        assert lines.index('Materials and Methods') < lines.index('Supplemental information')
 
 
 def test_sci_template_review_reorders_themes_without_replacing_their_notes():

@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState, type FormEvent} from 'react'
+import {useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
 import {apiError, safeError, useI18n} from '../../shared/i18n'
 import {useEvidenceResource} from '../literature/evidenceHooks'
@@ -30,6 +30,7 @@ type Props = SharedProps & {settings:SciSettings | null; onOpenResources?: () =>
 type ThesisProps = SharedProps & {requirements:ThesisRequirements | null}
 type Ticket = {key: string; input: ManuscriptInput; references: DraftReference[]; manuscriptId?: string; preparedId?: string; revision?: number; needsSkillsConfirmation?: true}
 const maxPapers = 20
+const maxSciFigures = 20
 const ignoreDenied = () => undefined
 const pending = (status: string) => status === 'queued' || status === 'running'
 
@@ -71,15 +72,41 @@ function draftMaterials(project: Project, candidates: Candidates, current?: Manu
   return {input, hasResult, parsing}
 }
 
-function AbstractPreview({parts}: {parts: Reference['record']['abstract']}) {
+function referenceCitation(reference: Reference) {
+  return [reference.record.journal, reference.record.year, `PMID ${reference.pmid}`].filter(Boolean).join(' · ')
+}
+
+function ReferenceDetails({reference, onClose}: {reference: Reference; onClose: () => void}) {
   const {t} = useI18n()
-  if (!parts.length) return <p>{t('摘要未返回')}</p>
-  const first = parts[0].text
-  if (parts.length === 1 && first.length <= 220) return <p>{first}</p>
-  return <details className="sci-abstract">
-    <summary><span>{first.slice(0, 220)}{first.length > 220 ? '…' : ''}</span><b>{t('展开摘要')}</b><b className="sci-collapse">{t('收起摘要')}</b></summary>
-    {parts.map((part, index) => <p key={index}>{part.label && <strong>{part.label} · </strong>}{part.text}</p>)}
-  </details>
+  const titleId = useId()
+  const dialog = useRef<HTMLDialogElement>(null)
+  useLayoutEffect(() => {
+    const element = dialog.current
+    if (!element) return
+    if (!element.open) {
+      if (typeof element.showModal === 'function') element.showModal()
+      else element.setAttribute('open', '')
+    }
+    return () => { if (element.open && typeof element.close === 'function') element.close() }
+  }, [])
+
+  const {record} = reference
+  const abstract = record.abstract.filter(part => part.text.trim())
+  return <dialog ref={dialog} className="sci-reference-dialog" aria-labelledby={titleId}
+    onCancel={event => {event.preventDefault(); onClose()}}>
+    <header>
+      <h2 id={titleId}>{record.title || t('题名未提供')}</h2>
+      <button type="button" className="button-accent" onClick={onClose}>{t('关闭详情')}</button>
+    </header>
+    <div className="sci-reference-dialog-body">
+      {record.authors.length > 0 && <p>{record.authors.join(', ')}</p>}
+      <p className="muted">{referenceCitation(reference)}</p>
+      <h3>{t('原文摘要')}</h3>
+      {abstract.length ? abstract.map((part, index) => <p key={index} className="sci-reference-abstract-part">
+        {part.label && <strong>{part.label} · </strong>}{part.text}</p>) : <p>{t('摘要未返回')}</p>}
+      <a href={`https://pubmed.ncbi.nlm.nih.gov/${reference.pmid}/`} target="_blank" rel="noopener noreferrer">{t('PubMed 原始条目')}</a>
+    </div>
+  </dialog>
 }
 
 function Generator({project, settings, requirements, initialSearchId, onSubmitted, onOpenProject, onOpenOrganizer, onOpenResources, onOpenMaterials}: Props & {requirements?:ThesisRequirements | null}) {
@@ -96,6 +123,7 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
   const [omittedCitation, setOmittedCitation] = useResearchDraft(id, 'thesis-omitted-citation', () => '')
   const transfer = useAnalysisWritingTransfer()
   const [page, setPage] = useState(1), [selectedOnly, setSelectedOnly] = useState(false)
+  const [readingReference, setReadingReference] = useState<Reference | null>(null)
   const [refresh, setRefresh] = useState(0), [projectRefresh, setProjectRefresh] = useState(0)
   const [busy, setBusy] = useState(''), [error, setError] = useState('')
   const [skillsReview, setSkillsReview] = useState<(DraftSkillsReview & {accept: () => void; cancel: () => void}) | null>(null)
@@ -122,9 +150,14 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
   const readPage = (value: unknown, number: number): value is Page<Reference> =>
     validPage(value, id, number, row => validReference(row, id))
   const records = useEvidenceResource<Page<Reference>>(loadingSearch && !selectedOnly ? null : lit + '/references?' + params,
-    (v): v is Page<Reference> => readPage(v, page), refresh + (savedSearch?.retrieved_count ?? 0), ignoreDenied)
+    (v): v is Page<Reference> => readPage(v, page), refresh + (savedSearch?.retrieved_count ?? 0), ignoreDenied, {keepDataOnRefresh: true})
   const shortlist = useEvidenceResource<Page<Reference>>(lit + '/references?page=1&selection=shortlisted',
-    (v): v is Page<Reference> => readPage(v, 1), refresh, ignoreDenied)
+    (v): v is Page<Reference> => readPage(v, 1), refresh, ignoreDenied, {keepDataOnRefresh: true})
+  useEffect(() => {
+    if (!selectedOnly || records.loading || !records.data) return
+    const lastPage = Math.max(1, Math.ceil(records.data.total / records.data.page_size))
+    if (page > lastPage) setPage(lastPage)
+  }, [selectedOnly, records.loading, records.data, page])
   const candidates = useEvidenceResource<Candidates>(base + '/candidates',
     (v): v is Candidates => validCandidates(v, id) && (v.project_type === 'thesis') === school, projectRefresh, ignoreDenied)
   const history = useEvidenceResource<{items: Manuscript[]}>(base,
@@ -149,6 +182,7 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
   const needsSciResources = !school && plan?.sci_figures_need_configuration === true
   const needsThesisResources = school && plan?.thesis_figures_need_configuration === true
   const formalFigures = school ? plan?.thesis_figures : plan?.sci_figures
+  const tooManySciFigures = !school && (formalFigures?.length ?? 0) > maxSciFigures
   const reviewFigures = !formalFigures && !needsSciResources && plan?.kind === 'narrative_review' ? plan.materials.filter(material => material.kind === 'figure') : []
   const sourceCount = new Set([...(materials?.input.sources.map(source => source.id) ?? []),
     ...(formalFigures?.map(figure => figure.figure_id) ?? []),
@@ -159,6 +193,7 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
   const chapterInput = thesisMaterial?.input.thesis
   const missing = school && !requirements || !school && !settings ? '请先保存项目信息。'
     : needsSciResources ? '请先在资源配置中核对并保存图件。'
+    : tooManySciFigures ? '一版初稿最多使用 20 张图，请在资源配置中调整。'
     : !candidates.data || !history.data || count === undefined ? ''
     : missingDirectory ? '请先确认学校模板，初稿会按模板里的章节生成。'
     : needsThesisResources ? '请先在资源配置中核对并保存图件。'
@@ -170,7 +205,7 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
     : kind === 'narrative_review' && !count ? '请至少勾选一篇有摘要的文献。'
     : count > maxPapers ? '一次最多使用 20 篇文献，请减少勾选数量。'
     : sourceCount > 50 ? '本项目超过单次写作可使用的 50 项资料。' : ''
-  const ready = !!materials && !!history.data && count !== undefined && !missing
+  const ready = !!materials && !!history.data && !shortlist.loading && count !== undefined && !missing
   const failed = current?.versions.find(version => version.revision === current.current_revision && version.status === 'failed')
   const savedPapers = new Set(failed?.snapshot.references.map(ref => ref.project_reference_id))
   const samePapers = carryCitation && canonicalJson(citation) === canonicalJson(failed?.input.citation_draft) ||
@@ -235,7 +270,7 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
             }),
           })
         if (citationKey) setOmittedCitation(citationKey)
-      } finally {if (!controller.signal.aborted) {if (selectedOnly && records.data?.items.length === 1 && page > 1) setPage(page - 1); refreshPage()}}
+      } finally {if (!controller.signal.aborted) refreshPage()}
     })
   }
   async function generate(controller: AbortController, recover = false) {
@@ -307,38 +342,55 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
   }
   const literatureResults = <>
     <div className="literature-actions">
-      <button type="button" aria-pressed={!selectedOnly} onClick={() => {setSelectedOnly(false); setPage(1)}}>{t('检索结果')}</button>
-      <button type="button" aria-pressed={selectedOnly} onClick={() => {setSelectedOnly(true); setPage(1)}}>{t('已选文献')} {count ?? ''}</button>
-      {searchId && <button type="button" onClick={() => {setSearchId(''); setSelectedOnly(false); setPage(1)}}>{t('查看已有候选')}</button>}
+      <button type="button" className="button-accent" aria-pressed={!selectedOnly}
+        onClick={() => {setSelectedOnly(false); setPage(1)}}>{t('检索结果')}</button>
+      <button type="button" className="button-accent" aria-pressed={selectedOnly}
+        onClick={() => {setSelectedOnly(true); setPage(1)}}>{t('已选文献')} {count ?? ''}</button>
+      {searchId && <button type="button" className="button-accent"
+        onClick={() => {setSearchId(''); setSelectedOnly(false); setPage(1)}}>{t('查看已有候选')}</button>}
     </div>
     {loadingSearch && <p role="status">{t('正在检索文献……')}</p>}
     {!selectedOnly && searchProblem && busy !== '正在检索文献……' && <p role="alert">{t(searchProblem)}</p>}
-    {records.data && (records.data.items.length ? <ul className="literature-candidates">{records.data.items.map(item =>
-      <li key={item.id}><label><input type="checkbox" checked={item.selection.status === 'shortlisted'}
-        disabled={!!busy || !!ticket || count === undefined || item.selection.status !== 'shortlisted' &&
-          (count >= maxPapers || !item.record.abstract.some(part => part.text.trim()))}
-        onChange={() => toggle(item)}/>{item.record.title || t('题名未提供')}</label>
-        <p className="muted">{[item.record.journal, item.record.year, 'PMID ' + item.pmid].filter(Boolean).join(' · ')}</p>
-        <AbstractPreview parts={item.record.abstract} />
-      </li>)}</ul> : emptyMessage && <p>{t(emptyMessage)}</p>)}
-    {records.data && records.data.total > records.data.page_size && <EvidencePagination page={page} total={records.data.total} onPage={setPage} label="候选文献分页"/>}
+    {records.data && (records.data.items.length ? <ul className="sci-reference-list" role="list" aria-label={t(selectedOnly ? '已选文献' : '检索结果')}>
+      {records.data.items.map(item => {
+        const title = item.record.title || t('题名未提供')
+        const selected = item.selection.status === 'shortlisted'
+        const abstract = item.record.abstract.find(part => part.text.trim())?.text.trim() ?? ''
+        const excerpt = abstract.length > 220 ? `${abstract.slice(0, 220).trimEnd()}…` : abstract
+        return <li key={item.id}>
+          <div className="sci-reference-text">
+            <h3><button type="button" className="button-quiet sci-reference-title" aria-haspopup="dialog"
+              onClick={() => setReadingReference(item)}>{title}</button></h3>
+            <p className="muted sci-reference-citation">{referenceCitation(item)}</p>
+            <p className="sci-reference-excerpt">{excerpt || t('摘要未返回')}</p>
+          </div>
+          <input type="checkbox" aria-label={title} checked={selected}
+            disabled={!!busy || !!ticket || records.loading || shortlist.loading || count === undefined ||
+              !selected && (count >= maxPapers || !abstract)}
+            onChange={() => toggle(item)} />
+        </li>
+      })}
+    </ul> : emptyMessage && <p>{t(emptyMessage)}</p>)}
+    {records.data && records.data.total > records.data.page_size && <EvidencePagination page={page} total={records.data.total}
+      onPage={setPage} label="候选文献分页" buttonClassName="button-accent"/>}
   </>
 
   if (needsSciTemplate && !ticket) {
     if (candidates.error) return <p role="alert" className="error-panel">{t(candidates.error)}{' '}
-      <button type="button" onClick={() => setProjectRefresh(value => value + 1)}>{t('重试')}</button></p>
+      <button type="button" className="button-accent" onClick={() => setProjectRefresh(value => value + 1)}>{t('重试')}</button></p>
     if (!candidates.data) return <p role="status">{t('正在读取稿件资料……')}</p>
     return <div>
       <p>{t('请先核对并使用 SCI 模板。')}</p>
-      <button type="button" className="button-primary" onClick={onOpenOrganizer}>{t('前往模板设定和资源配置')}</button>
+      <button type="button" className="button-accent" onClick={onOpenOrganizer}>{t('前往模板设定和资源配置')}</button>
     </div>
   }
 
   return <section className="sci-draft-generator" data-project-type={project.project_type}>
-    {plan?.sci_template && <p className="muted">{t('写作模板')} · {t(plan.sci_template.name)}</p>}
+    {readingReference && <ReferenceDetails reference={readingReference} onClose={() => setReadingReference(null)} />}
     <form onSubmit={startSearch} className="literature-actions">
       <label>{t('检索词')}<input value={query} maxLength={4000} onChange={e => setQuery(e.target.value)}/></label>
-      <button type="submit" disabled={!query.trim() || !!busy || !!ticket || loadingSearch}>{t(stoppedSearch ? '重新检索' : '搜索文献')}</button>
+      <button type="submit" className="button-accent" disabled={!query.trim() || !!busy || !!ticket || loadingSearch}>
+        {t(stoppedSearch ? '重新检索' : '搜索文献')}</button>
     </form>
     {thesisMaterial && candidates.data && <ThesisDraftMaterials candidates={candidates.data} material={thesisMaterial}
       requirements={requirements ?? null} locked={!!ticket || !!busy} resultChapter={resultChapter}
@@ -354,21 +406,22 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
     </div>}
     {!school && literatureResults}
     <div className="sci-generate-panel">
-      {issue && <p role="alert">{t(issue)} <button type="button" onClick={() => {setError(''); refreshPage(); setProjectRefresh(v => v + 1); search.refresh()}}>{t('刷新')}</button></p>}
+      {issue && <p role="alert">{t(issue)} <button type="button" className="button-accent"
+        onClick={() => {setError(''); refreshPage(); setProjectRefresh(v => v + 1); search.refresh()}}>{t('刷新')}</button></p>}
       {busy && <p role="status">{t(busy)}</p>}
       {!ticket && missing && <div><p>{t(missing)}</p>{school && requirements && onOpenOrganizer && (missingDirectory || needsThesisResources ||
         thesisMaterial?.unassignedResult && !thesisMaterial.resultChoices ||
         validThesisInput(chapterInput) && !chapterInput.chapter_mappings.some(c => writableSchoolPurpose(c.purpose))) &&
-        <button type="button" onClick={onOpenOrganizer}>{t('前往模板与资料整理')}</button>}
+        <button type="button" className="button-accent" onClick={onOpenOrganizer}>{t('前往模板与资料整理')}</button>}
         {school && onOpenProject && (!requirements || !missingDirectory && !plan) &&
-          <button type="button" onClick={onOpenProject}>{t('填写毕业论文需求')}</button>}
-        {school && onOpenMaterials && sourceCount > 50 && <button type="button" onClick={onOpenMaterials}>{t('管理上传材料')}</button>}
-        {needsSciResources && onOpenResources && <button type="button" onClick={onOpenResources}>{t('前往资源配置')}</button>}
+          <button type="button" className="button-accent" onClick={onOpenProject}>{t('填写毕业论文需求')}</button>}
+        {school && onOpenMaterials && sourceCount > 50 && <button type="button" className="button-accent" onClick={onOpenMaterials}>{t('管理上传材料')}</button>}
+        {(needsSciResources || tooManySciFigures) && onOpenResources && <button type="button" className="button-accent" onClick={onOpenResources}>{t('前往资源配置')}</button>}
         {onOpenProject && kind === 'research' && !materials?.hasResult &&
-        <button type="button" onClick={onOpenProject}>{t('补充主要结果')}</button>}</div>}
+        <button type="button" className="button-accent" onClick={onOpenProject}>{t('补充主要结果')}</button>}</div>}
       {!ticket && !missing && !!materials?.parsing.length && <div><p>{t('以下文件尚无可读正文。本次仅使用已保存的文件说明。')}</p>
         <ul>{materials.parsing.map(file => <li key={file.file_id}>{file.label}</li>)}</ul>
-        <button type="button" onClick={() => setProjectRefresh(v => v + 1)}>{t('刷新文件状态')}</button></div>}
+        <button type="button" className="button-accent" onClick={() => setProjectRefresh(v => v + 1)}>{t('刷新文件状态')}</button></div>}
       {!ticket && reviewFigures.length > 0 && <details className="sci-planned-figures">
         <summary>{t('本次配图（{count} 张）', {count:reviewFigures.length})}</summary>
         <ul>{reviewFigures.map(figure => <li key={figure.selection.id}>{figure.filename} · {plan?.sections.find(section =>
@@ -385,18 +438,20 @@ function Generator({project, settings, requirements, initialSearchId, onSubmitte
         <CustomerWritingConfirm bundle={skillsReview.bundle} version={skillsReview.version} capabilities={skillsReview.capabilities}
           customerThesis={school} generated={false} edited={false} unknown={false} previewUnknown={false} busy={false}
           onSubmit={async () => skillsReview.accept()}/>
-        <button type="button" onClick={skillsReview.cancel}>{t('取消')}</button>
+        <button type="button" className="button-accent" onClick={skillsReview.cancel}>{t('取消')}</button>
       </> : <>
-      <p className="muted">{t('点击生成即同意将本项目的写作资料和所选摘要发送至外部写作服务。服务商将保存生成记录，本次写作会产生费用。')}</p>
+      <p className="muted">{t(!school && formalFigures?.length
+        ? '点击生成即同意将入稿图件、写作资料和所选摘要发送至外部写作服务。服务商将保存生成记录，本次写作会产生费用。'
+        : '点击生成即同意将本项目的写作资料和所选摘要发送至外部写作服务。服务商将保存生成记录，本次写作会产生费用。')}</p>
       {!ticket && failed && !recoverable && ready && <p>{t('当前资料已变更，请使用当前资料生成。')}</p>}
-      <button type="button" className="button-primary" disabled={!!busy || !ticket && !ready}
+      <button type="button" className="button-accent sci-generate-action" disabled={!!busy || !ticket && !ready}
         onClick={() => void perform('正在提交初稿……', controller => generate(controller, !!recoverable && !(school && failedRecovery === failed?.id)))}>
         {t(ticket && (!school || ticket.needsSkillsConfirmation) ? '继续本次生成' : school ? '生成毕业论文初稿' : recoverable ? '恢复原整理任务并生成初稿' : failed ? '使用当前资料生成' : !missing && materials?.parsing.length ? '使用现有资料继续生成' : '生成初稿')}</button>
-      {ticket?.needsSkillsConfirmation&&<button type="button" disabled={!!busy} onClick={() => {
+      {ticket?.needsSkillsConfirmation&&<button type="button" className="button-accent" disabled={!!busy} onClick={() => {
         setTicket(null)
         setProjectRefresh(value => value + 1)
       }}>{t('返回修改')}</button>}
-      {!school && !ticket && recoverable && failedRecovery === failed?.id && <button type="button" disabled={!!busy || !ready}
+      {!school && !ticket && recoverable && failedRecovery === failed?.id && <button type="button" className="button-accent" disabled={!!busy || !ready}
         onClick={() => void perform('正在提交初稿……', controller => generate(controller))}>{t('使用当前资料生成')}</button>}
       </>}
     </div>

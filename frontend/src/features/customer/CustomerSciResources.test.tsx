@@ -8,11 +8,11 @@ const figures = ['主图甲', '主图乙', '主图丙'].map((title, i) => ({
   id:`f${i + 1}`, title, preview_url:`/api/v1/projects/p1/sci-figures/f${i + 1}/members/png/download`, revision:1,
 }))
 type Placement = {figure_id:string; chapter_id:string; caption:string}
-function open(initial: Placement[], conflict = false) {
+function open(initial: Placement[], conflict = false, projectType: 'sci' | 'thesis' = 'sci') {
   let revision = 5
   let placements = initial
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url !== path) throw new Error(`Unexpected request ${url}`)
+    if (url !== (projectType === 'thesis' ? '/api/v1/projects/p1/thesis-figure-resources' : path)) throw new Error(`Unexpected request ${url}`)
     if (init?.method === 'PUT') {
       if (conflict && revision === 5) {
         revision = 6
@@ -28,28 +28,62 @@ function open(initial: Placement[], conflict = false) {
   })
   vi.stubGlobal('fetch', fetcher)
   const next = vi.fn()
-  render(<CustomerSciResources projectId="p1" registerLeaveGuard={() => () => {}} onTemplate={vi.fn()} onFigures={vi.fn()} onContinue={next} />)
+  const shared = {projectId:'p1', registerLeaveGuard:() => () => {}, onFigures:vi.fn()}
+  render(projectType === 'thesis' ? <CustomerSciResources {...shared} projectType="thesis" onSaved={next}/>
+    : <CustomerSciResources {...shared} onTemplate={vi.fn()} onContinue={next}/>)
   return {fetcher, next}
 }
 
 afterEach(() => {cleanup(); vi.unstubAllGlobals()})
 
-it('saves the chapter, caption and within-chapter order of selected formal figures', async () => {
-  const {fetcher, next} = open([{figure_id:'f1', chapter_id:'results', caption:'第一张图。'}])
-  const chapter = await screen.findByRole('combobox', {name:'入稿章节 主图乙'})
+function pointer(element: HTMLElement, type: string, clientY: number) {
+  const event = new MouseEvent(type, {bubbles:true, cancelable:true, button:0, clientY})
+  Object.defineProperty(event, 'pointerId', {value:1})
+  fireEvent(element, event)
+}
+
+it.each(['sci', 'thesis'] as const)('sorts and saves %s figure cards with or without a caption', async projectType => {
+  const {fetcher, next} = open([{figure_id:'f1', chapter_id:'results', caption:'第一张图。'}], false, projectType)
+  expect(screen.getByText('正在读取资源配置……').classList.contains('visually-hidden')).toBe(true)
+  const title = await screen.findByRole('heading', {name:'主图乙', level:3})
+  const card = within(title.closest('li')!)
+  const tools = within(title.closest('header')!)
+  const chapter = card.getByRole('combobox', {name:'入稿章节 主图乙'})
+  expect(tools.getByRole('button', {name:'预览 主图乙'})).toBeTruthy()
+  const refresh = screen.getByRole('button', {name:'刷新资源'})
+  fireEvent.click(refresh)
+  expect(screen.getByText('正在读取资源配置……').classList.contains('visually-hidden')).toBe(true)
+  await waitFor(() => expect(refresh).toHaveProperty('disabled', false))
+  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(screen.queryByText('资源已刷新。')).toBeNull()
   expect(screen.queryAllByText('第 1 版')).toHaveLength(0)
   const third = screen.getByRole('combobox', {name:'入稿章节 主图丙'})
   fireEvent.change(third, {target:{value:'discussion'}})
   fireEvent.change(screen.getByRole('textbox', {name:'图注 主图丙'}), {target:{value:'第三张图。'}})
   fireEvent.change(chapter, {target:{value:'results'}})
-  expect(screen.getByRole('button', {name:'保存资源配置'})).toHaveProperty('disabled', true)
-  fireEvent.change(screen.getByRole('textbox', {name:'图注 主图乙'}), {target:{value:'第二张图。'}})
-  fireEvent.click(screen.getByRole('button', {name:'主图乙 在本章前移'}))
-  fireEvent.click(screen.getByRole('button', {name:'下一步 文献与初稿'}))
+  expect(screen.getByRole('button', {name:'保存资源配置'})).toHaveProperty('disabled', false)
+  expect(card.getByRole('textbox', {name:'图注 主图乙'})).toHaveProperty('required', false)
+  expect(screen.getAllByText('图注（选填）')).toHaveLength(3)
+  const grip = tools.getByRole('button', {name:'拖动 主图乙'})
+  expect(tools.queryByRole('button', {name:'主图乙 在本章前移'})).toBeNull()
+  const list = title.closest('ol')!
+  const order = () => within(list).getAllByRole('heading', {level:3}).map(heading => heading.textContent)
+  fireEvent.keyDown(grip, {key:'ArrowDown'})
+  expect(order()).toEqual(['主图甲','主图乙','主图丙'])
+  const firstGrip = screen.getByRole('button', {name:'拖动 主图甲'})
+  Array.from(list.children).forEach((row, index) => {
+    vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, index * 100, 800, 92))
+  })
+  Object.defineProperty(firstGrip, 'setPointerCapture', {value:vi.fn()})
+  pointer(firstGrip, 'pointerdown', 20)
+  pointer(firstGrip, 'pointermove', 240)
+  pointer(firstGrip, 'pointerup', 240)
+  expect(order()).toEqual(['主图乙','主图甲','主图丙'])
+  fireEvent.click(screen.getByRole('button', {name:projectType === 'thesis' ? '保存资源配置' : '下一步 文献与初稿'}))
   await waitFor(() => expect(next).toHaveBeenCalledTimes(1))
   const write = fetcher.mock.calls.find(([, init]) => init?.method === 'PUT')
   expect(JSON.parse(String(write?.[1]?.body))).toEqual({expected_revision:5, placements:[
-    {figure_id:'f2', chapter_id:'results', caption:'第二张图。'}, {figure_id:'f1', chapter_id:'results', caption:'第一张图。'},
+    {figure_id:'f2', chapter_id:'results', caption:''}, {figure_id:'f1', chapter_id:'results', caption:'第一张图。'},
     {figure_id:'f3', chapter_id:'discussion', caption:'第三张图。'},
   ]})
 })
@@ -67,7 +101,9 @@ it('requires explicit repair of an obsolete chapter and retains edits across a r
   expect(chapter).toHaveProperty('value','discussion')
   expect(screen.getByRole('textbox', {name:'图注 主图甲'})).toHaveProperty('value','保留的图注。')
   fireEvent.click(screen.getByRole('button', {name:'保存资源配置'}))
-  await screen.findByText('资源配置已保存。')
+  expect(screen.getByText('正在保存……').classList.contains('visually-hidden')).toBe(true)
+  await waitFor(() => expect(chapter).toHaveProperty('disabled', false))
+  expect(screen.queryByText('资源配置已保存。')).toBeNull()
   const writes = fetcher.mock.calls.filter(([, init]) => init?.method === 'PUT')
   expect(writes.map(([, init]) => JSON.parse(String(init?.body)).expected_revision)).toEqual([5,6])
 })

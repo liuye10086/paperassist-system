@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState, type ComponentProps, type Ref} from 'react'
+import {useEffect, useRef, useState, type ComponentProps, type ReactNode, type Ref} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
 import {safeError, useI18n, type Locale} from '../../shared/i18n'
 import {headingLevels, isCustomSciSection, maxSciSections, validSciTemplate, type SciSection, type SciTemplate} from '../manuscripts/articleStructure'
@@ -6,17 +6,25 @@ import {WorkspaceIcon} from '../projects/WorkspaceShell'
 import useDraftLeaveGuard, {type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
 import {IntakeError, intakeRequest, projectBase} from '../research-intake/api'
 import {useResearchRead} from '../research-results/api'
-import {useSciSectionDrag} from './useSciSectionDrag'
+import {useSciListDrag} from './useSciListDrag'
 
 const maxEditableHeadingLevel = 5
 const editableHeadingLevels = headingLevels.filter(level => level <= maxEditableHeadingLevel)
+
+type FormatField = Pick<SciSection, 'en' | 'zh'>
+type FormatGuide = {
+  title_fields: FormatField[]
+  keywords: FormatField
+  optional_sections: {after: string; section: SciSection}[]
+}
+type FormatRow = {id: string; field: FormatField; wordField?: true; optionalSection?: SciSection}
 
 type TemplateSettings = {
   revision: number
   article_type: SciTemplate['article_type'] | null
   selected_template_id: string | null
   selected_sections: SciSection[] | null
-  templates: SciTemplate[]
+  templates: (SciTemplate & {format_guide?: FormatGuide})[]
   combine_review_topics?: boolean
   figure_workflow?: boolean
 }
@@ -56,6 +64,20 @@ function HeadingLevel({label, value, disabled, title, onChange}: {
   </select>
 }
 
+function FormatItem({en, zh, language, number, children}: FormatField & {
+  language: Locale; number: number; children?: ReactNode
+}) {
+  const english = language === 'en'
+  return <div className="sci-template-outline-row">
+    <div className="sci-template-section-row sci-template-format-row">
+      <span className="sci-template-number" aria-hidden="true">{number}.</span>
+      <strong lang={language}>{english ? en : zh}</strong>
+      <span lang={english ? 'zh-CN' : 'en'}>{english ? zh : en}</span>
+      {children}
+    </div>
+  </div>
+}
+
 export default function CustomerSciTemplate({projectId, language, headingRef, registerLeaveGuard, onDetails, onContinue}: {
   projectId: string
   language: Locale
@@ -88,6 +110,22 @@ export default function CustomerSciTemplate({projectId, language, headingRef, re
   const selected = !!template && template.id === settings?.selected_template_id
   const savedSections = (selected && settings?.selected_sections ? settings.selected_sections : template?.sections) ?? []
   const sections = editedSections && editedSections.templateId === template?.id ? editedSections.sections : savedSections
+  const formatGuide = template?.format_guide
+  const availableSections = formatGuide?.optional_sections.filter(option => !sections.some(row => row.id === option.section.id)) ?? []
+  let rowNumber = 1
+  const chapterGroups = sections.map(section => {
+    const attached: FormatRow[] = []
+    if (section.id === 'title' && formatGuide) {
+      for (const field of formatGuide.title_fields) attached.push({id:field.en, field, wordField:true})
+    }
+    if (section.id === 'abstract' && formatGuide) attached.push({id:'keywords', field:formatGuide.keywords})
+    for (const option of availableSections.filter(item => item.after === section.id)) {
+      attached.push({id:option.section.id, field:option.section, optionalSection:option.section})
+    }
+    const number = rowNumber
+    rowNumber += 1 + attached.length
+    return {section, number, attached}
+  })
   const review = template?.article_type === 'narrative_review'
   const applied = selected && settings?.figure_workflow === true && (!review || settings.combine_review_topics === true)
   const dirty = !sameSections(sections, savedSections)
@@ -103,12 +141,16 @@ export default function CustomerSciTemplate({projectId, language, headingRef, re
     if (template) setEditedSections({templateId: template.id, sections: value})
     setError('')
   }
-  const sectionDrag = useSciSectionDrag(sections, locked, updateSections)
+  const sectionDrag = useSciListDrag({items:sections, id:section => section.id, locked, snapToSlot:true, onReorder:updateSections,
+    range:() => ({first:1, last:sections.length - 2})})
+
+  function insertChapter(section: SciSection, index: number) {
+    focusNewSection.current = section.id
+    updateSections([...sections.slice(0, index), section, ...sections.slice(index)])
+  }
 
   function addChapter() {
-    const id = 'sci-section-' + crypto.randomUUID().replaceAll('-', '')
-    focusNewSection.current = id
-    updateSections([...sections.slice(0, -1), {id, en: '', zh: ''}, sections[sections.length - 1]])
+    insertChapter({id: 'sci-section-' + crypto.randomUUID().replaceAll('-', ''), en: '', zh: ''}, sections.length - 1)
   }
 
   async function applyTemplate() {
@@ -143,6 +185,7 @@ export default function CustomerSciTemplate({projectId, language, headingRef, re
 
   const english = language === 'en'
   const fields = english ? (['en', 'zh'] as const) : (['zh', 'en'] as const)
+  const outlineLabel = t(formatGuide ? '稿件结构' : '初稿章节')
   return <section className="customer-section sci-template-step">
     <h1 ref={headingRef} tabIndex={-1} className="visually-hidden">{t('模板设定和资源配置')}</h1>
     <div className="sci-template-panel">
@@ -164,39 +207,51 @@ export default function CustomerSciTemplate({projectId, language, headingRef, re
           </label>
           <div className="sci-template-outline">
             <div className="sci-template-outline-heading">
-              <h2>{t('初稿章节')}</h2>
-              <button ref={addChapterButton} type="button" className="button-quiet sci-template-add"
+              <h2>{outlineLabel}</h2>
+              <button ref={addChapterButton} type="button" className="button-accent sci-template-add"
                 onClick={addChapter} disabled={locked || sections.length >= maxSciSections}>
                 <WorkspaceIcon name="plus" />{t('添加章节')}
               </button>
             </div>
-            <ol aria-label={t('初稿章节')} ref={sectionDrag.listRef} data-sorting={sectionDrag.sorting || undefined}>
-              {sections.map((section, index) => <li key={section.id} {...sectionDrag.row(index)}>
-                <div className="sci-template-section-row">
-                  {fields.map(field => <textarea key={field} className="sci-template-title" rows={1} maxLength={200} disabled={locked}
-                    ref={field === fields[0] && focusNewSection.current === section.id ? input => {
-                      if (input) {
-                        input.focus()
-                        focusNewSection.current = null
-                      }
-                    } : undefined}
-                    aria-label={t(field === 'zh' ? '第 {number} 项中文标题' : '第 {number} 项英文标题', {number: index + 1})}
-                    lang={field === 'zh' ? 'zh-CN' : 'en'} value={section[field]} title={section[field]}
-                    onChange={event => {
-                      const heading = event.target.value.replace(/[\r\n]/g, '')
-                      updateSections(sections.map(row => row.id === section.id ? {...row, [field]: heading} : row))
-                    }} />)}
-                  <HeadingLevel label={t('第 {number} 项标题级别', {number: index + 1})} title={section.id === 'title'}
-                    value={section.level ?? defaultSectionLevel(section.id)} disabled={locked}
-                    onChange={level => updateSections(sections.map(row => row.id === section.id ? {...row, level} : row))} />
-                  <DragHandle {...sectionDrag.handle(index)} fixed={section.id === 'title' || section.id === 'references'}
-                    heading={section[fields[0]] || section[fields[1]] || t('第 {number} 章', {number: index + 1})} />
-                  {isCustomSciSection(section.id) && <button type="button" className="button-quiet sci-template-remove" disabled={locked}
-                    aria-label={t('删除第 {number} 章', {number: index + 1})} onClick={() => {
-                      updateSections(sections.filter(row => row.id !== section.id))
-                      addChapterButton.current?.focus()
-                    }}>×</button>}
+            <ol className="sci-sortable-list" role="list" aria-label={outlineLabel}
+              ref={sectionDrag.listRef} data-sorting={sectionDrag.sorting || undefined}>
+              {chapterGroups.map(({section, number, attached}, index) => <li key={section.id} {...sectionDrag.row(index)}>
+                <div className="sci-template-outline-row">
+                  <div className="sci-template-section-row">
+                    <DragHandle {...sectionDrag.handle(index)} fixed={section.id === 'title' || section.id === 'references'}
+                      heading={section[fields[0]] || section[fields[1]] || t('第 {number} 章', {number})} />
+                    <span className="sci-template-number" aria-hidden="true">{number}.</span>
+                    {fields.map(field => <textarea key={field} className="sci-template-title" rows={1} maxLength={200} disabled={locked}
+                      ref={field === fields[0] && focusNewSection.current === section.id ? input => {
+                        if (input) {
+                          input.focus()
+                          focusNewSection.current = null
+                        }
+                      } : undefined}
+                      aria-label={t(field === 'zh' ? '第 {number} 项中文标题' : '第 {number} 项英文标题', {number})}
+                      lang={field === 'zh' ? 'zh-CN' : 'en'} value={section[field]} title={section[field]}
+                      onChange={event => {
+                        const heading = event.target.value.replace(/[\r\n]/g, '')
+                        updateSections(sections.map(row => row.id === section.id ? {...row, [field]: heading} : row))
+                      }} />)}
+                    <HeadingLevel label={t('第 {number} 项标题级别', {number})} title={section.id === 'title'}
+                      value={section.level ?? defaultSectionLevel(section.id)} disabled={locked}
+                      onChange={level => updateSections(sections.map(row => row.id === section.id ? {...row, level} : row))} />
+                    {isCustomSciSection(section.id) && <button type="button" className="button-quiet sci-template-remove" disabled={locked}
+                      aria-label={t('删除第 {number} 章', {number})} onClick={() => {
+                        updateSections(sections.filter(row => row.id !== section.id))
+                        addChapterButton.current?.focus()
+                      }}>×</button>}
+                  </div>
                 </div>
+                {attached.map(({id, field, wordField, optionalSection}, position) =>
+                  <FormatItem key={id} {...field} language={language} number={number + position + 1}>
+                    {wordField && <span>{t('在 Word 填写')}</span>}
+                    {optionalSection && <button type="button" className="button-quiet" disabled={locked || sections.length >= maxSciSections}
+                      onClick={() => insertChapter(optionalSection, index + 1)}>
+                      {t('添加 {heading}', {heading: optionalSection[fields[0]]})}
+                    </button>}
+                  </FormatItem>)}
               </li>)}
             </ol>
           </div>

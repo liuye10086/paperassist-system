@@ -138,7 +138,7 @@ def metadata_record(db, store, row, summaries=None):
             'uploader_recorded': row['uploader_id'] is not None, 'upload_batch': summaries.get(row['id'])}
 
 
-def query_files(store, project_id, *, page=1, page_size=10):
+def query_files(store, project_id, *, page=1, page_size=10, outside_batch_profile=None):
     from app.domain.delivery_packages.reader_files import analyst_file_names
 
     if (type(page) is not int or not 1 <= page <= 1_000_000
@@ -147,9 +147,20 @@ def query_files(store, project_id, *, page=1, page_size=10):
     with store.connection() as db:
         require_project(db, store, project_id)
         where = ' WHERE project_id=%s' + store.material_filter
-        total = db.execute('SELECT count(*) AS n FROM files' + where, (project_id,)).fetchone()['n']
+        params = (project_id,)
+        if outside_batch_profile:
+            batch_scope = ' AND b.upload_actor_id=%s' if store.customer else ''
+            where += ''' AND NOT EXISTS (
+                SELECT 1 FROM file_upload_items i JOIN file_upload_batches b ON b.id=i.batch_id
+                WHERE i.id=files.upload_item_id AND i.file_id=files.id
+                  AND b.project_id=files.project_id AND b.user_id=%s AND b.profile=%s
+            ''' + batch_scope + ')'
+            params += (store.owner_id, outside_batch_profile)
+            if store.customer:
+                params += (store.actor_id,)
+        total = db.execute('SELECT count(*) AS n FROM files' + where, params).fetchone()['n']
         rows = db.execute('SELECT * FROM files' + where + ' ORDER BY uploaded_at DESC,id ASC LIMIT %s OFFSET %s',
-                          (project_id, page_size, (page - 1) * page_size)).fetchall()
+                          (*params, page_size, (page - 1) * page_size)).fetchall()
         summaries = batch_summaries(db, store, project_id, rows)
         names = analyst_file_names(db, store, project_id, [row['id'] for row in rows])
         items = [dict(metadata_record(db, store, row, summaries), filename=names.get(row['id'], row['filename'])) for row in rows]

@@ -35,25 +35,13 @@
   border-color: var(--primary);
   color: var(--accent-foreground);
 }
-.sci-revision-heading .sci-revision-heading-actions > a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 40px;
-  padding: 8px 12px;
-  border: 1px solid var(--input);
-  border-radius: 8px;
-  background: var(--card);
-  font-weight: 500;
-  text-decoration: none;
-}
-.sci-revision-heading-actions > a:hover { background: var(--secondary); }
-.sci-revision-heading-actions > span { flex-basis: 100%; font-size: .85rem; }
 .sci-revision-scope {
   display: flex;
+  flex: 1 1 0;
   min-width: 0;
   align-items: baseline;
+  justify-content: flex-end;
   margin: 0;
-  margin-inline-start: auto;
   color: var(--primary);
   font-size: .85rem;
 }

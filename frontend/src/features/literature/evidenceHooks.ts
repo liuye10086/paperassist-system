@@ -3,15 +3,46 @@ import {useCallback,useEffect,useRef,useState} from 'react'
 import {safeError} from '../../shared/i18n'
 import {TaskRequestError} from '../tasks/taskApi'
 import {literatureRequest} from './literatureApi'
-export function useEvidenceResource<T>(url:string|null,guard:(value:unknown)=>value is T,revision:number,onDenied:()=>void){
- const enabled=useLiteratureActive(),loaded=useRef<string|null>(null)
- const key=JSON.stringify([url,revision]);const callbacks=useRef({guard,onDenied});useEffect(()=>{callbacks.current={guard,onDenied}})
- const [state,setState]=useState<{key:string;data:T|null;error:string}>({key:'',data:null,error:''})
- useEffect(()=>{if(!url){loaded.current=null;return}if(!enabled||loaded.current===key)return;loaded.current=null;let active=true;const controller=new AbortController()
- void literatureRequest(url,controller,v=>callbacks.current.guard(v)).then(data=>{if(active){loaded.current=key;setState({key,data,error:''})}}).catch(cause=>{if(active){if(cause instanceof TaskRequestError&&cause.status===403)callbacks.current.onDenied();setState({key,data:null,error:safeError(cause,'证据资料读取失败，请重试。')})}})
- return()=>{active=false;controller.abort()}
- },[url,key,revision,enabled])
- return state.key===key?{...state,loading:false}:{data:null,error:'',loading:!!url}
+export function useEvidenceResource<T>(
+  url: string | null,
+  guard: (value: unknown) => value is T,
+  revision: number,
+  onDenied: () => void,
+  {keepDataOnRefresh = false}: {keepDataOnRefresh?: boolean} = {},
+) {
+  const enabled = useLiteratureActive()
+  const loaded = useRef<string | null>(null)
+  const key = JSON.stringify([url, revision])
+  const callbacks = useRef({guard, onDenied})
+  useEffect(() => {callbacks.current = {guard, onDenied}})
+  const [state, setState] = useState<{key: string; url: string | null; data: T | null; error: string}>(
+    {key: '', url: null, data: null, error: ''},
+  )
+
+  useEffect(() => {
+    if (!url) {loaded.current = null; return}
+    if (!enabled || loaded.current === key) return
+    loaded.current = null
+    let active = true
+    const controller = new AbortController()
+    void literatureRequest(url, controller, value => callbacks.current.guard(value)).then(data => {
+      if (!active) return
+      loaded.current = key
+      setState({key, url, data, error: ''})
+    }).catch(cause => {
+      if (!active) return
+      if (cause instanceof TaskRequestError && cause.status === 403) callbacks.current.onDenied()
+      setState({key, url, data: null, error: safeError(cause, '证据资料读取失败，请重试。')})
+    })
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [url, key, enabled])
+
+  if (state.key === key) return {data: state.data, error: state.error, loading: false}
+  const previousData = keepDataOnRefresh && url && state.url === url ? state.data : null
+  return {data: previousData, error: '', loading: !!url}
 }
 export function useEvidenceMutation(onDenied:()=>void){
  const [uncertain,setUncertain]=useState(false)

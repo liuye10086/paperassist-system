@@ -1,6 +1,10 @@
 .sci-draft-reader { max-width: 54rem; margin: 0 auto; }
 .sci-draft-actions { display: flex; justify-content: flex-end; align-items: center; gap: 1rem; }
 .sci-draft-body { padding: clamp(1rem, 3vw, 2.5rem); border: 1px solid var(--border); border-radius: 8px; margin-top: 1rem; overflow-wrap: anywhere; }
+.sci-draft-title-fields { display: grid; gap: .4rem; margin: .8rem 0 1.25rem; }
+.sci-draft-title-fields > div { display: flex; flex-wrap: wrap; gap: .25rem .75rem; }
+.sci-draft-title-fields dt { font-weight: 600; }
+.sci-draft-title-fields dd { margin: 0; color: var(--muted-foreground); }
 .sci-draft-body h2 { line-height: 1.35; margin: 0 0 1.5rem; }
 .sci-draft-body h3 { margin: 1.7rem 0 .5rem; }
 .sci-draft-paragraph p, .sci-draft-changes p { white-space: pre-wrap; line-height: 1.75; }
@@ -24,8 +28,9 @@
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--line, #dce4da);
+  margin-block-start: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 .sci-draft-history article p { margin: .25rem 0; }
-.sci-draft-history article a { display: block; }

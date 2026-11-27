@@ -1,0 +1,24 @@
+.customer-download-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.customer-download-link[aria-busy='true'] { cursor: wait; opacity: .65; }
+.customer-download-error.error-panel {
+  position: fixed;
+  z-index: 60;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  inline-size: max-content;
+  max-inline-size: min(32rem, calc(100% - 32px));
+  margin: 0;
+  border-inline-start: 0;
+  padding: .65rem .9rem;
+  overflow-wrap: anywhere;
+}

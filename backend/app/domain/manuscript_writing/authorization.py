@@ -64,6 +64,7 @@ class LiveWritingService:
                     response_stream=frozen.get('response_stream'),
                     scope_figure_input=frozen.get('scope_figure_input'),
                     skills_snapshot=frozen.get('skills_snapshot'),
+                    sci_initial_capacity=frozen.get('sci_initial_capacity'),
                 )
                 if execution_settings(frozen) != execution_settings(bound):
                     raise ValueError('Bundle binding mismatch')
@@ -204,6 +205,7 @@ class LiveWritingService:
             sections = None
             revision_school_presentation = None
             figures = []
+            workflow = initial_draft_workflow(body) if self.manuscripts.assets.customer else None
             if body.get('revision_of_request_id'):
                 parent = self.writing.row(db, project, identity, body['revision_of_request_id'])
                 sections = self.revision_sections(db, project, identity, version['id'], body, parent=parent)
@@ -223,8 +225,11 @@ class LiveWritingService:
                         aliases = chapter_aliases(sections)
                         for figure in figures:
                             figure['section_ids'] = [aliases[sid] for sid in figure['section_ids']]
+            elif workflow and not school:
+                from .revision_figures import freeze_initial_figures
+
+                figures = freeze_initial_figures(self.manuscripts, project, version['snapshot_json'], body['selected_source_ids'])
             skills = None
-            workflow = initial_draft_workflow(body) if self.manuscripts.assets.customer else None
             if workflow and is_enabled(workflow):
                 skills = load_step(workflow, INITIAL_DRAFT_STEP).freeze_writing()
             try:
@@ -233,6 +238,7 @@ class LiveWritingService:
                     article_instruction_revision=prose_revision, source_selection_version=2,
                     school_presentation_version=presentation, response_stream=response_stream,
                     scope_figure_input=True if figures else None, skills_snapshot=skills,
+                    sci_initial_capacity=True if workflow and not school else None,
                 )
                 data=build_bundle(version['snapshot_json'],body,execution_contract=frozen,revision_sections=sections,
                                   revision_figures=figures,revision_school_presentation=revision_school_presentation)
@@ -240,7 +246,7 @@ class LiveWritingService:
                 if not school:raise StorageError('manuscript_writing_selection_invalid','文章结构、写作范围或所选证据与冻结基础稿不匹配。',422) from exc
                 raise StorageError('manuscript_writing_selection_invalid','学校章节、语言或所选用途与冻结确认不匹配；受保护章节不能请求模型生成。',422) from exc
             data.update(base_snapshot=version['snapshot_json'],request_json=body)
-            if figures:
+            if figures and body.get('revision_of_request_id'):
                 data['revision_image_parent_sha256'] = row['candidate_sha256']
             identity_id=str(uuid4());timestamp=now()
             db.execute('INSERT INTO manuscript_writing_bundles(id,project_id,user_id,manuscript_id,base_version_id,request_key,request_digest,bundle_sha256,bundle_json,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
@@ -257,8 +263,11 @@ class LiveWritingService:
     def list_previews(self,project,identity,*,capabilities_only=False):
         with self.store.connection() as db:
             self.manuscripts.root(db,project,identity)
+            sci_initial = self.manuscripts.assets.customer and resolve_document_context(
+                db, project, self.store.user_id, manuscript_id=identity, active=False)['document_kind'] == 'sci'
+            limits = capabilities(resolve(db), sci_initial=sci_initial)
             if capabilities_only:
-                return dict(capabilities=capabilities(resolve(db)))
+                return dict(capabilities=limits)
             rows=db.execute('SELECT id FROM manuscript_writing_bundles WHERE project_id=%s AND user_id=%s AND manuscript_id=%s ORDER BY created_at DESC,id',(project,self.store.user_id,identity)).fetchall()
             items=[]
             for row in rows:
@@ -266,7 +275,7 @@ class LiveWritingService:
                     items.append(self.bundle_view(self.bundle(db,project,row['id'])))
                 except StorageError as exc:
                     if exc.code!='manuscript_source_not_visible': raise
-            return dict(items=items,capabilities=capabilities(resolve(db)))
+            return dict(items=items,capabilities=limits)
 
     def authorization(self,db,project,identity):
         self.store.require_project(db,project)

@@ -71,6 +71,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .button-destructive, .button-destructive:hover:not(:disabled) { background: var(--destructive); border-color: var(--destructive); color: var(--destructive-foreground); }
 .button-destructive:hover:not(:disabled) { filter: brightness(.92); }
 .button-quiet { border-color: transparent; background: transparent; color: var(--primary); }
+.button-accent { background: var(--accent-surface); color: var(--accent-foreground); }
+.button-accent:hover:not(:disabled) { background: var(--accent-surface); border-color: var(--primary); }
 input:not([type='checkbox'], [type='radio']), select, textarea { min-height: 40px; min-width: 0; padding: 8px 12px; border-color: var(--input); }
 input:is([type='checkbox'], [type='radio']) { accent-color: var(--primary); }
 textarea { resize: vertical; line-height: 1.6; }

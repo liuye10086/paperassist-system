@@ -1,6 +1,7 @@
 import {useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent} from 'react'
-import type {SciSection} from '../manuscripts/articleStructure'
 
+type RowBounds = Pick<DOMRect, 'top' | 'bottom' | 'height'>
+type SortRange = {first: number; last: number}
 type Drag = {
   pointerId: number
   from: number
@@ -8,26 +9,35 @@ type Drag = {
   startY: number
   clientY: number
   listTop: number
-  rows: DOMRect[]
+  rows: RowBounds[]
+  range: SortRange
+  rowGap: number
   card: HTMLElement | null
   scrollFrame: number | null
   moved: boolean
 }
 
-export function useSciSectionDrag(sections: SciSection[], locked: boolean, onReorder: (sections: SciSection[]) => void) {
+export function useSciListDrag<T>({items, id, locked, range, onReorder, snapToSlot = false}: {
+  items: T[]; id: (item: T) => string; locked: boolean; snapToSlot?: boolean
+  range: (index: number) => SortRange; onReorder: (items: T[]) => void
+}) {
   const listRef = useRef<HTMLOListElement>(null)
   const dragRef = useRef<Drag | null>(null)
-  const beforeDrop = useRef<Map<string | undefined, number> | null>(null)
-  const [motion, setMotion] = useState<{from: number; to: number; offset: number; rowHeight: number} | null>(null)
-  const last = sections.length - 2
-  const movable = (index: number) => !locked && index >= 1 && index <= last
+  const beforeDrop = useRef<Map<HTMLElement, number> | null>(null)
+  const [motion, setMotion] = useState<{from: number; to: number; offset: number; rowSpace: number} | null>(null)
+
+  function movableRange(index: number) {
+    if (locked || index < 0 || index >= items.length) return null
+    const bounds = range(index)
+    return index >= bounds.first && index <= bounds.last ? bounds : null
+  }
 
   useLayoutEffect(() => {
     const previous = beforeDrop.current
     beforeDrop.current = null
     if (!previous || !listRef.current || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
     for (const row of Array.from(listRef.current.children) as HTMLElement[]) {
-      const top = previous.get(row.dataset.sectionId)
+      const top = previous.get(row)
       if (top === undefined) continue
       const offset = top - row.getBoundingClientRect().top
       if (Math.abs(offset) > 1) {
@@ -36,7 +46,7 @@ export function useSciSectionDrag(sections: SciSection[], locked: boolean, onReo
         })
       }
     }
-  }, [sections])
+  }, [items])
 
   useEffect(() => () => {
     const frame = dragRef.current?.scrollFrame
@@ -45,10 +55,13 @@ export function useSciSectionDrag(sections: SciSection[], locked: boolean, onReo
 
   function reorder(from: number, to: number) {
     const list = listRef.current
-    if (!list || !movable(from) || !movable(to) || from === to) return
-    const rows = Array.from(list.children) as HTMLElement[]
-    beforeDrop.current = new Map(rows.map(row => [row.dataset.sectionId, row.getBoundingClientRect().top]))
-    const next = [...sections]
+    const bounds = movableRange(from)
+    if (!list || !bounds || to < bounds.first || to > bounds.last || from === to) return
+    if (!snapToSlot) {
+      const rows = Array.from(list.children) as HTMLElement[]
+      beforeDrop.current = new Map(rows.map(row => [row, row.getBoundingClientRect().top]))
+    }
+    const next = [...items]
     next.splice(to, 0, ...next.splice(from, 1))
     onReorder(next)
   }
@@ -60,11 +73,21 @@ export function useSciSectionDrag(sections: SciSection[], locked: boolean, onReo
     const distance = drag.clientY - drag.startY + drag.listTop - list.getBoundingClientRect().top
     if (!drag.moved && Math.abs(distance) < 4) return
     drag.moved = true
-    const offset = Math.max(drag.rows[1].top - row.top, Math.min(distance, drag.rows[last].bottom - row.bottom))
-    const center = row.top + row.height / 2 + offset
-    drag.to = 1 + drag.rows.slice(1, last + 1).filter((target, index) =>
-      index + 1 !== drag.from && center > target.top + target.height / 2).length
-    setMotion({from: drag.from, to: drag.to, offset, rowHeight: row.height})
+    const {first, last} = drag.range
+    const movingDown = distance > 0
+    const adjacentRows = movingDown ? drag.rows.slice(drag.from + 1, last + 1) : drag.rows.slice(first, drag.from)
+    const referencePoint = snapToSlot ? (movingDown ? row.bottom : row.top) : row.top + row.height / 2
+    const position = referencePoint + distance
+    const crossed = adjacentRows.filter(target => {
+      const midpoint = target.top + target.height / 2
+      return movingDown ? position >= midpoint : position <= midpoint
+    }).length
+    drag.to = drag.from + (movingDown ? crossed : -crossed)
+    const target = drag.rows[drag.to]
+    const offset = snapToSlot
+      ? (movingDown ? target.bottom - row.bottom : target.top - row.top)
+      : Math.max(drag.rows[first].top - row.top, Math.min(distance, drag.rows[last].bottom - row.bottom))
+    setMotion({from: drag.from, to: drag.to, offset, rowSpace: row.height + drag.rowGap})
   }
 
   function scrollAtEdge(drag: Drag) {
@@ -97,28 +120,34 @@ export function useSciSectionDrag(sections: SciSection[], locked: boolean, onReo
     row(index: number) {
       const active = motion?.from === index
       const offset = !motion ? 0 : active ? motion.offset
-        : motion.to <= index && index < motion.from ? motion.rowHeight
-        : motion.from < index && index <= motion.to ? -motion.rowHeight : 0
+        : motion.to <= index && index < motion.from ? motion.rowSpace
+        : motion.from < index && index <= motion.to ? -motion.rowSpace : 0
       return {
-        'data-section-id': sections[index].id,
+        'data-sort-id': id(items[index]),
         'data-dragging': active ? true : undefined,
         style: offset ? {transform: `translateY(${offset}px)`} : undefined,
       }
     },
     handle(index: number) {
       return {
-        disabled: !movable(index),
+        disabled: !movableRange(index),
         onPointerDown(event: PointerEvent<HTMLButtonElement>) {
           const list = listRef.current
-          if (event.button !== 0 || !movable(index) || !list || dragRef.current) return
+          const bounds = movableRange(index)
+          if (event.button !== 0 || !bounds || !list || dragRef.current) return
           event.preventDefault()
           event.currentTarget.focus({preventScroll: true})
           event.currentTarget.setPointerCapture(event.pointerId)
-          const rows = Array.from(list.children)
-          for (const row of rows) row.getAnimations?.().forEach(animation => animation.cancel())
+          const rows: RowBounds[] = []
+          for (const row of Array.from(list.children) as HTMLElement[]) {
+            if (!row.dataset.sortId) continue
+            row.getAnimations?.().forEach(animation => animation.cancel())
+            rows.push(row.getBoundingClientRect())
+          }
           dragRef.current = {
             pointerId: event.pointerId, from: index, to: index, startY: event.clientY, clientY: event.clientY,
-            listTop: list.getBoundingClientRect().top, rows: rows.map(row => row.getBoundingClientRect()),
+            listTop: list.getBoundingClientRect().top, rows, range: bounds,
+            rowGap: Number.parseFloat(getComputedStyle(list).rowGap) || 0,
             card: list.closest<HTMLElement>('.customer-section'), scrollFrame: null, moved: false,
           }
         },

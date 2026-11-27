@@ -138,6 +138,10 @@ def sci_revision_conflict():
     return StorageError('sci_settings_revision_conflict', 'SCI 建项资料已更新，请核对最新版本。', 409)
 
 
+def sci_target_journal_required():
+    return StorageError('sci_target_journal_required', '请选择一个目标期刊。', 422)
+
+
 def _invalid_outline():
     return StorageError('sci_template_outline_invalid', '请核对初稿的章节标题和顺序。', 422)
 
@@ -235,6 +239,8 @@ def sci_settings(store, project_id, changes: SciSettingsWrite | SciTemplateWrite
         if isinstance(changes, SciSettingsWrite):
             if isinstance(changes.settings, LegacySciProjectSettings):
                 raise StorageError('sci_settings_required', '请填写完整的 SCI 建项资料。', 422)
+            if changes.settings.target_journal is None:
+                raise sci_target_journal_required()
             legacy = current.get('legacy_settings')
             if current['settings'] and 'main_results' in current['settings']:
                 legacy = current['settings']

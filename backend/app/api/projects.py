@@ -237,11 +237,15 @@ def list_files(
     project_id: str, store: Store,
     page: Annotated[int | None, Query(ge=1, le=1_000_000), BeforeValidator(decimal_query_integer)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=100), BeforeValidator(decimal_query_integer)] = None,
+    outside_document_batches: bool = False,
+    outside_batch_profile: Literal['documents', 'bioinformatics_v1'] | None = None,
 ):
-    if page is None and page_size is None:
+    profile = outside_batch_profile or ('documents' if outside_document_batches else None)
+    if page is None and page_size is None and profile is None:
         return store.files(project_id)
     return query_files(store, project_id, page=page if page is not None else 1,
-                       page_size=page_size if page_size is not None else 10)
+                       page_size=page_size if page_size is not None else 10,
+                       outside_batch_profile=profile)
 
 
 @router.get('/{project_id}/files/{file_id}/details', response_model=FileDetails)

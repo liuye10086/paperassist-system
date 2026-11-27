@@ -48,7 +48,7 @@ export default function CustomerSciWorkflow({ project, params, headingRef, onDet
     onUpdateRoute({ manuscript: currentDraft.manuscript_id, revision: currentDraft.revision, writingRequest: currentDraft.request_id,
       view: 'writing' }, true, true)
   }, [currentDraft, history, invalid, onUpdateRoute, pastOpinions, request, saved, search])
-  const currentButton = <button type="button" className="button-quiet"
+  const currentButton = <button type="button" className={thesis ? 'button-accent' : 'button-quiet'}
     onClick={() => onUpdateRoute({ ...clear, view: undefined }, true)}>{t('查看当前初稿')}</button>
 
   let content
@@ -62,7 +62,7 @@ export default function CustomerSciWorkflow({ project, params, headingRef, onDet
     content = <SavedThesisVersion projectId={project.id} manuscript={manuscript!} revision={revision!} update={onUpdateRoute}/>
   } else if (generator) {
     content = <>
-      {search && draft && <button type="button" className="button-quiet" onClick={() =>
+      {search && draft && <button type="button" className="button-accent" onClick={() =>
         show(draft.manuscript_id, draft.revision, draft.request_id)}>{t('返回初稿')}</button>}
       {thesis ? (requirements.error ? <p role="alert">{t(requirements.error)} <button onClick={requirements.refresh}>{t('重试')}</button></p>
         : !requirements.data ? <p role="status">{t('正在读取毕业论文需求……')}</p>
@@ -90,7 +90,7 @@ export default function CustomerSciWorkflow({ project, params, headingRef, onDet
   }
   return <section className="customer-section customer-manuscript-workflow">
     <div className="customer-section-heading"><h1 ref={headingRef} tabIndex={-1} className="visually-hidden">{t('文献与初稿')}</h1>
-      {thesis && (history || saved || pastOpinions ? currentButton : <button type="button" className="button-quiet"
+      {thesis && (history || saved || pastOpinions ? currentButton : <button type="button" className="button-accent"
         onClick={() => onUpdateRoute({...clear, view:'draft-history'})}>{t('历史版本')}</button>)}
     </div>
     {content}

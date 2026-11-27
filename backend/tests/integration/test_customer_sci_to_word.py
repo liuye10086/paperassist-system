@@ -184,10 +184,14 @@ def test_customer_research_freezes_uploaded_result_numeric_context_and_figure_in
             assert [ref['name'] for ref in skills['trace']['skills']] == [
                 'scientific-writing', 'research-article', 'citation-verification',
             ]
+            assert skills['trace']['skills'][1]['version'] == '1.1.3'
+            objective_rule = 'End the introduction with the study objective and its scope.'
+            assert objective_rule in skills['instructions']
             baseline = {name: value for name, value in frozen.items() if name != 'skills_snapshot'}
             original = build_bundle(base_snapshot, bundle['request_json'], execution_contract=baseline)
             original_wire = json.loads(original['wire_json'])
             skill_wire = json.loads(bundle['wire_json'])
+            assert objective_rule in skill_wire['instructions']
             assert original_wire.pop('instructions') != skill_wire.pop('instructions')
             assert original_wire == skill_wire
             assert original['bundle_sha256'] != bundle['bundle_sha256']

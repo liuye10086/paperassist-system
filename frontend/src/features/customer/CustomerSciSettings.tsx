@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { safeError, useI18n } from '../../shared/i18n'
 import useDraftLeaveGuard, { type RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import { IntakeError, intakeRequest, projectBase } from '../research-intake/api'
@@ -16,19 +16,19 @@ export default function CustomerSciSettings({ projectId, registerLeaveGuard, onC
   const { t } = useI18n()
   const url = projectBase(projectId) + '/sci-settings'
   const read = useResearchRead<SciSettingsState>(url, true)
+  const readAlert = read.error ? <div className="error-panel" role="alert">{t(read.error)}{' '}
+    <button type="button" onClick={read.refresh}>{t('重试')}</button>
+  </div> : null
   return <section className="customer-sci-settings" aria-label={t('SCI 建项资料')}>
-    <h2>{t('SCI 建项资料')}</h2>
-    {read.error && <div className="error-panel" role="alert">{t(read.error)}{' '}
-      <button type="button" onClick={read.refresh}>{t('重试')}</button>
-    </div>}
     {read.data
-      ? <SettingsEditor projectId={projectId} url={url} receipt={read.data} refresh={read.refresh} registerLeaveGuard={registerLeaveGuard} onContinue={onContinue} />
-      : !read.error && <p role="status">{t('正在读取 SCI 建项资料……')}</p>}
+      ? <SettingsEditor projectId={projectId} url={url} receipt={read.data} refresh={read.refresh} readAlert={readAlert}
+          registerLeaveGuard={registerLeaveGuard} onContinue={onContinue} />
+      : <><h2>{t('SCI 建项资料')}</h2>{readAlert ?? <p role="status">{t('正在读取 SCI 建项资料……')}</p>}</>}
   </section>
 }
 
-function SettingsEditor({ projectId, url, receipt, refresh, registerLeaveGuard, onContinue }: Props & {
-  url: string; receipt: SciSettingsState; refresh: () => void
+function SettingsEditor({ projectId, url, receipt, refresh, readAlert, registerLeaveGuard, onContinue }: Props & {
+  url: string; receipt: SciSettingsState; refresh: () => void; readAlert: ReactNode
 }) {
   const { t } = useI18n()
   const [storedEdit, setEdit] = useResearchDraft<Edit | null>(projectId, 'customer-sci-settings', () => null)
@@ -47,7 +47,10 @@ function SettingsEditor({ projectId, url, receipt, refresh, registerLeaveGuard, 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!edit || stale || request.current) return
-    const validated = prepareSciSettings(edit.draft)
+    // Saved review notes can still be linked to writing materials.
+    const savedReviewSections = settings && !isLegacySciSettings(settings) && settings.article_type === 'narrative_review'
+      ? settings.review_sections : []
+    const validated = prepareSciSettings(edit.draft, savedReviewSections)
     if ('error' in validated) { setError(validated.error); return }
     const controller = new AbortController()
     request.current = controller
@@ -76,11 +79,16 @@ function SettingsEditor({ projectId, url, receipt, refresh, registerLeaveGuard, 
   }
 
   const legacy = current.legacy_settings ?? (edit && !stale && settings && isLegacySciSettings(settings) ? settings : null)
+  const startEdit = () => setEdit({ revision: current.revision, draft: sciSettingsDraft(settings) })
   return <>
+    <header className="sci-settings-heading">
+      <h2>{t('SCI 建项资料')}</h2>
+      {!edit && settings && <button type="button" className="button-accent" onClick={startEdit}>{t('编辑资料')}</button>}
+    </header>
+    {readAlert}
     {(!edit || stale) && (settings ? <SciSettingsSummary settings={settings} /> : <p>{t('此项目尚未填写 SCI 建项资料。')}</p>)}
-    {!edit ? <button type="button" onClick={() => setEdit({ revision: current.revision, draft: sciSettingsDraft(settings) })}>
-      {t(settings ? '编辑 SCI 建项资料' : '补充 SCI 建项资料')}
-    </button> : <form className="sci-settings-edit" noValidate aria-busy={busy} onSubmit={event => void save(event)}>
+    {!edit && !settings && <button type="button" onClick={startEdit}>{t('补充 SCI 建项资料')}</button>}
+    {edit && <form className="sci-settings-edit" noValidate aria-busy={busy} onSubmit={event => void save(event)}>
       {stale && <div className="warning-panel" role="status">{t('SCI 建项资料已更新，请核对最新版本。')}{' '}
         <button type="button" onClick={() => { setEdit({ ...edit, revision: current.revision }); setError('') }}>
           {t('保留草稿并继续编辑')}

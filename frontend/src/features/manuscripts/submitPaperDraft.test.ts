@@ -34,7 +34,7 @@ function server(settings: {
   const records: LiveRequest[] = []
   let preview: Bundle
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
-    const endpoint = url.split('/').at(-1)!
+    const endpoint = url.split('/').at(-1)!.split('?')[0]
     if (init?.method !== 'POST') {
       if (endpoint === 'writing-requests') return Response.json({items: [{schema_version: 1}, ...records]})
       if (endpoint === 'writing-previews') return Response.json({items: [], capabilities: {real_calls_enabled: settings.enabled ?? true}})
@@ -146,6 +146,17 @@ it('selects planned original figures in native review sections and excludes unpl
   expect(posts[0].body.selected_source_ids).toEqual(['methods', 'introduction', 'discussion', 'conclusion'])
 })
 
+it('includes all twenty figures assigned in a narrative review’s resource configuration', async () => {
+  const {posts} = server()
+  const images = Array.from({length: 20}, (_, i) => source('configured-' + i, 'original', 'image_observation'))
+  await submitPaperDraft({...options(), version: {...version, snapshot: {...version.snapshot,
+    sources: [document, run, figure, ...images],
+    paper_plan: {kind: 'narrative_review', title: 'Review', keywords: [], sections: [], materials: [],
+      sci_figures: images.map(image => ({figure_id: image.id, title: image.label, chapter_id: 'discussion',
+        chapter_label: 'Discussion', caption: ''}))}}}})
+  expect(posts[0].body.selected_source_ids).toEqual(['methods', ...images.map(image => image.id)])
+})
+
 it('uses the full school chapter contract and includes sources and excerpts in thesis writing', async () => {
   const {posts} = server()
   const school = {confirmation_id: 'confirmed', chapters: [{id: 'custom-methods', purpose: 'materials_and_methods'}]} as NonNullable<ManuscriptVersion['snapshot']['thesis_context']>
@@ -209,7 +220,7 @@ it('distinguishes actionable rejections from a lost receipt for preserving the o
   expect(isPaperDraftRejected(await submitPaperDraft(options()).catch(e => e))).toBe(true)
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'POST') return Response.json({detail: {code: 'manuscript_writing_evidence_required'}}, {status: 422})
-    return Response.json(url.endsWith('writing-previews') ? {items: [], capabilities: {real_calls_enabled: true}} : {items: []})
+    return Response.json(url.endsWith('writing-previews?capabilities_only=true') ? {capabilities: {real_calls_enabled: true}} : {items: []})
   }))
   const rejected = await submitPaperDraft(options()).catch(e => e)
   expect(rejected).toBeInstanceOf(TaskRequestError)

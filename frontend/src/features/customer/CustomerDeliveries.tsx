@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
-import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
+import CustomerDownloadLink from './CustomerDownloadLink'
 import { useI18n } from '../../shared/i18n'
 import VersionLabel from '../../shared/VersionLabel'
 import type { LeaveGuard, RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
@@ -37,10 +37,10 @@ export default function CustomerDeliveries({ projectId, initialDeliveryId, initi
   return <div className="customer-section customer-deliveries">
     <div className="customer-section-heading">
       <h1 ref={headingRef} tabIndex={-1} className={showHeading ? undefined : 'visually-hidden'}>{t('已发布交付')}</h1>
-      <button type="button" className="button-quiet" disabled={read.loading} onClick={read.refresh}>{t('刷新交付')}</button>
+      <button type="button" className="button-accent" disabled={read.loading} onClick={read.refresh}>{t('刷新交付')}</button>
     </div>
     {read.error && <p role="alert" className="error-panel">{t(read.error)}</p>}
-    {!read.data && !read.error && <p role="status">{t('正在读取已发布交付……')}</p>}
+    {!read.data && !read.error && <p className="visually-hidden" role="status">{t('正在读取已发布交付……')}</p>}
     {deliveries && !read.error && (deliveries.length === 0
       ? <p>{t(initialDeliveryId ? '此交付暂无已发布版本。' : '此项目暂无已发布交付。')}</p>
       : groupByDelivery(deliveries).map(([current, ...older]) => {
@@ -50,8 +50,10 @@ export default function CustomerDeliveries({ projectId, initialDeliveryId, initi
           onOpen={() => { returnDelivery.current = delivery.id; onSelectSnapshot(delivery.id) }} />
         const headingId = `customer-delivery-${current.id}`
         return <section key={current.id} className="customer-delivery-group" aria-labelledby={headingId}>
-          <h2 id={headingId}>{current.title}</h2>
-          <p className="muted">{t(deliveryLabels[current.kind])}</p>
+          <header className="customer-delivery-group-heading">
+            <h2 id={headingId}>{current.title}</h2>
+            <span className="muted">{t(deliveryLabels[current.kind])}</span>
+          </header>
           <ul className="customer-list">{version(current, true)}</ul>
           {older.length > 0 && <>
             <h3>{t('之前发布的版本')}</h3>
@@ -87,7 +89,7 @@ function DeliveryVersion({ projectId, delivery, current, title, viewRef, onOpen 
       {' · '}{t('{count} 个文件', { count: delivery.member_count })}
     </p></div>
     <div className="customer-actions">
-      <button type="button" className="button-quiet" aria-label={t('查看交付 {title}', { title: name })}
+      <button type="button" className="button-accent" aria-label={t('查看交付 {title}', { title: name })}
         ref={viewRef} onClick={onOpen}>{t('查看详情')}</button>
       <DeliveryDownload projectId={projectId} delivery={delivery} label={t('下载交付 {title}', { title: name })} onOpen={onOpen} />
     </div>
@@ -112,8 +114,8 @@ function DeliveryDownload({ projectId, delivery, label, onOpen }: {
       : only && only.download_url === `${base}/members/${encodeURIComponent(only.id)}/download`
         ? { href: only.download_url, filename: only.name } : null
   return target
-    ? <ProjectDownloadLink href={target.href} filename={target.filename} ariaLabel={label}>{t('下载')}</ProjectDownloadLink>
-    : <button type="button" className="button-quiet" aria-label={label} onClick={onOpen}>{t('下载')}</button>
+    ? <CustomerDownloadLink href={target.href} filename={target.filename} ariaLabel={label}>{t('下载')}</CustomerDownloadLink>
+    : <button type="button" className="button-accent" aria-label={label} onClick={onOpen}>{t('下载')}</button>
 }
 
 function ReleasedDelivery({ projectId, snapshotId, expectedDeliveryId, onBack, registerLeaveGuard }: {
@@ -143,21 +145,21 @@ function ReleasedDelivery({ projectId, snapshotId, expectedDeliveryId, onBack, r
   }, [registerLeaveGuard])
 
   return <div className="customer-section customer-deliveries">
-    <button ref={backButton} type="button" className="button-quiet" onClick={() => {
+    <button ref={backButton} type="button" className="button-accent" onClick={() => {
       if (feedbackGuard.current?.(true) !== false) onBack()
     }}>{t('返回交付列表')}</button>
     {read.error && <div role="alert" className="error-panel">{t(read.error)}{' '}
       <button type="button" onClick={read.refresh}>{t('刷新交付')}</button>
     </div>}
     {mismatch && <p role="alert">{t('该交付版本与链接不匹配。')}</p>}
-    {!read.data && !read.error && <p role="status">{t('正在读取交付详情……')}</p>}
+    {!read.data && !read.error && <p className="visually-hidden" role="status">{t('正在读取交付详情……')}</p>}
     {delivery && !read.error && <>
       <div className="customer-delivery-row customer-delivery-heading">
         <div className="customer-delivery-info"><h1 ref={heading} tabIndex={-1}>{delivery.title}</h1><p className="muted">
           <VersionLabel revision={delivery.revision} savedAt={delivery.published_at} />
         </p></div>
         {delivery.package_url === base + '/download' && <div className="customer-actions">
-          <ProjectDownloadLink href={delivery.package_url} filename={delivery.title + '.zip'}>{t('下载交付包')}</ProjectDownloadLink>
+          <CustomerDownloadLink href={delivery.package_url} filename={delivery.title + '.zip'}>{t('下载交付包')}</CustomerDownloadLink>
         </div>}
       </div>
       <DeliveryMembers base={base} members={delivery.members} label={t('交付文件')} />
@@ -186,7 +188,7 @@ export function DeliveryMembers({ base, members, label, note, onDownloaded }: {
 }) {
   const { t, locale } = useI18n()
   const [previewId, setPreviewId] = useState<string | null>(null)
-  return <ul className="customer-list" aria-label={label}>
+  return <ul className="customer-list customer-card-list" aria-label={label}>
     {members.map(member => {
       const href = `${base}/members/${encodeURIComponent(member.id)}/download`
       const downloadable = href === member.download_url
@@ -200,10 +202,10 @@ export function DeliveryMembers({ base, members, label, note, onDownloaded }: {
             {extra && <> · {extra}</>}
           </p></div>
           {downloadable && <div className="customer-actions">
-            {image && <button type="button" className="button-quiet" aria-pressed={previewId === member.id}
+            {image && <button type="button" className="button-accent" aria-pressed={previewId === member.id}
               onClick={() => setPreviewId(current => current === member.id ? null : member.id)}>{t('预览图件')}</button>}
-            <ProjectDownloadLink href={href} filename={member.name} onDownloaded={onDownloaded && (() => onDownloaded(member))}
-              ariaLabel={t('下载 {name}', { name: member.name })}>{t('下载文件')}</ProjectDownloadLink>
+            <CustomerDownloadLink href={href} filename={member.name} onDownloaded={onDownloaded && (() => onDownloaded(member))}
+              ariaLabel={t('下载 {name}', { name: member.name })}>{t('下载文件')}</CustomerDownloadLink>
           </div>}
         </div>
         {image && previewId === member.id && <ReleasedImage key={href} href={href} name={member.name} />}

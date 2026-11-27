@@ -66,7 +66,7 @@ it.each([
   serveRequirements(template)
   window.history.replaceState(null, '', `#customer-project=${project.id}&step=details`)
   render(<CustomerWorkspace />)
-  fireEvent.click(await screen.findByRole('button', { name: '编辑毕业论文需求' }))
+  fireEvent.click(await screen.findByRole('button', { name: '编辑资料' }))
   fireEvent.change(screen.getByLabelText('论文题目'), { target: { value: '运动干预与血脂' } })
   fireEvent.click(screen.getByRole('button', { name: action }))
   await waitFor(() => expect(window.location.hash).toBe(`#customer-project=${project.id}&step=${step}`))
@@ -76,7 +76,7 @@ it('stays on the thesis details with the input kept when saving fails', async ()
   serveRequirements(null, true)
   window.history.replaceState(null, '', `#customer-project=${project.id}&step=details`)
   render(<CustomerWorkspace />)
-  fireEvent.click(await screen.findByRole('button', { name: '编辑毕业论文需求' }))
+  fireEvent.click(await screen.findByRole('button', { name: '编辑资料' }))
   fireEvent.change(screen.getByLabelText('论文题目'), { target: { value: '运动干预与血脂' } })
   fireEvent.click(screen.getByRole('button', { name: '保存并继续 上传资料' }))
   expect(await screen.findByRole('alert')).toBeTruthy()
@@ -84,11 +84,12 @@ it('stays on the thesis details with the input kept when saving fails', async ()
   expect(screen.getByLabelText('论文题目')).toHaveProperty('value', '运动干预与血脂')
 })
 
-it.each([[false, 'materials'], [true, 'details']] as const)('saves the SCI details and continues to writing materials (failing: %s)', async (fail, step) => {
+it.each([[false, 'materials'], [true, 'details']] as const)('edits review basics without showing or dropping saved review notes (failing: %s)', async (fail, step) => {
   const sci = { ...project, id: 'customer-sci-8', project_type: 'sci' }
   const sciBase = '/api/v1/projects/' + sci.id
+  const reviewSections = [{ id: 'section-1', heading: '文献主题', content: '描述领域现状。' }]
   let settings = { article_type: 'narrative_review', proposed_title: '血清指标与预后综述', target_journal: { choice: 'science', name: null },
-    keywords: ['血清', '预后', '队列', '综述'], review_sections: [{ id: 'section-1', heading: '文献主题', content: '描述领域现状。' }] }
+    keywords: ['血清', '预后', '队列', '综述'], review_sections: reviewSections }
   let revision = 1
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (url === sciBase) return Response.json(sci)
@@ -106,7 +107,11 @@ it.each([[false, 'materials'], [true, 'details']] as const)('saves the SCI detai
   }))
   window.history.replaceState(null, '', `#customer-project=${sci.id}&step=details`)
   render(<CustomerWorkspace />)
-  fireEvent.click(await screen.findByRole('button', { name: '编辑 SCI 建项资料' }))
+  const editButton = await screen.findByRole('button', { name: '编辑资料' })
+  expect(editButton.previousElementSibling).toBe(screen.getByRole('heading', { name: 'SCI 建项资料' }))
+  expect.soft(screen.queryByText('综述内容')).toBeNull()
+  fireEvent.click(editButton)
+  expect(screen.queryByRole('textbox', { name: '文献主题' })).toBeNull()
   fireEvent.change(screen.getByLabelText('拟定论文题目'), { target: { value: '血清指标与心血管预后' } })
   fireEvent.click(screen.getByRole('button', { name: '保存并继续上传资料' }))
   if (fail) {
@@ -114,6 +119,8 @@ it.each([[false, 'materials'], [true, 'details']] as const)('saves the SCI detai
     expect(screen.getByLabelText('拟定论文题目')).toHaveProperty('value', '血清指标与心血管预后')
   } else {
     expect(await screen.findByRole('heading', { name: '上传资料', level: 1 })).toBeTruthy()
+    expect(settings.proposed_title).toBe('血清指标与心血管预后')
+    expect(settings.review_sections).toEqual(reviewSections)
   }
   expect(window.location.hash).toBe(`#customer-project=${sci.id}&step=${step}`)
 })

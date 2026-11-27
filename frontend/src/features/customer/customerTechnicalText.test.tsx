@@ -366,16 +366,25 @@ it.each([['with writing requirements', true], ['without writing requirements', f
   })
 
 // B03 task 8: the customer writing materials show source names and readable reading scopes, with nothing folded.
-it('shows the customer writing materials without identifiers, fact paths or folded sections', async () => {
+it.each([false, true])('shows readable customer writing materials when image input is %s', async (withImage) => {
   const { createHash, webcrypto } = await import('node:crypto')
   const { default: WritingBundlePreview } = await import('../manuscripts/WritingBundlePreview')
   const { bundleFixture, rawSnapshot } = await import('../manuscripts/writingLiveFixtures')
   vi.stubGlobal('crypto', webcrypto)
   const manuscriptId = 'b9c0d1e2-f3a4-47f8-89b0-c1d2e3f4a5b6', bundleId = 'c0d1e2f3-a4b5-48a9-9ac1-d2e3f4a5b6c7'
   const sourceId = 'd1e2f3a4-b5c6-49ba-abd2-e3f4a5b6c7d8'
-  const wire = JSON.stringify({ model: 'gpt-5.4-2026-03-05', input: JSON.stringify({
+  const bibliography = { title: '血清标志物队列研究', authors: ['王明'], journal: 'Clin Chem', year: 2024 }
+  const material = JSON.stringify({
     sources: [{ alias: 's1', facts: [{ fact_path: '/groups/0/mean', value: '12.5' }] }],
-    evidence: [{ quote: '病例组血清指标显著升高', reading_scope: 'pmc_fulltext', bibliography: { title: '血清标志物队列研究', authors: ['王明'], journal: 'Clin Chem', year: 2024 } }] }) })
+    evidence: [{ quote: '病例组血清指标显著升高', reading_scope: 'pmc_fulltext',
+      ...(withImage ? { reference_alias: 'r1' } : { bibliography }) }],
+    ...(withImage ? { bibliography: [{ alias: 'r1', ...bibliography }] } : {}),
+  })
+  const input = withImage ? [{ role: 'user', content: [
+    { type: 'input_text', text: material },
+    { type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=', detail: 'high' },
+  ] }] : material
+  const wire = JSON.stringify({ model: 'gpt-5.4-2026-03-05', input })
   const digest = createHash('sha256').update(wire).digest('hex')
   const bundle = { ...bundleFixture(bundleId, manuscriptId), project_id: projectId, wire_json: wire, bundle_sha256: digest, wire_sha256: digest,
     wire_bytes: new TextEncoder().encode(wire).length, local_manifest: { sources: { s1: sourceId }, evidence: {} } }
@@ -384,6 +393,8 @@ it('shows the customer writing materials without identifiers, fact paths or fold
   render(<WritingBundlePreview bundle={bundle as never} readableSnapshot={snapshot as never} materialsOnly />)
   await screen.findByText('病例组血清指标显著升高')
   expect(screen.getByText('血清指标分组比较')).toBeTruthy()
+  expect(screen.getByText(bibliography.title)).toBeTruthy()
+  expect(screen.queryAllByText('本次会随写作材料发送 1 张图片。')).toHaveLength(withImage ? 1 : 0)
   expect(findTechnicalText(document.body, { systemIds: [...systemIds, manuscriptId, bundleId, sourceId, digest], rawValues: reviewValues })).toEqual([])
   expect(document.querySelector('details, [aria-expanded]')).toBeNull()
 })

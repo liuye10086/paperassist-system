@@ -139,23 +139,26 @@ def _catalogs(payload):
     return study, context, literature
 
 
-def output_schema(payload):
+def output_schema(payload, *, inline_bindings=True):
     from .live_contracts import LiveOutput
     schema = deepcopy(LiveOutput.model_json_schema())
     catalogs = _catalogs(payload)
     choices = []
+    has_values = False
     for catalog in catalogs:
         for alias, pairs in catalog.items():
             for path, raw in sorted(pairs):
                 # Check the numeric representation without rounding it.
                 numeric_value(raw)
-                choices.append(dict(type='object', additionalProperties=False,
-                    properties={key: dict(type='string', enum=[val]) for key, val in
-                        (('source_alias', alias), ('fact_path', path), ('value', raw))},
-                    required=['source_alias', 'fact_path', 'value']))
+                has_values = True
+                if inline_bindings:
+                    choices.append(dict(type='object', additionalProperties=False,
+                        properties={key: dict(type='string', enum=[val]) for key, val in
+                            (('source_alias', alias), ('fact_path', path), ('value', raw))},
+                        required=['source_alias', 'fact_path', 'value']))
     paragraph = schema['$defs']['LiveParagraph']['properties']
     if choices: schema['$defs']['StudyNumericBinding'] = dict(anyOf=choices)
-    else: paragraph['study_numeric_bindings']['maxItems'] = 0
+    elif not has_values: paragraph['study_numeric_bindings']['maxItems'] = 0
     for field, aliases in (('source_aliases', list(catalogs[0])), ('evidence_aliases', list(catalogs[2]))):
         if aliases: paragraph[field]['items'] = dict(type='string', enum=aliases)
         else: paragraph[field]['maxItems'] = 0

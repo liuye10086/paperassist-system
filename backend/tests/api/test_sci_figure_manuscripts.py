@@ -1,4 +1,5 @@
 import json
+from base64 import b64decode
 from io import BytesIO
 
 from docx import Document
@@ -7,6 +8,7 @@ from PIL import Image
 import pytest
 
 from app.adapters.research_figure_render import render_figure
+from app.domain.manuscript_writing.frozen import wire_payload
 from app.domain.research_results.execution import run_research_figure_task
 from app.domain.tasks.file_parse_execution import run_parse_file_task
 from app.main import app
@@ -44,8 +46,8 @@ def word_image_section(data):
     return document, image_sections
 
 
-@pytest.mark.parametrize('article_type', ['research', 'narrative_review'])
-def test_sci_composed_figure_is_frozen_in_the_confirmed_chapter_and_word(article_type, tmp_path):
+@pytest.mark.parametrize(('article_type', 'caption'), [('research', None), ('narrative_review', 'Two panels supplied for this fixture.')])
+def test_sci_composed_figure_is_frozen_in_the_confirmed_chapter_and_word(article_type, caption, tmp_path):
     with TestClient(app) as client:
         sign_in(client, f'figure-word-{article_type}@example.test', 'customer')
         project = sci_project(client, article_type)
@@ -75,10 +77,14 @@ def test_sci_composed_figure_is_frozen_in_the_confirmed_chapter_and_word(article
         resources = project + '/sci-resources'
         state = request(client, 'GET', resources)
         assert custom_id in {chapter['id'] for chapter in state['chapters']}
-        caption = 'Two panels supplied for this fixture.'
-        saved = request(client, 'PUT', resources, json=dict(expected_revision=state['revision'], placements=[
-            dict(figure_id=figure['id'], chapter_id=custom_id, caption=caption),
-        ]))
+        placement = dict(figure_id=figure['id'], chapter_id=custom_id)
+        if caption is not None:
+            placement['caption'] = caption
+        saved = request(client, 'PUT', resources, json=dict(expected_revision=state['revision'], placements=[placement]))
+        assert saved['placements'] == [dict(placement, caption=caption or '')]
+        if caption is None:
+            assert request(client, 'PUT', resources, json=dict(expected_revision=state['revision'],
+                           placements=[dict(placement, caption='  ')])) == saved
         plan = request(client, 'GET', project + '/manuscripts/candidates')['paper_plan']
         assert not plan['sci_figures_need_configuration']
         assert [item['figure_id'] for item in plan['sci_figures']] == [figure['id']]
@@ -93,10 +99,26 @@ def test_sci_composed_figure_is_frozen_in_the_confirmed_chapter_and_word(article
         evidence = []
         if bibliography:
             evidence = [base['citation_snapshot']['paragraphs'][0]['fragments'][0]['bindings'][0]['evidence'][0]['id']]
+        capabilities = request(client, 'GET', root + '/writing-previews?capabilities_only=true')['capabilities']
+        assert capabilities['max_input_tokens'] == 200_000
         preview = request(client, 'POST', root + '/writing-previews', status=201, key='preview',
                           json=article_request(article_type, selected_source_ids=[figure['id']], selected_evidence_ids=evidence))
-        payload = json.loads(json.loads(preview['wire_json'])['input'])
+        assert preview['execution_contract']['sci_initial_capacity'] is True
+        assert preview['execution_contract']['max_input_allowance'] == 200_000
+        payload = wire_payload(preview['wire_json'])
         assert [(image['number'], image['section_id']) for image in payload['illustrations']] == [(1, custom_id)]
+        [figure_context] = payload['initial_figure_context']
+        assert (figure_context['number'], figure_context['section_ids']) == (1, [custom_id])
+        assert figure_context['caption'] == (caption or 'Author-supplied illustration.')
+        [message] = json.loads(preview['wire_json'])['input']
+        [visual] = [part for part in message['content'] if part['type'] == 'input_image']
+        media, pixels = visual['image_url'].split(',', 1)
+        assert media == 'data:image/png;base64' and visual['detail'] == 'high'
+        with Image.open(BytesIO(b64decode(pixels))) as packed, Image.open(BytesIO(composed_png)) as source:
+            with source.copy() as expected:
+                expected.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+                assert packed.size == expected.size
+                assert packed.convert('RGB').tobytes() == expected.convert('RGB').tobytes()
         output = {sid: dict(text='Synthetic fixture prose.') for sid in payload['writing_scope']['output_section_ids']}
         if bibliography:
             output['themes'] = dict(text=quote, evidence_aliases=['e1'])
@@ -107,7 +129,7 @@ def test_sci_composed_figure_is_frozen_in_the_confirmed_chapter_and_word(article
             assert response.status_code == 200, response.text
             doc, embedded_sections = word_image_section(response.content)
             assert embedded_sections == ['Image record']
-            assert any(caption in paragraph.text for paragraph in doc.paragraphs)
+            assert any((caption or 'Author-supplied illustration.') in paragraph.text for paragraph in doc.paragraphs)
             assert [part.blob for part in doc.part.related_parts.values() if part.content_type == 'image/png'] == [composed_png]
 
         read_word()

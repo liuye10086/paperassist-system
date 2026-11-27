@@ -17,7 +17,7 @@ class FigurePlacement(BaseModel):
 
     figure_id: FileId
     chapter_id: TargetId
-    caption: ResultText
+    caption: ResultText = ''
 
 
 class SciFigurePlacement(FigurePlacement):
@@ -184,8 +184,6 @@ def resolve_placements(chapters, figures, placements):
         row = dict(**placement, chapter_label=labels[chapter_id], **{key: source[key] for key in (
             'title', 'source_kind', 'sha256', 'preview_url')})
         if source['source_kind'] == 'research_figure_version':
-            if not placement['caption']:
-                continue
             row.update(figure_id=source['version_id'], member_id=source['member_id'], panels=source['panels'])
         rows.append(row)
     return rows
@@ -244,7 +242,7 @@ def sci_resources(store, project_id, changes: SciResourcesWrite | None = None):
                 raise StorageError('sci_template_unavailable', '请先确认 SCI 模板。', 422)
             resolved = resolve_placements(chapters, figures, placements)
             if len(resolved) != len(placements):
-                raise StorageError('sci_resources_invalid', '请核对选中的图件、所属章节及图注。', 422)
+                raise StorageError('sci_resources_invalid', '请核对选中的图件和所属章节。', 422)
             if not unchanged:
                 originals = [row['figure_id'] for row in resolved if row['source_kind'] == 'original']
                 require_scope_open(db, project_id, file_ids=originals)

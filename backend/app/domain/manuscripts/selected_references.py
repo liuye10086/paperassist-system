@@ -8,6 +8,7 @@ from app.core.exceptions import StorageError
 from app.domain.dataset_preparation.service import require_key
 from app.domain.literature.service import digest
 from app.domain.literature_citations.service import conflict
+from app.domain.manuscript_writing.live_contracts import MAX_SCI_EVIDENCE_ITEMS
 from .contracts import Strict
 
 
@@ -189,7 +190,7 @@ def select_references(service, project, request, key):
                 raise StorageError('literature_revision_conflict', '已选文献发生变化，请重新读取。', 409)
         language = request.output_language or paper['default_output_language']
         paragraphs = []
-        remaining = 100
+        remaining = MAX_SCI_EVIDENCE_ITEMS if paper['project_type'] == 'sci' else 100
         for index, item in enumerate(request.references, 1):
             paragraph, count = selected_paragraph(citations, db, project, item, language, index, f'{draft_key}-{index}', remaining)
             paragraphs.append(paragraph)

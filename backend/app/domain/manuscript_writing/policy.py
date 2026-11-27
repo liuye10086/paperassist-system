@@ -3,7 +3,8 @@ from app.domain.model_usage.contracts import ModelPolicy
 MODEL = 'gpt-6.1-sol'
 PRICE_VERSION = 'openai-standard-short-2026-11-06-gpt-6.1-sol'
 POLICY_VERSION = 'writing-live-consent-v2'
-MAX_INPUT = 100000
+MAX_INPUT = 100_000
+SCI_INITIAL_MAX_INPUT = 200_000
 MAX_OUTPUT = 12000
 PROTOCOL_ALLOWANCE = 4096
 MAX_POSTS = 6
@@ -22,7 +23,14 @@ def installed_policy():
     return policy()
 
 
-def capabilities(version=None):
+def input_limit(version=None, *, sci_initial=False):
+    ceiling = SCI_INITIAL_MAX_INPUT if sci_initial else MAX_INPUT
+    if version is None:
+        return ceiling
+    return min(ceiling, version['bundle']['models']['writing']['execution']['input_token_allowance'])
+
+
+def capabilities(version=None, *, sci_initial=False):
     from app.core.config import local_config
     config=local_config()
     configured=bool(config.get('OPENAI_API_KEY_FILE') or config.get('OPENAI_API_KEY'))
@@ -32,7 +40,7 @@ def capabilities(version=None):
                 credential_status='configured_unverified' if configured else 'missing',
                 model=execution['policy']['model'] if execution else MODEL,
                 price_version=execution['policy']['price']['version'] if execution else PRICE_VERSION,
-                max_input_tokens=execution['input_token_allowance'] if execution else MAX_INPUT,
+                max_input_tokens=input_limit(version, sci_initial=sci_initial),
                 max_output_tokens=execution['policy']['max_output_tokens'] if execution else MAX_OUTPUT,
                 batch_max_posts=models['batch_max_posts'] if models else MAX_POSTS,
                 publish_requires_review=True,

@@ -103,7 +103,7 @@ def thesis_figure_resources(store, project_id, changes: FigureResourcesWrite | N
         if changes is not None:
             resolved = resolve_placements(targets, figures, placements)
             if len(resolved) != len(placements):
-                raise StorageError('thesis_figure_resources_invalid', '请核对选中的图件、所属章节及图注。', 422)
+                raise StorageError('thesis_figure_resources_invalid', '请核对选中的图件和所属章节。', 422)
             if not unchanged:
                 selected_ids = {row['figure_id'] for row in resolved}
                 panel_ids = {file_id for figure in figures if figure['version_id'] in selected_ids

@@ -11,7 +11,7 @@
   gap: 8px 12px;
 }
 
-.customer-requirements__status { justify-self: end; color: var(--muted-foreground); }
+.customer-requirements__status { margin-inline-end: auto; color: var(--muted-foreground); }
 .customer-requirements__form { display: grid; gap: 12px; min-width: 0; }
 .customer-requirements__samples { min-width: 0; border: 1px solid var(--border); border-radius: 8px; }
 .customer-requirements__samples .intake-form { max-width: none; }
@@ -54,7 +54,7 @@
 .customer-requirements__other-species {
   display: grid;
   gap: 4px;
-  max-width: 32rem;
+  max-width: 24rem;
   margin-top: 10px;
 }
 .customer-requirements__other-species input { width: 100%; min-width: 0; }

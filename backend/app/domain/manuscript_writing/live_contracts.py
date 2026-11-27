@@ -4,6 +4,7 @@ from pydantic import BeforeValidator, Field, field_validator, model_validator
 from .contracts import Strict, SectionId, WritingRequest
 
 WORKFLOW = 'manuscript_writing_v2'
+MAX_SCI_EVIDENCE_ITEMS = 400  # Up to 20 selected abstracts with at most 20 excerpts each.
 # Absent from older frozen request JSON and therefore from its persisted digest.
 DocumentContextVersion = Annotated[Literal['selected-text-v1'] | None, Field(exclude_if=lambda value: value is None)]
 RevisionParent = Annotated[str | None, Field(min_length=1, max_length=64, exclude_if=lambda value: value is None)]
@@ -142,6 +143,7 @@ class ArticlePreviewRequest(PreviewRequest):
     document_context_version: DocumentContextVersion = None
     revision_of_request_id: RevisionParent = None
     draft_advice: DraftChatFlag = None
+    selected_evidence_ids: list[str] = Field(max_length=MAX_SCI_EVIDENCE_ITEMS)
     document_kind:Literal['sci','thesis']='sci'
     article_type:Literal['research','brief','narrative_review','methods']='research'
     mode:Literal['full_draft','rewrite_section','results_discussion','expand_restructure','polish']

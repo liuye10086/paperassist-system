@@ -36,6 +36,27 @@ function open(projectType: 'sci' | 'thesis', params: Record<string, string>, rev
     {id:'themes', en:'Thematic synthesis', zh:'主题综合'},
     {id:'discussion', en:'Discussion', zh:'讨论'},
     {id:'conclusion', en:'Conclusion', zh:'结论'})
+  const [title, abstract, introduction, methods, results, discussion, references] = template.sections
+  const templates = review ? [template] : [template, {
+    ...template, id:'cell-press-research-v1', name:'Cell Press 风格研究论文',
+    source_url:'https://www.cell.com/information-for-authors/article-templates',
+    format_guide:{
+      notes:{abstract:'英文摘要写成单段，最多 150 词。', results:'结果用简短小标题写出具体发现。'},
+      title_fields:[
+        {en:'Author list', zh:'作者名单', note:'按实际署名顺序列出全名。'},
+        {en:'Author affiliations and footnotes', zh:'作者单位与脚注', note:'用编号脚注标明单位。'},
+        {en:'Contact information', zh:'联系信息', note:'注明通讯作者邮箱。'},
+      ],
+      keywords:{en:'Keywords', zh:'关键词', note:'沿用建项资料，置于摘要之后。'},
+      optional_sections:[
+        {after:'introduction', section:{id:'sci-section-7c23e73a64d84b71a88c8444e7f5bbba', en:'Design', zh:'设计'},
+          note:'仅 Technology 稿件使用。'},
+        {after:'materials_and_methods', section:{id:'sci-section-c41b92f76ae04de5b336ed8f2988b42a',
+          en:'Supplemental information', zh:'补充材料'}, note:'有补充文件时添加。'},
+      ],
+    },
+    sections:[title, {...abstract, en:'Summary'}, introduction, results, discussion, methods, references],
+  }]
   let selected: string | null = null
   let selectedSections: typeof template.sections | null = null
   let combinesReviewTopics = false
@@ -75,7 +96,7 @@ function open(projectType: 'sci' | 'thesis', params: Record<string, string>, rev
         figureWorkflow = input.figure_workflow === true
       }
       return Response.json({revision:selected ? 2 : 1, article_type:template.article_type, selected_template_id:selected,
-        selected_sections:selectedSections, templates:[template], combine_review_topics:combinesReviewTopics, figure_workflow:figureWorkflow,
+        selected_sections:selectedSections, templates, combine_review_topics:combinesReviewTopics, figure_workflow:figureWorkflow,
         review_headings:review?[{id:'topic', heading:'单细胞'}]:[]})
     }
     if (url.includes('/sci-current-draft')) return Response.json({ draft: { manuscript_id: 'paper', revision: 4, request_id: 'original' } })
@@ -140,7 +161,8 @@ it('opens thesis figure assembly and saves a formal figure in the school organiz
   fireEvent.change(chapter, {target:{value:thesisChapter.id}})
   fireEvent.change(screen.getByRole('textbox', {name:'图注 登记流程正图'}), {target:{value:'登记与核对流程。'}})
   fireEvent.click(screen.getByRole('button', {name:'保存资源配置'}))
-  await screen.findByText('资源配置已保存。')
+  await waitFor(() => expect(chapter).toHaveProperty('disabled', false))
+  expect(screen.getByRole('button', {name:'保存资源配置'})).toHaveProperty('disabled', true)
   const writes = fetch.mock.calls.filter(([, init]) => init?.method === 'PUT')
   expect(writes).toHaveLength(1)
   expect(writes[0][0]).toBe('/api/v1/projects/p1/thesis-figure-resources')
@@ -172,7 +194,6 @@ it('uses the latest profile revision when alternating thesis figure and chapter 
   fireEvent.change(chapter, {target:{value:thesisChapter.id}})
   fireEvent.change(screen.getByRole('textbox', {name:'图注 登记流程正图'}), {target:{value:'初始图注。'}})
   fireEvent.click(screen.getByRole('button', {name:'保存资源配置'}))
-  await screen.findByText('资源配置已保存。')
   await waitFor(() => expect(fetch.mock.calls.filter(([url, init]) => url.endsWith('/thesis-requirements') && init?.method !== 'PUT')).toHaveLength(2))
 
   fireEvent.click(screen.getByRole('button', {name:'学校模板'}))
@@ -193,7 +214,8 @@ it('uses the latest profile revision when alternating thesis figure and chapter 
   await waitFor(() => expect(caption).toHaveProperty('disabled', false))
   fireEvent.change(caption, {target:{value:'核对后的图注。'}})
   fireEvent.click(screen.getByRole('button', {name:'保存资源配置'}))
-  await screen.findByText('资源配置已保存。')
+  await waitFor(() => expect(caption).toHaveProperty('disabled', false))
+  expect(screen.getByRole('button', {name:'保存资源配置'})).toHaveProperty('disabled', true)
   expect(fetch.mock.calls.filter(([, init]) => init?.method === 'PUT').map(([,init]) =>
     JSON.parse(String(init?.body)).expected_revision)).toEqual([1,2,3])
 })
@@ -232,13 +254,84 @@ it.each(['journals', 'word', 'reviews', 'manuscripts'])('opens the current SCI d
   await waitFor(() => expect(location.hash).toContain('writingRequest=original'))
 })
 
+it('shows the full Cell Press outline without writing tips and adds optional sections on request', async () => {
+  const fetch = open('sci', {step:'sci-template'})
+  const picker = await screen.findByRole('combobox', {name:'SCI 模板'})
+  expect(screen.queryByText('作者名单')).toBeNull()
+  fireEvent.change(picker, {target:{value:'cell-press-research-v1'}})
+  const list = screen.getByRole('list', {name:'稿件结构'})
+  const rows = [...list.querySelectorAll('.sci-template-section-row')]
+  expect(rows.map(row => {
+    const english = row.querySelector('[lang="en"]')
+    return english instanceof HTMLTextAreaElement ? english.value : english?.textContent
+  })).toEqual([
+    'Title','Author list','Author affiliations and footnotes','Contact information','Summary','Keywords',
+    'Introduction','Design','Results','Discussion','Materials and Methods','Supplemental information','References',
+  ])
+  expect(list.querySelector('p')).toBeNull()
+  expect(within(list).getAllByText('在 Word 填写')).toHaveLength(3)
+
+  const handle = screen.getByRole('button', {name:'拖动 摘要'})
+  const methods = screen.getByRole('button', {name:'拖动 材料与方法'})
+  const methodGroup = methods.closest('li')!
+  const discussionGroup = screen.getByRole('button', {name:'拖动 讨论'}).closest('li')!
+  const summaryGroup = handle.closest('li')!
+  expect(within(methodGroup).getByText('Supplemental information')).toBeTruthy()
+  expect(within(summaryGroup).getByText('Keywords')).toBeTruthy()
+  let top = 0
+  for (const group of list.children) {
+    const height = group.children.length * 50
+    vi.spyOn(group, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, top, 760, height))
+    top += height
+  }
+  for (const grip of [methods, handle]) Object.defineProperty(grip, 'setPointerCapture', {value:vi.fn()})
+
+  const methodsStart = methodGroup.getBoundingClientRect().top + 25
+  pointer(methods, 'pointerdown', methodsStart)
+  pointer(methods, 'pointermove', methodsStart - 12)
+  expect([...list.querySelectorAll('[data-dragging]')]).toEqual([methodGroup])
+  expect(methodGroup.style.transform).toBe('')
+  pointer(methods, 'pointermove', methodsStart - 35)
+  expect(methodGroup.style.transform).toBe('translateY(-50px)')
+  expect(discussionGroup.style.transform).toBe('translateY(100px)')
+  pointer(methods, 'pointercancel', methodsStart - 35)
+
+  pointer(handle, 'pointerdown', 225)
+  pointer(handle, 'pointermove', 340)
+  expect(summaryGroup.style.transform).toBe('translateY(100px)')
+  pointer(handle, 'pointerup', 340)
+  expect(screen.getByRole('textbox', {name:'第 5 项英文标题'})).toHaveProperty('value','Introduction')
+  expect(screen.getByRole('textbox', {name:'第 7 项英文标题'})).toHaveProperty('value','Summary')
+  expect(within(summaryGroup).getByText('Keywords')).toBeTruthy()
+  fireEvent.keyDown(handle, {key:'ArrowUp'})
+
+  fireEvent.click(screen.getByRole('button', {name:'添加 设计'}))
+  expect(screen.getByRole('textbox', {name:'第 8 项英文标题'})).toHaveProperty('value','Design')
+  expect(list.querySelector('p')).toBeNull()
+  fireEvent.click(screen.getByRole('button', {name:'删除第 8 章'}))
+  const introduction = screen.getByRole('button', {name:'拖动 引言'}).closest('li')!
+  expect(within(introduction).getByRole('button', {name:'添加 设计'})).toBeTruthy()
+  expect(screen.getByRole('textbox', {name:'第 9 项英文标题'})).toHaveProperty('value','Results')
+  fireEvent.click(screen.getByRole('button', {name:'添加 补充材料'}))
+  fireEvent.click(screen.getByRole('button', {name:'使用模板并继续'}))
+  await screen.findByRole('heading', {name:'资源配置'})
+  const save = fetch.mock.calls.find(([url, init]) => url.endsWith('/sci-template') && init?.method === 'PUT')
+  const saved = JSON.parse(String(save?.[1]?.body))
+  expect(saved.template_id).toBe('cell-press-research-v1')
+  expect(saved.sections.map((section: {en:string}) => section.en)).toEqual([
+    'Title','Summary','Introduction','Results','Discussion','Materials and Methods','Supplemental information','References',
+  ])
+})
+
 it('drags editable SCI chapters around fixed endpoints and saves new chapters and levels', async () => {
   const fetch = open('sci', {step:'materials'})
   fireEvent.click(await screen.findByRole('button', {name:'下一步 图件拼版'}))
   await screen.findByRole('button', {name:'第 3 步：图件拼版', current:'step'})
   fireEvent.click(await screen.findByRole('button', {name:'下一步 模板设定和资源配置'}))
   const picker = await screen.findByRole('combobox', {name:'SCI 模板'})
-  expect(within(picker).getAllByRole('option').map(option => option.textContent)).toEqual(['Frontiers in Genetics · Original Research'])
+  expect(within(picker).getAllByRole('option').map(option => option.textContent)).toEqual([
+    'Frontiers in Genetics · Original Research', 'Cell Press 风格研究论文',
+  ])
   expect(picker).toHaveProperty('value','frontiers-genetics-research-v1')
   const titleLevel = screen.getByRole('combobox', {name:'第 1 项标题级别'})
   const chapterLevel = screen.getByRole('combobox', {name:'第 2 项标题级别'})
@@ -264,11 +357,13 @@ it('drags editable SCI chapters around fixed endpoints and saves new chapters an
   const rows = [...list.children] as HTMLElement[]
   rows.forEach((row, index) => vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 50 * index, 760, 50)))
   Object.defineProperty(handle, 'setPointerCapture', {value:vi.fn()})
-  expect(handle.previousElementSibling).toBe(screen.getByRole('combobox', {name:'第 5 项标题级别'}))
+  const number = handle.nextElementSibling
+  expect(number?.textContent).toBe('5.')
+  expect(number?.nextElementSibling).toBe(screen.getByRole('textbox', {name:'第 5 项中文标题'}))
   pointer(handle, 'pointerdown', 225)
   pointer(handle, 'pointermove', 173)
   expect(rows[4].dataset.dragging).toBe('true')
-  expect(rows[4].style.transform).toBe('translateY(-52px)')
+  expect(rows[4].style.transform).toBe('translateY(-50px)')
   expect(rows[3].style.transform).toBe('translateY(50px)')
   pointer(handle, 'pointercancel', 173)
   expect(rows[4].style.transform).toBe('')

@@ -6,7 +6,22 @@ import {evidenceBase,evidencePage,validMaterial,validMaterialOptions,validMateri
 import {useEvidenceMutation,useEvidenceResource} from './evidenceHooks'
 import type {Page} from './literatureApi'
 export type SelectedSource={source_kind:'abstract'|'material'|'pmc';pmc_receipt_id?:string;project_reference_id?:string;search_id?:string;material_id?:string;item_id?:string;text:string}
-export function EvidencePagination({page,total,size=10,onPage,label}:{page:number;total:number;size?:number;onPage:(v:number)=>void;label:string}){const {t}=useI18n();const pages=Math.max(1,Math.ceil(total/size));return <nav className="literature-pagination" aria-label={t(label)}><span>{t('共 {total} 项 · 第 {page} / {pages} 页',{total,page,pages})}</span><button type="button" disabled={page<=1} onClick={()=>onPage(page-1)}>{t('上一页')}</button><button type="button" disabled={page>=pages} onClick={()=>onPage(page+1)}>{t('下一页')}</button></nav>}
+export function EvidencePagination({page, total, size = 10, onPage, label, buttonClassName}: {
+  page: number
+  total: number
+  size?: number
+  onPage: (page: number) => void
+  label: string
+  buttonClassName?: string
+}) {
+  const {t} = useI18n()
+  const pages = Math.max(1, Math.ceil(total / size))
+  return <nav className="literature-pagination" aria-label={t(label)}>
+    <span>{t('共 {total} 项 · 第 {page} / {pages} 页', {total, page, pages})}</span>
+    <button type="button" className={buttonClassName} disabled={page <= 1} onClick={() => onPage(page - 1)}>{t('上一页')}</button>
+    <button type="button" className={buttonClassName} disabled={page >= pages} onClick={() => onPage(page + 1)}>{t('下一页')}</button>
+  </nav>
+}
 export default function LiteratureMaterials({projectId,referenceId,onSource,onDenied}:{projectId:string;referenceId:string;onSource:(v:SelectedSource|null)=>void;onDenied:()=>void}){
  const {t}=useI18n(),base=evidenceBase(projectId);const [revision,setRevision]=useState(0),[optionPage,setOptionPage]=useState(1),[page,setPage]=useState(1),[sourcePage,setSourcePage]=useState(1)
  const [fileId,setFileId]=useState(''),[versionId,setVersionId]=useState(''),[description,setDescription]=useState(''),[note,setNote]=useState(''),[materialId,setMaterialId]=useState('')

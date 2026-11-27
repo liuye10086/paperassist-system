@@ -57,6 +57,72 @@ def test_legacy_article_wire_reconstructs_its_original_schema_and_sha():
     validate_bundle(dict(bundle, base_snapshot=draft, request_json=selection))
 
 
+def test_sci_initial_draft_fits_twenty_figures_and_fifteen_complete_abstracts(monkeypatch):
+    from base64 import b64decode
+    from random import Random
+
+    from PIL import Image
+    from app.domain.manuscript_writing import revision_figures
+    from app.domain.manuscript_writing.bundle import build_bundle, validate_bundle
+    from app.domain.manuscript_writing.frozen import contract, split_wire_input, validate_wire
+
+    draft = base()
+    figures = [dict(id=f'figure-{i}', number=i, title=f'Fixture figure {i}', caption='',
+                    source_ids=[f'image-{i}'], panels=[]) for i in range(1, 21)]
+    draft['sources'] = [dict(id=figure['source_ids'][0], kind='original', role='image_observation', content={})
+                        for figure in figures]
+    draft['results_groups'] = [dict(id='sci-figures-results', title='Results', illustration_chapter_id='results',
+                                    paragraphs=[], figures=figures, tables=[])]
+    draft['paper_plan'] = dict(kind='research', materials=[], sections=[], keywords=[],
+                              sci_figures=[dict(figure_id=source['id'], chapter_id='results')
+                                           for source in draft['sources']])
+    draft['keywords'] = []
+    buffer = BytesIO()
+    size = (2200, 1700)
+    Image.frombytes('L', size, Random(58).randbytes(size[0] * size[1])).save(buffer, 'PNG')
+    monkeypatch.setattr(revision_figures, 'images_for', lambda *_: {row['id']: buffer.getvalue() for row in figures})
+    source_ids = [row['id'] for row in draft['sources']]
+    packed = revision_figures.freeze_initial_figures(None, 'project', draft, source_ids)
+
+    bindings, quotes, references = [], [], []
+    for paper in range(1, 16):
+        ref = f'paper-{paper}'
+        metadata = dict(title=f'A synthetic methods comparison for fixture {paper}', year=2025,
+                        journal_title='Engineering Test Materials',
+                        authors=[f'Fixture Author {i} Paper {paper}' for i in range(32)])
+        excerpts = [dict(id=f'{ref}-{index}', reading_scope='abstract',
+                         quote=f'Section {index} of fixture {paper}. ' +
+                               'The exercise compares repeated measurements with their paired baseline. ' * 8)
+                    for index in range(1, 8)]
+        bindings.append(dict(project_reference_id=ref, metadata=metadata, evidence=excerpts))
+        quotes.extend(excerpts)
+        references.append(ref)
+    draft['citation_snapshot'] = dict(paragraphs=[dict(id='abstracts', fragments=[dict(bindings=bindings)])])
+    selection = request(selected_source_ids=source_ids, selected_evidence_ids=[quote['id'] for quote in quotes])
+    frozen = contract(schema_version=4, source_selection_version=2, scope_figure_input=True, sci_initial_capacity=True)
+    preview = build_bundle(draft, selection, execution_contract=frozen, revision_figures=packed)
+    wire = json.loads(preview['wire_json'])
+    material, images = split_wire_input(wire['input'])
+    payload = json.loads(material)
+    assert frozen['max_input_allowance'] == 200_000
+    assert preview['input_token_allowance'] <= frozen['max_input_allowance']
+    assert images == [row['image_url'] for row in packed]
+    assert len(images) == 20
+    assert sum(len(b64decode(url.split(',', 1)[1])) for url in images) > 8 * 1024**2
+    with Image.open(BytesIO(b64decode(images[0].split(',', 1)[1]))) as image:
+        assert max(image.size) == 1600
+    binding_schema = wire['text']['format']['schema']['$defs']['StudyNumericBinding']
+    assert set(binding_schema['properties']) == {'source_alias', 'fact_path', 'value'}
+    assert [row['section_ids'] for row in payload['initial_figure_context']] == [['results']] * 20
+    assert [row['quote'] for row in payload['evidence']] == [quote['quote'] for quote in quotes]
+    assert len(payload['bibliography']) == len(references)
+    assert [row['reference_alias'] for row in payload['evidence']] == [
+        f'r{index}' for index in range(1, len(references) + 1) for _ in range(7)
+    ]
+    validate_wire(preview['wire_json'], frozen)
+    validate_bundle(dict(preview, base_snapshot=draft, request_json=selection))
+
+
 @pytest.mark.parametrize('kind',['research','brief','narrative_review','methods'])
 def test_four_types_execute_compose_and_render_type_headings(kind):
     from app.domain.manuscript_writing.live_execution import compose_live_candidate,validate_live_candidate

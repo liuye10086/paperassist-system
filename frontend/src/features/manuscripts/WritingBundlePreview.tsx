@@ -45,7 +45,14 @@ function ReadableWritingBundle({bundle,snapshot,wire,verified,failed,materialsOn
  if(rules&&ruleLabel)views.push(['rules',ruleLabel])
  if(!materialsOnly)views.push(['request','完整请求原文'])
  const activeView=view==='rules'&&!rules?'content':view
- const input:Record<string,unknown>=object(wire)&&object(wire.input)?wire.input:{}
+ const rawInput=object(wire)?wire.input:undefined
+ const content=records(records(rawInput)[0]?.content)
+ const imageCount=content.filter(part=>part.type==='input_image').length
+ let input:Record<string,unknown>=object(rawInput)?rawInput:{}
+ const inputText=content.find(part=>part.type==='input_text')?.text
+ if(typeof inputText==='string'){
+  try{const decoded:unknown=JSON.parse(inputText);if(object(decoded))input=decoded}catch{/* Leave unreadable material empty. */}
+ }
  const headings=new Map<string,string>()
  for(const section of records(input.article_structure))if(typeof section.id==='string'&&typeof section.heading==='string')headings.set(section.id,section.heading)
  for(const section of records(input.chapters))if(typeof section.alias==='string'&&typeof section.title==='string')headings.set(section.alias,section.title)
@@ -57,6 +64,7 @@ function ReadableWritingBundle({bundle,snapshot,wire,verified,failed,materialsOn
  const sourceLabels=new Map(snapshot.sources.map(source=>[source.id,source.label]))
  const notes=records(input.paper_notes).filter(note=>typeof note.text==='string')
  const evidence=records(input.evidence).filter(item=>typeof item.quote==='string')
+ const sharedReferences=new Map(records(input.bibliography).map(item=>[item.alias,item]))
  const paragraphs=records(input.context).filter(section=>records(section.paragraphs).length)
  const illustrations=records(input.illustrations)
  const shownText=new Set([
@@ -82,6 +90,7 @@ function ReadableWritingBundle({bundle,snapshot,wire,verified,failed,materialsOn
   {activeView==='request'&&<pre className="paper-plan-note" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{bundle.wire_json}</pre>}
   {activeView==='rules'&&<pre className="paper-plan-note" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{rules}</pre>}
   {activeView==='content'&&<>
+  {imageCount>0&&<p>{t('本次会随写作材料发送 {count} 张图片。',{count:imageCount})}</p>}
   {names.length>0&&<p><strong>{t('写作章节')}</strong> · {names.join(' · ')}</p>}
   {keywords.length>0&&<p><strong>{t('关键词')}</strong> · {keywords.join(' · ')}</p>}
   {typeof input.instructions==='string'&&input.instructions&&<p className="paper-plan-note"><strong>{t('写作要求')}</strong> · {input.instructions}</p>}
@@ -129,7 +138,7 @@ function ReadableWritingBundle({bundle,snapshot,wire,verified,failed,materialsOn
    </article>)}
   </section>}
   <h5>{t('已选引用证据')}</h5>{evidence.length?evidence.map((item,index)=>{
-   const bibliography=object(item.bibliography)?item.bibliography:{}
+   const bibliography=object(item.bibliography)?item.bibliography:sharedReferences.get(item.reference_alias)??{}
    const reference=[...strings(bibliography.authors),bibliography.journal,bibliography.year,bibliography.doi].filter(Boolean).join(' · ')
    return <article key={index}>
     {typeof bibliography.title==='string'&&<strong>{bibliography.title}</strong>}

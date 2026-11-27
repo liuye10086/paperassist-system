@@ -24,7 +24,8 @@ const item: Reference = {id: 'ref1', reference_id: 'bib1', project_id: 'p1', pmi
     full_text_status: 'not_acquired', verification_status: 'not_verified', doi_resolution_status: 'not_checked', keywords: [], mesh_terms: [], full_text_links: []},
   source: {search_id: 'search1', receipt_id: 'receipt1', query: 'cohort', effective_query: 'cohort', retrieved_at: stamp, source_kind: 'synthetic_fixture', cached: false, ordinal: 1, source_download_url: base + '/literature/receipts/receipt1/source'},
   selection: {status: 'candidate', note: 'Existing note', revision: 1}, created_at: stamp, updated_at: stamp}
-function serve(type: 'research' | 'narrative_review' = 'narrative_review', custom?: (url: string, options?: RequestInit) => Response | undefined) {
+function serve(type: 'research' | 'narrative_review' = 'narrative_review',
+  custom?: (url: string, options?: RequestInit) => Response | Promise<Response> | undefined) {
   let reference = structuredClone(item)
   const plan: Candidates = {project_type: 'sci', citation_drafts: [], methods_fields: [...methodFields],
     items: [{id:'run1', kind:'analysis_run', file_id: 'file1', label:'Analysis', version:1, allowed_roles:['computed_results'], download_url:null},
@@ -197,7 +198,9 @@ it('classifies the university outline, keeps the full order collapsed and asks o
   mountThesis()
   const choose = await screen.findByRole('combobox',{name:'6 独立课题'})
   expect(screen.getAllByRole('combobox')).toHaveLength(1)
-  expect(screen.getByText('学校目录（26 个章节）').closest('details')?.open).toBe(false)
+  const outlineList = screen.getByRole('list', {name:'学校目录（26 个章节）'})
+  expect(within(outlineList).getAllByRole('listitem')).toHaveLength(26)
+  expect(outlineList.closest('details')).toBeNull()
   fireEvent.change(choose,{target:{value:'discussion'}})
   fireEvent.click(screen.getByRole('button',{name:'生成毕业论文初稿'}))
   await waitFor(() => expect(preparePaperDraft).toHaveBeenCalledOnce())
@@ -303,6 +306,51 @@ it('persists a checkbox once per change and directly uses the saved shortlist an
     input: expect.objectContaining({expected_revision:1, sources:[{kind:'document_version', file_id:'file1', id:'doc1', role:'methods'}]})}))
   expect(api.mock.calls.filter(([, options]) => options?.method==='PATCH')).toHaveLength(3)
 })
+it('keeps the current reference cards mounted while reloading a saved selection', async () => {
+  const path = base + '/literature/references'
+  const pageTwo = path + '?page=2'
+  const cards = Array.from({length: 13}, (_, index) => ({...item, id: `ref${index + 1}`,
+    record: {...item.record, title: `Paper ${index + 1}`}}))
+  const firstSelection: Reference = {...cards[0], selection: {...item.selection, status: 'shortlisted'}}
+  const last = cards[12]
+  const saved: Reference = {...last, selection: {...last.selection, status: 'shortlisted', revision: 2}}
+  const listing = (items: Reference[], page: number, total: number) =>
+    Response.json({project_id: 'p1', items, page, page_size: 10, total})
+  let finishRefresh!: () => void
+  const refreshing = new Promise<void>(resolve => {finishRefresh = resolve})
+  let selectionSaved = false
+  const api = serve('narrative_review', (url, options) => {
+    if (url === `${path}/${last.id}` && options?.method === 'PATCH') {
+      selectionSaved = true
+      return Response.json(saved)
+    }
+    if (url === `${path}?page=1&selection=shortlisted`) return selectionSaved
+      ? refreshing.then(() => listing([firstSelection, saved], 1, 2)) : listing([firstSelection], 1, 1)
+    if (url === `${path}?page=1`) return listing([firstSelection, ...cards.slice(1, 10)], 1, 13)
+    if (url === pageTwo) return selectionSaved
+      ? refreshing.then(() => listing([...cards.slice(10, 12), saved], 2, 13)) : listing(cards.slice(10), 2, 13)
+  })
+  render(<SciDraftGenerator project={project} settings={settings} onSubmitted={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', {name: '下一页'}))
+  const checkbox = await screen.findByRole('checkbox', {name: last.record.title})
+  const list = screen.getByRole('list', {name: '检索结果'})
+  const pagination = screen.getByRole('navigation', {name: '候选文献分页'})
+  await waitFor(() => expect(checkbox).toHaveProperty('disabled', false))
+  fireEvent.click(checkbox)
+  await waitFor(() => expect(api.mock.calls.filter(([url]) => url === pageTwo)).toHaveLength(2))
+
+  expect(screen.getByRole('list', {name: '检索结果'})).toBe(list)
+  expect(screen.getByRole('navigation', {name: '候选文献分页'})).toBe(pagination)
+  expect(screen.getByRole('button', {name: '已选文献 1'})).toBeTruthy()
+  expect(screen.getByRole('button', {name: '生成初稿'})).toHaveProperty('disabled', true)
+  expect(checkbox).toHaveProperty('disabled', true)
+
+  finishRefresh()
+  await screen.findByRole('button', {name: '已选文献 2'})
+  await waitFor(() => expect(checkbox).toHaveProperty('checked', true))
+  expect(within(list).getByRole('checkbox', {name: last.record.title})).toBe(checkbox)
+  expect(within(pagination).getByText('共 13 项 · 第 2 / 2 页')).toBeTruthy()
+})
 it('asks just for results on an empty research project and never sends an unrelated analysis as evidence', async () => {
   serve('research')
   const onOpenProject = vi.fn()
@@ -389,15 +437,29 @@ it('searches from the same page using the project keywords and displays the retu
     if (url.endsWith('/searches') && options?.method === 'POST') return Response.json(task)
     if (url.endsWith('/searches/search1')) return Response.json({id:'search1',project_id:'p1',task,input:query,effective_query:'cohort',
       query_translation:null,matched_count:1,retrieved_count:1,missing_pmids:[],warnings:[],created_at:stamp,updated_at:stamp,source_url:'https://pubmed.ncbi.nlm.nih.gov/'})
-    if (url.includes('search_id=search1')) return Response.json({project_id:'p1', items:[{...item,record:{...item.record,title:'Query result'}}], total:1, page:1, page_size:10})
+    if (url.includes('search_id=search1')) {
+      const abstract = [...item.record.abstract, {label:'Methods', text:'Complete details for this citation.'}]
+      return Response.json({project_id:'p1', items:[{...item,record:{...item.record,title:'Query result',abstract}}], total:1, page:1, page_size:10})
+    }
   })
   render(<SciDraftGenerator project={project} settings={settings} onSubmitted={vi.fn()}/>)
   expect(screen.getByRole('textbox', {name:'检索词'})).toHaveProperty('value','cohort')
   fireEvent.click(screen.getByRole('button', {name:'搜索文献'}))
-  expect(await screen.findByRole('checkbox', {name:'Query result'})).toBeTruthy()
+  const checkbox = await screen.findByRole('checkbox', {name:'Query result'})
+  const row = checkbox.closest('li')!
+  expect(row.lastElementChild).toBe(checkbox)
+  expect(row.querySelector('details')).toBeNull()
+  expect(within(row).getByText('Saved abstract.')).toBeTruthy()
+  expect(screen.queryByText(/Complete details for this citation/)).toBeNull()
+  fireEvent.click(within(row).getByRole('button', {name:'Query result'}))
+  const abstract = await screen.findByRole('dialog', {name:'Query result'})
+  expect(within(abstract).getByText(/Complete details for this citation/)).toBeTruthy()
+  fireEvent.click(within(abstract).getByRole('button', {name:'关闭详情'}))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(checkbox).toHaveProperty('checked', false)
+  expect(api.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
   const sent = api.mock.calls.find(([url]) => url.endsWith('/searches'))
   expect(JSON.parse(String(sent?.[1]?.body))).toEqual(query)
-  expect(screen.getByText('Saved abstract.')).toBeTruthy()
 })
 
 it('places SCI draft generation after the references and their pagination', async () => {

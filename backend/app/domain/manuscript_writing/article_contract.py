@@ -339,8 +339,18 @@ def build_bundle(base,request,frozen,*,include_reported_results=True,revision_se
     school=bool(base.get('thesis_context'))
     if (request['document_kind']=='thesis')!=school or frozen['document_kind']!=request['document_kind']:raise ValueError('Frozen document kind mismatch')
     scoped = scoped_draft_revision(request)
-    if bool(revision_figures) != bool(frozen.get('scope_figure_input')) or revision_figures and (school or not scoped):
-        raise ValueError('Figure input requires a scoped SCI draft')
+    if bool(revision_figures) != bool(frozen.get('scope_figure_input')) or revision_figures and school:
+        raise ValueError('Figure input does not match the SCI writing contract')
+    if revision_figures and not scoped:
+        from .frozen import initial_draft_workflow
+        from .revision_figures import figure_context, initial_figure_matches
+
+        if not initial_draft_workflow(request):
+            raise ValueError('Figure input requires an SCI initial draft or scoped reply')
+        expected = [figure_context(figure, section_ids) for figure, section_ids in
+                    initial_figure_matches(base, request['selected_source_ids']).values()]
+        if [{key: value for key, value in figure.items() if key != 'image_url'} for figure in revision_figures] != expected:
+            raise ValueError('Visual inputs must match the selected SCI figure placements')
     sections=writing_base_sections(base,request,revision_sections);editing=scope(base,request,sections)
     if request.get('draft_advice') is True:
         if school or not scoped:
@@ -348,11 +358,13 @@ def build_bundle(base,request,frozen,*,include_reported_results=True,revision_se
         return _advice_bundle(base, request, frozen, sections, editing, revision_figures)
     seed_contract={k:deepcopy(v) for k,v in frozen.items()
                    if k not in ('document_kind','article_scope_version','numeric_contract_version','article_instruction_revision',
-                                'response_stream','scope_figure_input','skills_snapshot')}
+                                'response_stream','scope_figure_input','skills_snapshot','sci_initial_capacity')}
     seed_contract['schema_version']=3 if school else 2
     seed_request=dict(request,mode='full_draft',target_section=None,keywords=writing_keywords(base,request))
     if school:seed_contract.update(numeric_contract_version=2,school_content_version='school-live-v1')
-    seed=(school_bundle if school else common)(base,seed_request,seed_contract) if school else common(base,seed_request,execution_contract=seed_contract)
+    seed = (school_bundle(base, seed_request, seed_contract) if school else
+            common(base, seed_request, execution_contract=seed_contract,
+                   compact_projection=bool(frozen.get('sci_initial_capacity'))))
     payload=json.loads(json.loads(seed['wire_json'])['input']);local=seed['local_manifest']
     if include_reported_results and not school and request['article_type']=='research':
         from .numeric_contract import add_reported_results
@@ -396,6 +408,8 @@ def build_bundle(base,request,frozen,*,include_reported_results=True,revision_se
         add_notes(base, request, payload, local, mapping)
         place_illustrations(base, payload, mapping)
         add_illustration_context(base, payload, local)
+        if revision_figures and not scoped:
+            payload.pop('review_figure_guidance', None)
     output_ids=[mapping[sid] for sid in editing['target_section_ids']]
     if scoped:
         payload['draft_revision_scope'] = 'selected_sections'
@@ -465,9 +479,9 @@ def build_bundle(base,request,frozen,*,include_reported_results=True,revision_se
                          revision_figures=revision_figures, figure_section_ids=editing['target_section_ids'])
 
 
-def output_schema(payload,*,require_paragraph=False):
+def output_schema(payload,*,require_paragraph=False,inline_bindings=True):
     from .numeric_contract import output_schema as numeric_schema
-    result=numeric_schema(payload);ids=payload['writing_scope']['output_section_ids']
+    result=numeric_schema(payload,inline_bindings=inline_bindings);ids=payload['writing_scope']['output_section_ids']
     section=result['$defs']['LiveSection']['properties']
     section['id']=dict(type='string',enum=ids)
     if require_paragraph:

@@ -94,14 +94,37 @@ def test_customer_sci_creation_requires_valid_settings():
         assert client.get(PROJECTS).json() == []
 
 
-def test_customer_can_start_a_paper_without_a_target_journal_or_findings():
+def test_customer_selects_a_target_journal_to_start_a_paper_without_findings():
     with TestClient(app) as client:
-        sign_in(client, 'sci-no-journal@manuscript.test', 'customer')
+        sign_in(client, 'sci-choose-journal@manuscript.test', 'customer')
         for kind in ('research', 'narrative_review'):
             settings = {key: SCI_SETTINGS[key] for key in ('keywords', 'proposed_title')}
             settings['article_type'] = kind
+            missing = create(client, kind, **project_body('sci', sci_settings=settings))
+            assert missing.status_code == 422, missing.text
+            settings['target_journal'] = {'choice': 'science', 'name': None}
             project = project_path(create(client, kind, **project_body('sci', sci_settings=settings)))
-            assert client.get(project + '/sci-settings').json()['settings']['target_journal'] is None
+            assert client.get(project + '/sci-settings').json()['settings']['target_journal'] == settings['target_journal']
+
+
+def test_older_sci_without_a_journal_can_be_read_and_replayed_but_requires_one_on_edit():
+    with TestClient(app) as client:
+        owner = sign_in(client, 'sci-older-no-journal@manuscript.test', 'customer')
+        old_settings = SCI_SETTINGS | {'target_journal': None}
+        body = project_body('sci', sci_settings=old_settings)
+        recorded = ProjectStore(get_data_dir(), owner_id=owner).create_project(**body, idempotency_key='old-sci')
+        replay = create(client, 'old-sci', **body)
+        assert replay.status_code == 200 and replay.json()['id'] == recorded['id'], replay.text
+        url = f'{PROJECTS}/{recorded["id"]}/sci-settings'
+        stored = client.get(url).json()
+        assert stored['settings']['target_journal'] is None
+        edit = old_settings | {'proposed_title': 'Updated synthetic title'}
+        invalid = client.put(url, json={'expected_revision': stored['revision'], 'settings': edit})
+        assert invalid.status_code == 422, invalid.text
+        saved = client.put(url, json={'expected_revision': stored['revision'],
+                                      'settings': edit | {'target_journal': SCI_SETTINGS['target_journal']}})
+        assert saved.status_code == 200, saved.text
+        assert saved.json()['settings']['target_journal'] == SCI_SETTINGS['target_journal']
 
 
 def test_customer_rejects_settings_on_thesis_and_writing_deliveries_on_new_analysis():

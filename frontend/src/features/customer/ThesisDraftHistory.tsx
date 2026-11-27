@@ -1,10 +1,10 @@
 import { useI18n } from '../../shared/i18n'
-import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import ManuscriptExports from '../manuscripts/ManuscriptExports'
 import ManuscriptPreview from '../manuscripts/ManuscriptPreview'
 import { isAdoptedSnapshot, manuscriptBase, manuscriptVersionPath, validManuscript, type Manuscript, type ManuscriptVersion } from '../manuscripts/manuscriptTypes'
 import type { Round } from '../reviews/reviewTypes'
 import { projectBase, useResearchRead } from '../research-results/api'
+import CustomerDownloadLink from './CustomerDownloadLink'
 import type { UpdatePaperRoute } from './customerPaperNavigation'
 
 type PastDraft = { manuscript_id: string; revision: number; request_id: string; title: string; created_at: string; previous_request_id: string | null }
@@ -12,7 +12,7 @@ type Props = { projectId: string; update: UpdatePaperRoute }
 
 function Exports({ version }: { version: ManuscriptVersion }) {
   return <>{version.exports.filter(file => file.status === 'succeeded' && file.download_url && file.filename).map(file =>
-    <ProjectDownloadLink key={file.id} href={file.download_url!} filename={file.filename!}>{file.filename}</ProjectDownloadLink>)}</>
+    <CustomerDownloadLink key={file.id} href={file.download_url!} filename={file.filename!}>{file.filename}</CustomerDownloadLink>)}</>
 }
 
 export function ThesisHistory({ projectId, update }: Props) {
@@ -26,14 +26,17 @@ export function ThesisHistory({ projectId, update }: Props) {
     <h2>{t('历史版本')}</h2>
     {requests.data?.items?.map(draft => <article key={draft.request_id}>
       <div><strong>{draft.title}</strong><p>{t(draft.previous_request_id ? '修改稿' : '初稿')} · {new Date(draft.created_at).toLocaleString(locale)}</p></div>
-      <button onClick={() => update({manuscript:draft.manuscript_id, revision:draft.revision, writingRequest:draft.request_id, view:'writing'}, true)}>{t('查看这版正文')}</button>
+      <button type="button" className="button-accent" onClick={() => update({manuscript:draft.manuscript_id, revision:draft.revision, writingRequest:draft.request_id, view:'writing'}, true)}>{t('查看这版正文')}</button>
     </article>)}
     {saved.map(({m,v}) => <article key={v.id}><div><strong>{v.snapshot.title}</strong>
-      <p>{t('已保存稿件')} · {t('第 {number} 版',{number:v.revision})}</p><Exports version={v}/></div>
-      <button onClick={() => update({manuscript:m.id, revision:v.revision, writingRequest:undefined, view:'saved'}, true)}>{t('查看这版正文')}</button>
+      <p>{t('已保存稿件')} · {t('第 {number} 版',{number:v.revision})}</p></div>
+      <div className="customer-actions">
+        <Exports version={v}/>
+        <button type="button" className="button-accent" onClick={() => update({manuscript:m.id, revision:v.revision, writingRequest:undefined, view:'saved'}, true)}>{t('查看这版正文')}</button>
+      </div>
     </article>)}
     {[requests, manuscripts].map((read, i) => read.error && <p role="alert" key={i}>{t(read.error)} <button onClick={read.refresh}>{t('重试')}</button></p>)}
-    {(requests.loading || manuscripts.loading) && <p role="status">{t('正在读取稿件……')}</p>}
+    {(requests.loading || manuscripts.loading) && <p className="visually-hidden" role="status">{t('正在读取稿件……')}</p>}
     {requests.data?.items?.length === 0 && manuscripts.data && !saved.length && <p>{t('还没有历史稿件。')}</p>}
   </section>
 }

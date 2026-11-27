@@ -6,8 +6,8 @@ import { clearApiSession, setApiSession } from '../../shared/api/client'
 import { setLocale } from '../../shared/i18n'
 import CustomerWorkspace from './CustomerWorkspace'
 
-vi.mock('../files/BatchUpload', () => ({ default: () => <input aria-label="模拟已选文件" defaultValue="" /> }))
 vi.mock('../literature/ProjectLiterature', () => ({ default: () => <p>文献列表</p> }))
+const uploadLabel = '批量选择 Excel / Word / 图片文件'
 
 const research = { id: 'ra', name: '分析项目甲', research_topic: '生存', project_type: 'research', file_count: 0,
   created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z' }
@@ -48,11 +48,12 @@ describe('published analysis results on the thesis writing materials page', () =
         file_count: 0, created_at: research.created_at, updated_at: research.updated_at, default_output_language: 'zh-CN' })
       if (url === base + '/thesis-requirements') return Response.json({revision:1,language:'zh-CN',keywords:[],title:'',
         school:'',education_level:'',template:null,sections:[]})
+      if (url.startsWith(base + '/file-batches?')) return Response.json({ items: [], total: 0, page: 1, page_size: 5 })
       if (url.startsWith(base + '/files?')) {
         const items = uploaded ? [file('f1', '生存分析.docx'), file('f2', '其他.docx')] : []
         return Response.json({ items, total: items.length, page: 1, page_size: 5 })
       }
-      if (url.startsWith(base + '/paper-materials?')) {
+      if (url.startsWith(base + '/paper-materials')) {
         await notesReady
         return Response.json({ items: [], targets: [{ id: 't1', label: '发现 1' }] })
       }
@@ -70,7 +71,7 @@ describe('published analysis results on the thesis writing materials page', () =
   it('takes a result, keeps the chosen upload while away and prefills where a matching file came from', async () => {
     window.history.replaceState(null, '', '#' + files)
     render(<CustomerWorkspace />)
-    fireEvent.change(await screen.findByLabelText('模拟已选文件'), { target: { value: '已选 生存分析.docx' } })
+    fireEvent.change(await screen.findByLabelText(uploadLabel), { target: { files: [new File(['bytes'], '待上传说明.docx')] } })
     fireEvent.click(screen.getByRole('button', { name: '从我的分析项目取用成果' }))
     await waitFor(() => expect(window.location.hash).toBe(target))
     expect(await screen.findByText('正在为“写作资料”取分析成果')).toBeTruthy()
@@ -85,7 +86,8 @@ describe('published analysis results on the thesis writing materials page', () =
     await waitFor(() => expect(window.location.hash).toBe('#' + files))
     // Focus comes back to the writing materials instead of dropping to the page body.
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '从我的分析项目取用成果' })))
-    expect(screen.getByLabelText('模拟已选文件')).toHaveProperty('value', '已选 生存分析.docx')
+    expect(screen.getByText(/待上传说明\.docx/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText(uploadLabel), { target: { files: [] } })
     let finishReadingNotes!: () => void
     notesReady = new Promise<void>(resolve => { finishReadingNotes = resolve })
     uploaded = true
@@ -116,7 +118,7 @@ describe('published analysis results on the thesis writing materials page', () =
       returnLabel: 'paragraph', returnSection: '讨论', returnParagraph: '2' }).toString()
     window.history.replaceState(null, '', '#' + files + '&' + paragraph)
     render(<CustomerWorkspace />)
-    await screen.findByLabelText('模拟已选文件')
+    await screen.findByLabelText(uploadLabel)
     expect(screen.getByRole('heading', { name: '上传资料' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '从我的分析项目取用成果' })).toBeTruthy()
   })
@@ -152,7 +154,7 @@ it('opens a historical SCI results-picker link on the upload page without fetchi
   render(<CustomerWorkspace />)
   await screen.findByRole('button', { name: '下一步 图件拼版' })
   expect(screen.getByRole('heading', { name: '上传资料', level: 1 })).toBeTruthy()
-  expect(screen.getByLabelText('模拟已选文件')).toBeTruthy()
+  expect(screen.getByLabelText(uploadLabel)).toBeTruthy()
   expect(screen.queryByRole('button', { name: '从我的分析项目取用成果' })).toBeNull()
   const urls = fetch.mock.calls.map(([url]) => url)
   expect(urls.some(url => url.startsWith('/api/v1/projects?') || url.startsWith(deliveries))).toBe(false)

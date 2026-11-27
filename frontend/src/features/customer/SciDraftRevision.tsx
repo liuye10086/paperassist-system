@@ -233,6 +233,8 @@ function RevisionForm({projectId, manuscriptId, revision, requestId, thesis, onA
           : <SciDraftProgress {...revisionRequest} read={result} reply sections={editable} onReveal={scrollToLatest}/>)}
         {status && <p className="sci-revision-reply" role="status">{t(status)}</p>}
         {error && <p className="error-panel" role="alert">{t(error)}</p>}
+        {awaitingReceipt && !status && <button type="button" className="button-quiet"
+          onClick={() => void submit(true)}>{t('查看提交结果')}</button>}
         {draft.createdId && ['failed', 'cancelled'].includes(result.data?.status ?? '') &&
           <button type="button" className="button-quiet" onClick={() => edit(draft.feedback)}>{t('编辑修改意见')}</button>}
       </div>
@@ -249,7 +251,6 @@ function RevisionForm({projectId, manuscriptId, revision, requestId, thesis, onA
                 onClick={() => fileInput.current?.click()}><WorkspaceIcon name="plus"/>{t('上传意见文件')}</button>
               <button type="button" className="button-quiet" disabled={scopeDisabled || !editable.length} aria-expanded={choosing && !scopeDisabled}
                 onClick={toggleMultiple}>{t(choosing ? '取消多选' : '多选章节')}</button>
-              {awaitingReceipt && <button type="button" className="button-quiet" onClick={() => void submit(true)}>{t('查看提交结果')}</button>}
               <button type="submit" className="button-primary" disabled={!canSubmit}
                 title={t('发送后将调用外部写作服务并产生写作费用。所选章节带图时，图片会随正文一起发送。')}>{t('发送修改意见')}</button>
             </div>

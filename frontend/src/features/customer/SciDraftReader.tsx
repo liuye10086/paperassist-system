@@ -1,5 +1,4 @@
 import { Fragment, useId, useState } from 'react'
-import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import { useI18n } from '../../shared/i18n'
 import { taskStatusLabel } from '../../shared/i18n/protocolLabels'
 import { readingScopeLabels } from '../manuscripts/ParagraphReferenceExcerpts'
@@ -8,6 +7,7 @@ import { RESEARCH_TIMEOUT_MS, useResearchRead } from '../research-results/api'
 import TaskPendingAction from '../tasks/TaskPendingAction'
 import { taskErrorMessage } from '../tasks/taskApi'
 import { isWorkspace, type TaskWorkspace } from '../tasks/taskTypes'
+import CustomerDownloadLink from './CustomerDownloadLink'
 import SciDraftReplyStream from './SciDraftReplyStream'
 import { inProgress, useSciDraftRead, type Citation, type Draft, type DraftChange, type DraftRead, type DraftRequest, type Group, type Paragraph, type Section } from './useSciDraftRead'
 import './sciDraftReader.css'
@@ -117,15 +117,12 @@ export function SciDraftProgress({projectId, requestId, read, reply = false, sec
 
 export function SciDraftWordDownload({read, thesis}: {read: DraftRead; thesis?: boolean}) {
   const { t } = useI18n()
-  const [downloaded, setDownloaded] = useState(false)
   const detail = read.data
   if (detail?.status !== 'succeeded' || !detail.draft) return null
-  return <>
-    <ProjectDownloadLink href={`${read.base}/word?revision=${detail.revision}`}
-      filename={detail.draft.title.slice(0, 80).replace(/[\\/]/g, '-') + '.docx'} timeoutMs={RESEARCH_TIMEOUT_MS}
-      onDownloaded={() => setDownloaded(true)}>{t(thesis ? '按学校模板下载 Word' : '下载 Word')}</ProjectDownloadLink>
-    {downloaded && <span role="status">{t('Word 已交给浏览器下载。')}</span>}
-  </>
+  return <CustomerDownloadLink href={`${read.base}/word?revision=${detail.revision}`}
+    filename={detail.draft.title.slice(0, 80).replace(/[\\/]/g, '-') + '.docx'} timeoutMs={RESEARCH_TIMEOUT_MS}>
+    {t(thesis ? '按学校模板下载 Word' : '下载 Word')}
+  </CustomerDownloadLink>
 }
 
 export function SciDraftChanges({changes}: {changes: DraftChange[]}) {
@@ -163,29 +160,34 @@ export function SciDraftView({ projectId, manuscriptId, revision, requestId, the
     </details>}
     <article lang={draft.output_language} className="sci-draft-body">
       {thesis && <h2>{draft.title}</h2>}
-      {draft.sections.map(section => <section key={section.id} lang={section.output_language}
-        data-sci-revision-section={revisionScope?.editable.has(section.id) ? section.id : undefined}
-        data-sci-revision-selected={revisionScope?.selected.has(section.id) ? '' : undefined}
-        onClick={revisionScope?.focus && revisionScope.editable.has(section.id) ? event => {
-          if (event.target instanceof Element && !event.target.closest('a, button, input') && window.getSelection()?.isCollapsed !== false) {
-            revisionScope.focus?.(section.id)
-          }
-        } : undefined}>
-        {revisionScope?.choosing && revisionScope.editable.has(section.id) &&
-          <input type="checkbox" className="sci-revision-section-checkbox"
-            aria-label={t('选择 {section}', {section:section.heading})} checked={revisionScope.selected.has(section.id)}
-            onChange={() => revisionScope.toggle(section.id)}/>}
-        {(thesis || section.id !== 'title') && <DraftHeading heading={section.heading} level={section.level}/>}
-        {thesis && section.purpose === 'abstract' && section.output_language === 'en' && draft.english_title &&
-          <p className="sci-draft-english-title"><strong>{draft.english_title}</strong></p>}
-        {section.paragraphs.map(p => <Fragment key={p.id}>
-          <DraftParagraph paragraph={p} titleLevel={!thesis && section.id === 'title' ? section.level : undefined} changed={changedIds.has(p.id)}/>
-          {p.figures?.map(figure => <DraftFigure key={figure.id} figure={figure} reader={base} revision={revision} english={(section.output_language ?? draft.output_language) === 'en'}/>)}
-        </Fragment>)}
-        <DraftKeywords section={section} draft={draft} thesis={!!thesis}/>
-        {section.purpose === 'references' && bibliography}
-        {section.groups.map(group => <Illustrations key={group.id} group={group} section={section} reader={base} revision={revision} english={(section.output_language ?? draft.output_language) === 'en'}/>)}
-      </section>)}
+      {draft.sections.map(section => <Fragment key={section.id}>
+        <section lang={section.output_language}
+          data-sci-revision-section={revisionScope?.editable.has(section.id) ? section.id : undefined}
+          data-sci-revision-selected={revisionScope?.selected.has(section.id) ? '' : undefined}
+          onClick={revisionScope?.focus && revisionScope.editable.has(section.id) ? event => {
+            if (event.target instanceof Element && !event.target.closest('a, button, input') && window.getSelection()?.isCollapsed !== false) {
+              revisionScope.focus?.(section.id)
+            }
+          } : undefined}>
+          {revisionScope?.choosing && revisionScope.editable.has(section.id) &&
+            <input type="checkbox" className="sci-revision-section-checkbox"
+              aria-label={t('选择 {section}', {section:section.heading})} checked={revisionScope.selected.has(section.id)}
+              onChange={() => revisionScope.toggle(section.id)}/>}
+          {(thesis || section.id !== 'title') && <DraftHeading heading={section.heading} level={section.level}/>}
+          {thesis && section.purpose === 'abstract' && section.output_language === 'en' && draft.english_title &&
+            <p className="sci-draft-english-title"><strong>{draft.english_title}</strong></p>}
+          {section.paragraphs.map(p => <Fragment key={p.id}>
+            <DraftParagraph paragraph={p} titleLevel={!thesis && section.id === 'title' ? section.level : undefined} changed={changedIds.has(p.id)}/>
+            {p.figures?.map(figure => <DraftFigure key={figure.id} figure={figure} reader={base} revision={revision} english={(section.output_language ?? draft.output_language) === 'en'}/>)}
+          </Fragment>)}
+          <DraftKeywords section={section} draft={draft} thesis={!!thesis}/>
+          {section.purpose === 'references' && bibliography}
+          {section.groups.map(group => <Illustrations key={group.id} group={group} section={section} reader={base} revision={revision} english={(section.output_language ?? draft.output_language) === 'en'}/>)}
+        </section>
+        {!thesis && section.id === 'title' && !!draft.title_fields?.length && <dl className="sci-draft-title-fields">
+          {draft.title_fields.map(label => <div key={label}><dt>{label}</dt><dd>{t('在 Word 填写')}</dd></div>)}
+        </dl>}
+      </Fragment>)}
       {draft.acknowledgements && <section><h3>{en ? 'Acknowledgements' : '致谢'}</h3><p>{draft.acknowledgements}</p></section>}
       {!draft.sections.some(s => s.purpose === 'references') && bibliography && <section>
         <DraftHeading heading={draft.reference_heading?.heading ?? (en ? 'References' : '参考文献')} level={draft.reference_heading?.level ?? 1}/>

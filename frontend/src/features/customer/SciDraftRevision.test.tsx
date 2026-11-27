@@ -92,6 +92,37 @@ function server(lost = false, original: LiveRequest = parent) {
   return {posts, reads, records, input: () => bundle.request_json}
 }
 
+it('shows author fields and manuscript sections without the template banner', async () => {
+  const api = server()
+  const fallback = globalThis.fetch
+  const detail = draftDetail('w1', null)
+  const draft = detail.draft!
+  const titleFields = ['Author list', 'Author affiliations and footnotes', 'Contact information']
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/w1/draft-reader?revision=1')) {
+      return Response.json({...detail, draft: {...draft, sci_template_name:'Cell Press 风格研究论文',
+        title_fields:titleFields, keywords:['observations'], sections:[draft.sections[0],
+          {id:'abstract', heading:'Summary', level:1, groups:[],
+            paragraphs:[{id:'summary-p', parts:[{text:'Existing abstract.', citations:[]}]}]}, ...draft.sections.slice(1)]}})
+    }
+    return fallback(url, init)
+  }))
+  render(<SciDraftRevision {...props}/>)
+  const preview = within(screen.getByRole('region', {name:'稿件预览'}))
+  const title = await preview.findByRole('heading', {name:'Original draft'})
+  expect(preview.queryByText('Cell Press 风格研究论文')).toBeNull()
+  const entries = [title, ...titleFields.map(label => preview.getByText(label)),
+    preview.getByRole('heading', {name:'Summary'}), preview.getByText(/observations/),
+    preview.getByRole('heading', {name:'Discussion'})]
+  entries.slice(1).forEach((entry, index) => {
+    expect(entries[index].compareDocumentPosition(entry) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+  fireEvent.click(screen.getByRole('button', {name:'多选章节'}))
+  expect(preview.queryByRole('checkbox', {name:'选择 Author list'})).toBeNull()
+  expect(preview.getByRole('checkbox', {name:'选择 Discussion'})).toBeTruthy()
+  expect(api.posts).toEqual([])
+})
+
 it('uses the shared thesis chat to upload, revise chapters, ask advice and follow up while retaining the school protocol', async () => {
   const api = server(false, school)
   const adjust = vi.fn()
@@ -366,7 +397,8 @@ it('loads scoped submission data in parallel and restores a lost receipt after r
   await screen.findByRole('alert')
   first.unmount()
   render(<SciDraftRevision {...props}/>)
-  fireEvent.click(screen.getByRole('button', {name: '查看提交结果'}))
+  const log = within(screen.getByRole('log', {name:'修改记录'}))
+  fireEvent.click(log.getByRole('button', {name:'查看提交结果'}))
   await screen.findByRole('heading', {name:'Revised draft w2'})
   expect(api.reads.filter(endpoint => endpoint === 'writing-requests')).toHaveLength(1)
   expect(api.posts).toEqual(['writing-previews', 'writing-authorizations', 'writing-requests'])

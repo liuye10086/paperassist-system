@@ -208,8 +208,12 @@ class ProjectStore(MaterialVisibility):
                     result = self.project(replay['project_id'])
                     result['_creation_replayed'] = True
                     return result
-            if self.customer and project_type == 'sci' and not (sci_settings and 'proposed_title' in sci_settings):
-                raise StorageError('sci_settings_required', '请填写完整的 SCI 建项资料。', 422)
+            if self.customer and project_type == 'sci':
+                if not sci_settings or 'proposed_title' not in sci_settings:
+                    raise StorageError('sci_settings_required', '请填写完整的 SCI 建项资料。', 422)
+                if sci_settings.get('target_journal') is None:
+                    from app.domain.research_intake.sci_settings import sci_target_journal_required
+                    raise sci_target_journal_required()
             if self.customer and project_type == 'research' and delivery_kinds != ['analysis']:
                 raise StorageError('research_requirement_invalid', '分析项目建项须选择数据分析交付。', 422)
             db.execute("""INSERT INTO projects

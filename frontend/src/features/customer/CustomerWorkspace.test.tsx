@@ -51,6 +51,26 @@ it.each([
   expect(await screen.findByText('历史材料.xlsx')).toBeTruthy()
 })
 
+it('shows saved SCI findings as plain text under one label', async () => {
+  const findings = ['处理组的测量值较高。\n当前结果为描述性观察。', '两组的离散程度不同。']
+  const settings = {
+    article_type: 'research', proposed_title: '测量结果对照', keywords: ['甲', '乙', '丙', '丁'],
+    target_journal: { choice: 'other', name: 'PLOS ONE' },
+    figure_findings: findings.map((finding, index) => ({ id: `finding-${index}`, finding })),
+  }
+  window.history.replaceState(null, '', `#customer-project=${project.id}&step=details`)
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url === base) return Response.json({ ...project, project_type: 'sci' })
+    if (url === base + '/sci-settings') return Response.json({ settings, revision: 1 })
+    return new Response(null, { status: 404 })
+  }))
+  render(<CustomerWorkspace />)
+
+  const details = within(await screen.findByRole('region', { name: 'SCI 建项资料' }))
+  const label = await details.findByText('主要发现')
+  expect(label.nextElementSibling?.textContent).toBe(findings.join('\n\n'))
+})
+
 it('creates a customer project, opens five steps, and sends feedback on a published delivery', async () => {
   const feedback: Feedback[] = []
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
@@ -181,7 +201,7 @@ it('validates SCI inputs, creates a review project, and reads its saved SCI sett
   const sci = { ...project, id: 'sci-project', project_type: 'sci' }
   const settings = {
     article_type: 'narrative_review', proposed_title: '单细胞研究的文献综述',
-    target_journal: null,
+    target_journal: { choice: 'other', name: 'Example Research Journal' },
     keywords: ['RNA-seq', '细胞分化', '单细胞', '转录组'],
     review_sections: [],
   }
@@ -197,12 +217,14 @@ it('validates SCI inputs, creates a review project, and reads its saved SCI sett
   fireEvent.click(screen.getAllByRole('button', { name: '新建项目' })[0])
   const dialog = within(screen.getByRole('dialog'))
   fireEvent.change(dialog.getByLabelText('项目类型'), { target: { value: 'sci' } })
+  const articleType = dialog.getByRole('combobox', { name: '论文类型' })
+  expect(within(articleType).getAllByRole('option').map(option => option.textContent)).toEqual(['研究型论文', '综述'])
   fireEvent.change(dialog.getByLabelText('项目名称'), { target: { value: sci.name } })
   fireEvent.change(dialog.getByLabelText('研究目标'), { target: { value: sci.research_topic } })
   fireEvent.click(dialog.getByRole('button', { name: '创建项目' }))
   expect(dialog.getByRole('alert').textContent).toContain('请选择论文类型。')
   expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
-  fireEvent.change(dialog.getByLabelText('论文类型'), { target: { value: 'narrative_review' } })
+  fireEvent.change(articleType, { target: { value: 'narrative_review' } })
   fireEvent.change(dialog.getByLabelText('拟定论文题目'), { target: { value: settings.proposed_title } })
   for (const keyword of settings.keywords) {
     fireEvent.change(dialog.getByLabelText('关键词'), { target: { value: ` ${keyword} ` } })
@@ -210,6 +232,25 @@ it('validates SCI inputs, creates a review project, and reads its saved SCI sett
   }
   expect(dialog.queryByLabelText('主要结果或结论')).toBeNull()
   expect(dialog.queryByRole('button', { name: '添加小标题' })).toBeNull()
+  fireEvent.click(dialog.getByRole('button', { name: '创建项目' }))
+  expect(dialog.getByRole('alert').textContent).toContain('请选择一个目标期刊。')
+  expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+
+  const journals = within(dialog.getByRole('group', { name: '目标期刊' }))
+  const nature = journals.getByRole('radio', { name: 'Nature' })
+  const cell = journals.getByRole('radio', { name: 'Cell' })
+  const journalName = journals.getByRole('textbox', { name: '期刊名称' })
+  fireEvent.click(nature)
+  fireEvent.click(cell)
+  expect(nature).toHaveProperty('checked', false)
+  expect(cell).toHaveProperty('checked', true)
+  expect(journalName).toHaveProperty('disabled', true)
+  fireEvent.click(journals.getByRole('radio', { name: '其他期刊' }))
+  expect(journalName).toHaveProperty('disabled', false)
+  fireEvent.click(dialog.getByRole('button', { name: '创建项目' }))
+  expect(dialog.getByRole('alert').textContent).toContain('请填写具体期刊名称。')
+  expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  fireEvent.change(journalName, { target: { value: ` ${settings.target_journal.name} ` } })
   fireEvent.click(dialog.getByRole('button', { name: '创建项目' }))
   expect(await screen.findByRole('heading', { name: '上传资料', level: 1 })).toBeTruthy()
   expect(screen.getByRole('button', { name: '第 2 步：上传资料', current: 'step' })).toBeTruthy()
@@ -230,13 +271,17 @@ it('creates a thesis with its own requirements after switching away from an SCI 
   fireEvent.change(screen.getByLabelText('拟定论文题目'), { target: { value: 'Saved SCI draft' } })
   fireEvent.change(type, { target: { value: 'thesis' } })
   expect(screen.queryByLabelText('拟定论文题目')).toBeNull()
+  const degree = screen.getByRole('combobox', { name: '学位层次' })
+  const language = screen.getByRole('combobox', { name: '论文语种' })
+  expect(within(degree).getAllByRole('option').map(option => option.textContent)).toEqual(['本科', '硕士', '博士'])
+  expect(within(language).getAllByRole('option').map(option => option.textContent)).toEqual(['中文', '英文'])
   fireEvent.change(screen.getByLabelText('项目名称'), { target: { value: thesis.name } })
   fireEvent.change(screen.getByLabelText('研究目标'), { target: { value: thesis.research_topic } })
   fireEvent.click(screen.getByRole('button', { name: '创建项目' }))
   expect(screen.getByRole('alert').textContent).toContain('请选择学位层次。')
   expect(fetch).not.toHaveBeenCalled()
-  fireEvent.change(screen.getByLabelText('学位层次'), { target: { value: requirements.education_level } })
-  fireEvent.change(screen.getByLabelText('论文语种'), { target: { value: 'en' } })
+  fireEvent.change(degree, { target: { value: requirements.education_level } })
+  fireEvent.change(language, { target: { value: 'en' } })
   fireEvent.change(screen.getByLabelText('学校名称'), { target: { value: requirements.school } })
   fireEvent.change(screen.getByLabelText('论文题目'), { target: { value: requirements.title } })
   for (const word of requirements.keywords) {

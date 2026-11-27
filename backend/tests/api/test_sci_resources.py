@@ -181,7 +181,10 @@ def test_sci_resources_follow_edited_figure_and_keep_chapter_order(tmp_path):
         assert customer.put(resource, json=write).status_code == 422
         assert first['id'] not in {figure['id'] for figure in customer.get(resource).json()['figures']}
         first = finish(first)
-        assert customer.put(resource, json=dict(write, placements=[dict(revised, caption=' ')])).status_code == 422
+        without_caption = customer.put(resource, json=dict(write, placements=[dict(revised, caption=' ')]))
+        assert without_caption.status_code == 200, without_caption.text
+        assert without_caption.json()['placements'] == [dict(revised, caption='')]
+        write['expected_revision'] = without_caption.json()['revision']
         legacy = dict(figure_id=earlier, chapter_id='results', caption='Earlier caption.')
         saved = customer.put(resource, json=dict(write, placements=[legacy, revised]))
         assert saved.status_code == 200, saved.text

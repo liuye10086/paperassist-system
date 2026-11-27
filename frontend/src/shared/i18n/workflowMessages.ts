@@ -1,11 +1,8 @@
 export const workflowMessages: Record<string, string> = {
-  '展开摘要': 'Show full abstract',
-  '收起摘要': 'Collapse abstract',
   '文献与初稿': 'References and draft',
   '下一步 文献与初稿': 'Continue to references and draft',
   '图片会按学校模板安排到正文。上传后可在「设置配图」中指定章节、填写图注与出处。': 'Figures are placed in the body of your school template. After uploading, use Figure settings to choose a chapter or add a caption and source credit.',
   '保存并继续上传资料': 'Save and continue to uploads',
-  '目标期刊（选填）': 'Target journal (optional)',
   '主要结果（可稍后补充）': 'Main findings (can be added later)',
   '文件说明（选填）': 'File description (optional)',
   '综述图片会自动安排到正文。上传后可在「设置配图」中指定章节、填写图注与出处。': 'Review figures are placed in the text automatically. After uploading, choose Figure settings to select a section or add a caption and source credit.',

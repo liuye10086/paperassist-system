@@ -3,19 +3,34 @@ import { useI18n, apiError, safeError } from '../i18n'
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { apiFetch, captureApiSession, onApiSessionChanged } from '../api/client'
 import { captureProjectAccess } from '../api/projectAccess'
-type Props = { nativePrepared?:boolean; preparedFactsDigest?:string; timeoutMs?:number; href: string; filename: string; children: ReactNode; ariaLabel?: string; postBody?:unknown; onHttpError?: (status: number, body: unknown) => void
+type Props = {
+  href: string
+  filename: string
+  children: ReactNode
+  ariaLabel?: string
+  className?: string
+  showProgress?: boolean
+  renderError?: (message: string) => ReactNode
+  errorDurationMs?: number
+  nativePrepared?: boolean
+  preparedFactsDigest?: string
+  timeoutMs?: number
+  postBody?: unknown
+  onHttpError?: (status: number, body: unknown) => void
   /** Called once the browser was handed the downloaded file. */
-  onDownloaded?: () => void }
+  onDownloaded?: () => void
+}
 export default function ProjectDownloadLink(props: Props) {
   return <DownloadLink key={props.href} {...props} />
 }
 
-function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePrepared=false, preparedFactsDigest, onHttpError, onDownloaded, timeoutMs=STANDARD_REQUEST_TIMEOUT_MS }: Props) {
+function DownloadLink({href, filename, children, ariaLabel, className, showProgress = true, renderError, errorDurationMs, postBody,
+  nativePrepared = false, preparedFactsDigest, onHttpError, onDownloaded, timeoutMs = STANDARD_REQUEST_TIMEOUT_MS}: Props) {
   const { t } = useI18n()
   const post = nativePrepared || postBody !== undefined
   const [checkSession] = useState(captureApiSession)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<{message: string} | null>(null)
   const active = useRef(true)
   const request = useRef<AbortController | null>(null)
   useEffect(() => {
@@ -23,6 +38,11 @@ function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePre
     const unsubscribe = onApiSessionChanged(() => { request.current?.abort(); setBusy(false) })
     return () => { active.current = false; request.current?.abort(); unsubscribe() }
   }, [])
+  useEffect(() => {
+    if (!error || errorDurationMs === undefined) return
+    const timer = window.setTimeout(() => setError(null), errorDurationMs)
+    return () => window.clearTimeout(timer)
+  }, [error, errorDurationMs])
 
   function onLinkClick(event: MouseEvent<HTMLAnchorElement>) {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
@@ -35,7 +55,7 @@ function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePre
     const scope = captureProjectAccess(href)
     try { checkSession(); scope.check() } catch { return }
     const controller = new AbortController()
-    request.current = controller; setBusy(true); setError('')
+    request.current = controller; setBusy(true); setError(null)
     let timer = 0
     const check = () => {
       checkSession(); scope.check()
@@ -86,7 +106,7 @@ function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePre
       onDownloaded?.()
     } catch (cause) {
       if (active.current && !(cause instanceof DOMException && cause.name === 'AbortError')) {
-        setError(safeError(cause, '下载失败，请重试。'))
+        setError({message: safeError(cause, '下载失败，请重试。')})
       }
     } finally {
       window.clearTimeout(timer)
@@ -94,8 +114,15 @@ function DownloadLink({ href, filename, children, ariaLabel, postBody, nativePre
       if (active.current) setBusy(false)
     }
   }
-  return <>{!post
-    ?<a href={href} aria-label={ariaLabel} aria-busy={busy} aria-disabled={busy} onClick={onLinkClick}>{children}</a>
-    :<button type="button" aria-label={ariaLabel} aria-busy={busy} disabled={busy} onClick={()=>void download()}>{children}</button>}
-    {busy && <span role="status">{t("正在下载……")} {t("大文件可能需要数分钟，请保持页面打开。")}</span>}{error && <span role="alert" className="error-panel">{t(error)}</span>}</>
+  return <>
+    {post
+      ? <button type="button" className={className} aria-label={ariaLabel} aria-busy={busy} disabled={busy}
+          onClick={() => void download()}>{children}</button>
+      : <a href={href} className={className} aria-label={ariaLabel} aria-busy={busy} aria-disabled={busy}
+          onClick={onLinkClick}>{children}</a>}
+    {busy && showProgress && <span role="status">{t('正在下载……')} {t('大文件可能需要数分钟，请保持页面打开。')}</span>}
+    {error && (renderError
+      ? renderError(t(error.message))
+      : <span role="alert" className="error-panel">{t(error.message)}</span>)}
+  </>
 }

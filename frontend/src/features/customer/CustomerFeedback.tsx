@@ -72,7 +72,7 @@ export default function CustomerFeedback({ projectId, snapshotId, entries, onSav
         {t(busy ? '正在发送……' : draft.submission ? '重试发送反馈' : '发送反馈')}
       </button>
     </form>
-    {saved && <p role="status">{t('反馈已发送。')}</p>}
+    {saved && <p className="visually-hidden" role="status">{t('反馈已发送。')}</p>}
     {error && <p role="alert" className="error-panel">{t(error)}</p>}
     {entries.length > 0 && <ul className="customer-feedback-history" aria-label={t('反馈记录')}>
       {entries.map(entry => <li key={entry.id}><time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString(locale)}</time>

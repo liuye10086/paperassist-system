@@ -204,8 +204,7 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
   const updatesAssigned = current?.operation === 'confirm' && !!progress.data && analystStatuses.has(progress.data.status)
   return <section className="customer-section customer-requirements" aria-labelledby={headingId}>
     <h1 id={headingId} ref={headingRef} tabIndex={-1} className="visually-hidden">{t('选择需求')}</h1>
-    {root && !pending && <p className="customer-requirements__status" role="status">{t(status)}</p>}
-    {reading && <p role="status">{t('正在读取需求……')}</p>}
+    {reading && <p className="visually-hidden" role="status">{t('正在读取需求……')}</p>}
     {!root && !reading && error && <button type="button" onClick={reload}>{t('重新读取需求')}</button>}
     {root && <div className="customer-requirements__form" aria-busy={busy}>
       <div className="customer-requirements__row">
@@ -295,18 +294,20 @@ function RequirementsForm({ projectId, headingRef, onSubmitted, registerLeaveGua
         </>}
       </div>
     </div>}
-    {pending && <div className="customer-requirements__recovery">
-      <p role="status">{t(working ? '正在处理需求请求……' : '需求保存结果尚未确认。请核对或按原请求重试。')}</p>
-      {!working && <div className="customer-requirements__actions">
+    {pending && working && <p className="visually-hidden" role="status">{t('正在处理需求请求……')}</p>}
+    {pending && !working && <div className="customer-requirements__recovery">
+      <p role="status">{t('需求保存结果尚未确认。请核对或按原请求重试。')}</p>
+      <div className="customer-requirements__actions">
         <button type="button" disabled={reading} onClick={() => void resolveWrite(pending, true)}>{t('核对保存结果')}</button>
         <button type="button" disabled={reading} onClick={() => void resolveWrite(pending)}>{t('按原请求重试')}</button>
-      </div>}
+      </div>
     </div>}
     {root && updatesAssigned && <p className="customer-requirements__impact" role="note">
       {t('更新后，分析员需要按新需求重新核对。已发布的交付仍可下载。')}
     </p>}
     {root && <footer className="customer-requirements__actions">
-      <button type="button" disabled={disabled || conflict} onClick={() => save('save')}>{t('保存草稿')}</button>
+      {!pending && <span className="customer-requirements__status" role="status">{t(status)}</span>}
+      <button type="button" className="button-accent" disabled={disabled || conflict} onClick={() => save('save')}>{t('保存草稿')}</button>
       <button type="button" className="button-primary" disabled={disabled || conflict} onClick={() => save('confirm')}>
         {t(updatesAssigned ? '更新已提交的需求' : '提交需求')}
       </button>

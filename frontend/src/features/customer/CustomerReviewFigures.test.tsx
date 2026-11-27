@@ -22,7 +22,7 @@ function open(review: boolean, existing?: PaperMaterialNote) {
   const writes: { file_id: string; result: string; target_id: string | null; expected_revision: number }[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (url.startsWith(base + '/files?')) return Response.json({ items: files, total: files.length })
-    if (url.startsWith(base + '/paper-materials?')) return Response.json({
+    if (url === base + '/paper-materials') return Response.json({
       items: note ? [note] : [], targets, review_figure_placement: review,
     })
     if (url.startsWith(base + '/paper-materials/') && init?.method === 'PUT') {

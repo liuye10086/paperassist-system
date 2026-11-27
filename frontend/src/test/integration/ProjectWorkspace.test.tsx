@@ -16,22 +16,30 @@ const project: Project = { id: 'p1', name: '药学项目', research_topic: '分�
   created_at: '2026-09-29T10:00:00Z', updated_at: '2026-09-29T10:00:00Z' }
 const record = { id: 'f1', project_id: 'p1', filename: '实验.xlsx', file_type: 'xlsx', size_bytes: 123,
   sha256: 'a'.repeat(64), uploaded_at: '2026-09-29T10:00:00Z', parse_status: 'parsed', error: null }
+const bioOriginal = { ...record, id: 'bio-f1', filename: 'counts.csv', file_type: 'bio_component', parse_status: 'stored' }
+const bioBatch = { id: 'bio-b1', project_id: 'p1', created_at: record.uploaded_at, items: [
+  { id: 'bi1', filename: bioOriginal.filename, file_id: bioOriginal.id, status: 'stored' },
+  { id: 'bi2', filename: 'samples.tsv', file_id: null, status: 'pending' },
+] }
 const preview = { filename: '实验.xlsx', file_type: 'xlsx', sheets: [
   { name: '数据', columns: ['组别', '数值'], row_count: 1, column_count: 2, preview_rows: [['A', 10]], warnings: [] },
   { name: '空表', columns: [], row_count: 0, column_count: 0, preview_rows: [], warnings: ['这是空表，没有可预览的数据。'] },
 ] }
 
-function api(options: { role?: 'analyst' | 'customer'; empty?: boolean; failed?: boolean; uploadFailed?: boolean; listFailsOnce?: boolean; slowPreview?: Promise<Response> } = {}) {
+function api(options: { role?: 'analyst' | 'customer'; empty?: boolean; failed?: boolean; uploadFailed?: boolean; bioHistory?: boolean; listFailsOnce?: boolean; slowPreview?: Promise<Response> } = {}) {
   const role = options.role ?? 'analyst'
   const projectListPath = role === 'analyst' ? '/api/v1/assigned-projects' : '/api/v1/projects'
   let projects: Project[] = options.empty ? [] : [project, { ...project, id: 'p2', name: '毕业论文项目', project_type: 'thesis', file_count: 0 }]
   let files: Array<Omit<typeof record, 'error'> & { error: { code: string; message: string } | null }> = options.empty ? [] : options.failed
     ? [{ ...record, parse_status: 'failed', error: { code: 'parse_failed', message: '文件损坏，请重新上传。' } }] : [record]
+  if (options.bioHistory) files.push(bioOriginal)
+  const batchedFileIds = new Set<string>()
   const uploadBatch = batchUploadFixture('p1', () => {
     const uploaded = options.uploadFailed
       ? { ...record, id: 'f2', parse_status: 'failed', error: { code: 'parse_failed', message: '文件损坏，请重新上传。' } }
       : { ...record, id: 'f2' }
     files = [...files, uploaded]
+    batchedFileIds.add(uploaded.id)
     projects = projects.map(item => item.id === 'p1' ? { ...item, file_count: files.length } : item)
     return uploaded
   })
@@ -82,7 +90,14 @@ function api(options: { role?: 'analyst' | 'customer'; empty?: boolean; failed?:
     }
     if (url === '/api/v1/projects/p1/files') return Response.json(files)
     if (url === '/api/v1/projects/p2/files') return Response.json([])
-    if (url.includes('/files?page=')) return Response.json(filePageFixture(url, url.includes('/p1/') ? files : []))
+    if (url.includes('/files?page=')) {
+      const projectFiles = url.includes('/p1/') ? files : []
+      const items = url.includes('outside_document_batches=true')
+        ? projectFiles.filter(file => !batchedFileIds.has(file.id)) : url.includes('outside_batch_profile=bioinformatics_v1')
+          ? projectFiles.filter(file => file.id !== bioOriginal.id) : projectFiles
+      return Response.json(filePageFixture(url, items))
+    }
+    if (url.includes('/bio-upload-batches?')) return Response.json(options.bioHistory ? { items: [bioBatch], total: 1 } : { items: [], total: 0 })
     if (url.endsWith('/preview')) return options.slowPreview ?? Response.json(preview)
     throw new Error(`Unexpected API: ${url}`)
   })
@@ -110,7 +125,7 @@ async function fillThesisFields(user: ReturnType<typeof userEvent.setup>) {
 
 const sidebar = () => within(screen.getByRole('complementary', { name: '主要导航' }))
 
-test('creates a project with a type and topic before uploading', async () => {
+test('creates a thesis project and continues to its upload step', async () => {
   const mock = api({ role: 'customer', empty: true })
   const user = userEvent.setup()
   render(<App />)
@@ -122,28 +137,24 @@ test('creates a project with a type and topic before uploading', async () => {
   await user.type(screen.getByLabelText('研究目标'), '药物疗效比较')
   await fillThesisFields(user)
   await user.click(screen.getByRole('button', { name: '创建项目' }))
-  await user.click(await screen.findByRole('button', { name: '写作资料与引用' }))
+  await user.click(await screen.findByRole('button', { name: '下一步 上传资料' }))
   await screen.findByLabelText('批量选择 Excel / Word / 图片文件')
   const call = mock.mock.calls.find(([url, init]) => url === '/api/v1/projects' && init?.method === 'POST')
   expect(JSON.parse(call![1]!.body as string)).toEqual({ name: '新的毕业论文', research_topic: '药物疗效比较', project_type: 'thesis', default_output_language: 'zh-CN',
     thesis_requirements: { education_level: '硕士', school: '示例大学', title: '比较研究', keywords: ['甲', '乙', '丙', '丁'] } })
-  expect(window.location.hash).toContain('p1')
+  expect(screen.getByRole('button', { name: '第 2 步：上传资料', current: 'step' })).toBeTruthy()
+  expect(window.location.hash).toBe('#customer-project=p1&step=materials')
 })
 
-test('defaults to research and rejects an explicitly cleared project type', async () => {
-  const mock = api({ role: 'customer', empty: true })
+test('defaults to research and offers only actual project types', async () => {
+  api({ role: 'customer', empty: true })
   const user = userEvent.setup()
-  // The retained project form also accepts an explicit empty option.
   render(<AuthBoundary><ProjectWorkspace /></AuthBoundary>)
   await screen.findByText('还没有项目，请先创建一个项目。')
   await user.click(screen.getByRole('button', { name: '新建研究项目' }))
-  expect((screen.getByLabelText('项目类型') as HTMLSelectElement).value).toBe('research')
-  await user.selectOptions(screen.getByLabelText('项目类型'), '')
-  await user.type(screen.getByLabelText('项目名称'), '新项目')
-  await user.type(screen.getByLabelText('研究主题'), '新主题')
-  fireEvent.submit(screen.getByLabelText('项目名称').closest('form')!)
-  expect((await screen.findByRole('alert')).textContent).toContain('请选择项目类型')
-  expect(mock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  const type = screen.getByLabelText<HTMLSelectElement>('项目类型')
+  expect(type.value).toBe('research')
+  expect(Array.from(type.options, option => option.value)).toEqual(['research', 'sci', 'thesis'])
 })
 
 test('resets to research after creating another project type', async () => {
@@ -193,11 +204,39 @@ test('uploads into selected project and refreshes file history', async () => {
   await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false))
   await user.upload(input, new File(['sample'], '实验.xlsx'))
   await user.click(screen.getByRole('button', { name: '开始上传' }))
-  await screen.findByText(/解析完成/)
+  const history = within(screen.getByRole('region', { name: '已上传资料' }))
+  const batch = within(await history.findByRole('article', { name: /^上传批次/ }))
+  await batch.findByText('解析完成')
   expect(screen.getByRole('heading', { name: '上传资料', level: 1 })).toBeTruthy()
   expect(screen.queryByRole('region', { name: '数据预览，可横向滚动' })).toBeNull()
   expect(mock.mock.calls.some(([url, init]) => url.includes('/file-batches/b1/items/') && init?.method === 'POST')).toBe(true)
-  await waitFor(() => expect(screen.getAllByRole('link', { name: '下载 实验.xlsx' })).toHaveLength(2))
+  const downloadLinks = () => screen.getAllByRole('link', { name: '下载 实验.xlsx' }).map(link => link.getAttribute('href')).sort()
+  const originals = ['/api/v1/projects/p1/files/f1/download', '/api/v1/projects/p1/files/f2/download']
+  await waitFor(() => expect(downloadLinks()).toEqual(originals))
+  expect(batch.getByText('文件性质')).toBeTruthy()
+  expect(batch.getByText('Excel 表格')).toBeTruthy()
+  expect(batch.getByRole('link', { name: '下载 实验.xlsx' }).getAttribute('href')).toBe(originals[1])
+  expect(within(history.getByRole('article', { name: '其他上传资料' })).getByRole('link', { name: '下载 实验.xlsx' }).getAttribute('href')).toBe(originals[0])
+  await user.click(screen.getByRole('button', { name: '测序数据与样本表' }))
+  await waitFor(() => expect(downloadLinks()).toEqual(originals))
+})
+
+test('shows sequencing originals once in the shared history and can restore an unfinished batch', async () => {
+  api({ role: 'customer', bioHistory: true })
+  const user = userEvent.setup()
+  render(<App />)
+  await user.click(await screen.findByRole('button', { name: '打开项目 药学项目' }))
+  await user.click(await screen.findByRole('button', { name: '下一步 上传资料' }))
+  await user.click(await screen.findByRole('button', { name: '测序数据与样本表' }))
+  const history = within(await screen.findByRole('region', { name: '已上传资料' }))
+  const batch = within(await history.findByRole('article', { name: /^上传批次/ }))
+  expect(batch.getByText('已上传')).toBeTruthy()
+  await history.findByRole('link', { name: '下载 实验.xlsx' })
+  expect(history.getAllByRole('link', { name: '下载 counts.csv' })).toHaveLength(1)
+  expect(batch.getByRole('link', { name: '下载 counts.csv' }).getAttribute('href')).toBe('/api/v1/projects/p1/files/bio-f1/download')
+  await user.click(batch.getByRole('button', { name: '继续上传' }))
+  expect(batch.getByLabelText('重新选择同一文件')).toBeTruthy()
+  expect(history.getAllByRole('article', { name: /^上传批次/ })).toHaveLength(1)
 })
 
 test('failed files show their localized error code and can download original', async () => {
@@ -265,9 +304,11 @@ test('failed batch parsing remains in history with a downloadable original', asy
   await waitFor(() => expect((input as HTMLInputElement).disabled).toBe(false))
   await user.upload(input, new File(['broken'], '实验.xlsx'))
   await user.click(screen.getByRole('button', { name: '开始上传' }))
-  await screen.findByText('Excel 解析失败，请用 Excel 打开并另存为 .xlsx 后重试。')
-  expect(await screen.findByText('解析失败')).toBeTruthy()
-  expect(screen.getAllByRole('link', { name: '下载 实验.xlsx' })).toHaveLength(2)
+  const history = within(await screen.findByRole('region', { name: '已上传资料' }))
+  await history.findByText('Excel 解析失败，请用 Excel 打开并另存为 .xlsx 后重试。')
+  expect(history.getByText(/解析失败$/)).toBeTruthy()
+  expect(screen.getAllByRole('link', { name: '下载 实验.xlsx' }).map(link => link.getAttribute('href')).sort())
+    .toEqual(['/api/v1/projects/p1/files/f1/download', '/api/v1/projects/p1/files/f2/download'])
   expect(screen.queryByRole('region', { name: '数据预览，可横向滚动' })).toBeNull()
 })
 

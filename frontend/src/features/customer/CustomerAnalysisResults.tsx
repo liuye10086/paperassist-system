@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Ref } from 'react'
 import { onApiSessionChanged } from '../../shared/api/client'
-import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
+import CustomerDownloadLink from './CustomerDownloadLink'
 import { safeError, useI18n } from '../../shared/i18n'
 import VersionLabel from '../../shared/VersionLabel'
 import { versionMinute } from '../../shared/versionLabelText'
@@ -129,18 +129,18 @@ export default function CustomerAnalysisResults({
       {t('暂时无法读取“{project}”的分析成果。', { project: project.name })}{' '}
       <button type="button" onClick={() => retryProject(project)}>{t('重试')}</button>
     </div>)}
-    {loading && <p role="status">{t('正在读取分析成果……')}</p>}
+    {loading && <p className="visually-hidden" role="status">{t('正在读取分析成果……')}</p>}
     {empty && <div className="empty-preview">
       <p>{t('还没有已发布的分析成果。分析完成后会在这里出现。')}</p>
       {returnTarget && <button type="button" className="button-primary" onClick={() => onReturn(returnTarget.href)}>
         {t('返回 {place}', { place: returnTarget.label })}
       </button>}
     </div>}
-    {rows.length > 0 && <ul className="customer-list" aria-label={t('已发布的分析成果')}>
+    {rows.length > 0 && <ul className="customer-list customer-card-list" aria-label={t('已发布的分析成果')}>
       {rows.map(({ project, delivery }) => {
         const current = selected?.projectId === project.id && selected.snapshotId === delivery.id
         return <li key={project.id + ':' + delivery.id}>
-          <button type="button" className="button-quiet" aria-current={current ? 'true' : undefined}
+          <button type="button" className="button-accent" aria-current={current ? 'true' : undefined}
             onClick={() => { if (!current) onSelect({ projectId: project.id, snapshotId: delivery.id }) }}>
             {project.name} · {delivery.title} · {versionMinute(delivery.published_at, locale)}
           </button>
@@ -178,7 +178,7 @@ function AnalysisResult({ project, snapshotId, purpose, returnTarget, onPick }: 
     {read.error && <div role="alert" className="error-panel">{t(read.error)}{' '}
       <button type="button" onClick={read.refresh}>{t('重试')}</button>
     </div>}
-    {!detail && !read.error && <p role="status">{t('正在读取成果文件……')}</p>}
+    {!detail && !read.error && <p className="visually-hidden" role="status">{t('正在读取成果文件……')}</p>}
     {detail && !valid && <p role="alert">{t('这份分析成果不可用，请重新选择。')}</p>}
     {valid && <>
       <div className="customer-delivery-row customer-delivery-heading">
@@ -186,8 +186,8 @@ function AnalysisResult({ project, snapshotId, purpose, returnTarget, onPick }: 
           <VersionLabel revision={detail.revision} savedAt={detail.published_at} />
         </p></div>
         {detail.package_url === base + '/download' && <div className="customer-actions">
-          <ProjectDownloadLink href={detail.package_url} filename={detail.title + '.zip'}
-            onDownloaded={() => picked(detail.members.map(member => member.name))}>{t('下载全部文件')}</ProjectDownloadLink>
+          <CustomerDownloadLink href={detail.package_url} filename={detail.title + '.zip'}
+            onDownloaded={() => picked(detail.members.map(member => member.name))}>{t('下载全部文件')}</CustomerDownloadLink>
         </div>}
       </div>
       <DeliveryMembers base={base} members={members} label={t('成果文件')}

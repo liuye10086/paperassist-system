@@ -30,12 +30,14 @@ export function isPaperDraftRejected(error: unknown) {
 // The article protocol accepts a review's own planned illustrations but excludes original study results.
 function reviewSources(snapshot: Snapshot) {
   const plan = snapshot.paper_plan
+  const configuredFigures = new Set(plan?.sci_figures?.map(item => item.figure_id))
   const sections = new Set(plan?.sections.map(section => section.id))
   const illustrations = new Map(plan?.materials.filter(item => sections.has(item.section_id) ||
     isNativeReviewFigure(item.section_id, item.kind, item.selection))
     .map(item => [item.selection.id, item]))
   return snapshot.sources.filter(source => {
     if (!(source.kind === 'analysis_run' || ['computed_results', 'user_results', 'image_observation'].includes(source.role))) return true
+    if (source.role === 'image_observation' && configuredFigures.has(source.id)) return true
     const item = illustrations.get(source.id)
     return plan?.kind === 'narrative_review' && source.kind === 'original' && item?.selection.kind === source.kind &&
       item.selection.file_id === source.file_id && item.selection.role === source.role &&
@@ -106,8 +108,8 @@ async function writingAttempt({projectId, manuscriptId, attemptKey, signal}: Dra
     return list.items.find((v): v is LiveRequest => v.schema_version === 2 &&
       (v.execution?.logical_task_id === logical || v.model_calls.some(call => call.logical_task_id === logical))) ?? null
   }
-  async function getCapabilities(only = false) {
-    const result = await request(previewUrl + (only ? '?capabilities_only=true' : ''),
+  async function getCapabilities() {
+    const result = await request(previewUrl + '?capabilities_only=true',
       (v): v is {capabilities: WritingCapabilities} => object(v) && validCapabilities(v.capabilities))
     return result.capabilities
   }
@@ -153,7 +155,7 @@ export async function submitPaperDraftRevision(submission: DraftAttempt & {
   }
   const [original, capabilities] = await Promise.all([
     attempt.request(attempt.requestUrl + '/' + encodeURIComponent(submission.requestId), attempt.live),
-    scoped ? attempt.getCapabilities(true) : undefined,
+    scoped ? attempt.getCapabilities() : undefined,
   ])
   const version = original.task.input_version
   const kind = original.candidate?.article_type ?? original.input.article_type ?? 'research'

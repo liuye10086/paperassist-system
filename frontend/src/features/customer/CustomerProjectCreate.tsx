@@ -110,9 +110,9 @@ export default function CustomerProjectCreate({ onCreated, onClose }: {
           {Object.entries(customerProjectTypeNames).map(([value, label]) =>
             <option value={value} key={value}>{t(label)}</option>)}
         </select></label>
-        <label>{t('项目名称')}<input placeholder={t('例如：药物干预后的表达变化研究')} required value={draft.name} maxLength={120} readOnly={!!draft.submission} disabled={busy}
+        <label>{t('项目名称')}<input required value={draft.name} maxLength={120} readOnly={!!draft.submission} disabled={busy}
           onChange={event => change({ name: event.target.value })} /></label>
-        <label>{t('研究目标')}<textarea placeholder={t('用一句话描述你想研究什么，或比较哪些差异。')} required value={draft.goal} maxLength={500} rows={3} readOnly={!!draft.submission} disabled={busy}
+        <label>{t('研究目标')}<textarea required value={draft.goal} maxLength={500} rows={3} readOnly={!!draft.submission} disabled={busy}
           onChange={event => change({ goal: event.target.value })} /></label>
       </div>
       {projectType === 'sci' && <SciSettingsFields draft={sci} disabled={locked} onChange={value => change({ sci: value })} onError={setError} />}

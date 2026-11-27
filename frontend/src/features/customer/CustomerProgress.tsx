@@ -1,9 +1,9 @@
 import type { Ref } from 'react'
-import ProjectDownloadLink from '../../shared/components/ProjectDownloadLink'
 import { fileCountLabel, useI18n } from '../../shared/i18n'
 import type { RegisterLeaveGuard } from '../projects/useDraftLeaveGuard'
 import { projectBase } from '../research-intake/api'
 import { useResearchRead } from '../research-results/api'
+import CustomerDownloadLink from './CustomerDownloadLink'
 import CustomerFeedback from './CustomerFeedback'
 import { customerBase, latestSubmission, shortTime, type MaterialSubmission, type Progress } from './customerWorkspaceApi'
 
@@ -35,10 +35,10 @@ export default function CustomerProgress({ projectId, headingRef, onRequirements
   return <div className="customer-section customer-progress">
     <div className="customer-section-heading">
       <h1 ref={headingRef} tabIndex={-1} className="visually-hidden">{t('任务进度')}</h1>
-      <button type="button" className="button-quiet" disabled={read.loading} onClick={read.refresh}>{t('刷新进度')}</button>
+      <button type="button" className="button-accent" disabled={read.loading} onClick={read.refresh}>{t('刷新进度')}</button>
     </div>
     {read.error && <p role="alert" className="error-panel">{t(read.error)}</p>}
-    {!progress && !read.error && <p role="status">{t('正在读取任务进度……')}</p>}
+    {!progress && !read.error && <p className="visually-hidden" role="status">{t('正在读取任务进度……')}</p>}
     {progress && state && !read.error && <>
       <div className="customer-progress-state" data-status={progress.status}>
         <div className="customer-progress-status-row">
@@ -79,7 +79,7 @@ function Submissions({ projectId, items }: { projectId: string; items: MaterialS
   const ordered = [...items].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
   return <section className="customer-submissions" aria-label={t('补交记录')}>
     <h3>{t('补交记录')}</h3>
-    <ul className="customer-list" aria-label={t('补交记录')}>
+    <ul className="customer-list customer-card-list" aria-label={t('补交记录')}>
       {ordered.map(item => <li key={item.id}>
         <div>
           <strong>{shortTime(item.created_at, locale)} · {fileCountLabel(item.files.length)}</strong>
@@ -87,8 +87,8 @@ function Submissions({ projectId, items }: { projectId: string; items: MaterialS
           <div className="customer-submission-files">
             {item.files.map(file => <span key={file.id} className="sci-inline-controls">
               <span>{file.name}</span>
-              <ProjectDownloadLink href={`${files}/${encodeURIComponent(file.id)}/download`} filename={file.name}
-                ariaLabel={t('下载 {name}', { name: file.name })}>{t('下载')}</ProjectDownloadLink>
+              <CustomerDownloadLink href={`${files}/${encodeURIComponent(file.id)}/download`} filename={file.name}
+                ariaLabel={t('下载 {name}', { name: file.name })}>{t('下载')}</CustomerDownloadLink>
             </span>)}
           </div>
         </div>

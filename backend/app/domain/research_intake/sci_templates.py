@@ -21,14 +21,30 @@ _METHODS_FIRST = ('title', 'abstract', 'introduction', 'materials_and_methods', 
 _METHODS_LAST = ('title', 'abstract', 'introduction', 'results', 'discussion', 'materials_and_methods', 'references')
 _REVIEW = ('title', 'abstract', 'introduction', 'literature_scope', 'themes', 'discussion', 'conclusion', 'references')
 _FRONTIERS = 'https://www.frontiersin.org/journals/genetics/for-authors/article-types'
+_CELL_PRESS_FORMAT = dict(
+    title_fields=(
+        dict(en='Author list', zh='作者名单'),
+        dict(en='Author affiliations and footnotes', zh='作者单位与脚注'),
+        dict(en='Contact information', zh='联系信息'),
+    ),
+    keywords=dict(en='Keywords', zh='关键词'),
+    optional_sections=(
+        dict(after='introduction', section=dict(id='sci-section-7c23e73a64d84b71a88c8444e7f5bbba', en='Design', zh='设计')),
+        dict(after='materials_and_methods', section=dict(id='sci-section-c41b92f76ae04de5b336ed8f2988b42a',
+             en='Supplemental information', zh='补充材料')),
+    ),
+)
 
 
-def _template(identity, name, article_type, order, source_url=None, **headings):
+def _template(identity, name, article_type, order, source_url=None, *, format_guide=None, **headings):
     sections = []
     for sid in order:
         english, chinese = headings.get(sid, _HEADINGS[sid])
         sections.append(dict(id=sid, en=english, zh=chinese))
-    return dict(id=identity, name=name, article_type=article_type, source_url=source_url, sections=sections)
+    template = dict(id=identity, name=name, article_type=article_type, source_url=source_url, sections=sections)
+    if format_guide:
+        template['format_guide'] = format_guide
+    return template
 
 
 _CATALOG = (
@@ -39,6 +55,9 @@ _CATALOG = (
     _template('plos-one-research-v1', 'PLOS One · Research Article', 'research', _METHODS_FIRST,
               'https://journals.plos.org/plosone/s/submission-guidelines#loc-manuscript-organization'),
     _template('standard-sci-research-v1', '通用研究型论文', 'research', _METHODS_LAST),
+    _template('cell-press-research-v1', 'Cell Press 风格研究论文', 'research', _METHODS_LAST,
+              'https://www.cell.com/information-for-authors/article-templates',
+              abstract=('Summary', '摘要'), format_guide=_CELL_PRESS_FORMAT),
     _template('frontiers-genetics-review-v1', 'Frontiers in Genetics · Review', 'narrative_review', _REVIEW,
               _FRONTIERS + '#review'),
     _template('standard-sci-review-v1', '通用综述', 'narrative_review', _REVIEW,
@@ -60,6 +79,11 @@ def selected_template(article_type, identity):
 
 def configured_template(article_type, identity, sections=None):
     template = selected_template(article_type, identity)
-    if template is not None and sections is not None:
+    if template is None:
+        return None
+    format_guide = template.pop('format_guide', None)
+    if format_guide:
+        template['title_fields'] = list(format_guide['title_fields'])
+    if sections is not None:
         template['sections'] = deepcopy(sections)
     return template

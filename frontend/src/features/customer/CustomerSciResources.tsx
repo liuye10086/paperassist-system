@@ -2,13 +2,15 @@ import {useEffect, useRef, useState, type Ref} from 'react'
 import {onApiSessionChanged} from '../../shared/api/client'
 import {safeError, useI18n} from '../../shared/i18n'
 import ManuscriptImage from '../manuscripts/ManuscriptImage'
+import {WorkspaceIcon} from '../projects/WorkspaceShell'
 import useDraftLeaveGuard, {type RegisterLeaveGuard} from '../projects/useDraftLeaveGuard'
 import {IntakeError, intakeRequest, projectBase} from '../research-intake/api'
 import {RESEARCH_TIMEOUT_MS, useResearchRead} from '../research-results/api'
+import {useSciListDrag} from './useSciListDrag'
 import './sciFigures.css'
 
 type SciPlacement = {figure_id: string; chapter_id: string; caption: string}
-type ResourceFigure = {id: string; title: string; preview_url: string; revision?: number}
+type ResourceFigure = {id: string; title: string; preview_url: string}
 type SciResources = {
   revision: number
   template_id: string | null
@@ -67,10 +69,27 @@ export default function CustomerSciResources(props: Props) {
   const rowIds = [...new Set([...chosen.map(item => item.figure_id), ...figures.map(figure => figure.id)])]
   const preview = figureById.get(previewId)
   const invalid = chosen.some(item => !chapterById.has(item.chapter_id) || !figureById.has(item.figure_id))
-  const missingCaption = payload.some(item => figureById.get(item.figure_id)?.revision !== undefined && !item.caption)
   const dirty = !samePlacements(chosen, planned)
   const locked = !!busy || !initial.valid || thesis && initial.loading
-  const saveDisabled = locked || !current?.template_id || invalid || missingCaption || conflict
+  const saveDisabled = locked || !current?.template_id || invalid || conflict
+  const figureDrag = useSciListDrag({
+    items: chosen,
+    id: item => item.figure_id,
+    locked,
+    range: index => {
+      const chapter = chosen[index].chapter_id
+      if (!chapterById.has(chapter)) return {first:index, last:index}
+      return {
+        first: chosen.findIndex(item => item.chapter_id === chapter),
+        last: chosen.findLastIndex(item => item.chapter_id === chapter),
+      }
+    },
+    onReorder: ordered => {
+      let index = 0
+      setDraft(entries.map(item => item.chapter_id ? ordered[index++] : item))
+      setNotice('')
+    },
+  })
   useDraftLeaveGuard(registerLeaveGuard, dirty, !!busy)
   // Chapter requirements and thesis placements share the same profile revision.
   useEffect(() => {
@@ -85,11 +104,6 @@ export default function CustomerSciResources(props: Props) {
     setDraft(next)
     setNotice('')
     if (!conflict) setError('')
-  }
-
-  function move(item: SciPlacement, neighbor: SciPlacement) {
-    setDraft(entries.map(row => row === item ? neighbor : row === neighbor ? item : row))
-    setNotice('')
   }
 
   async function operate(mode: NonNullable<typeof busy>) {
@@ -115,8 +129,7 @@ export default function CustomerSciResources(props: Props) {
       setReviewLatest(review)
       if (!refresh || !dirty) setDraft(null)
       if (mode === 'continue') onContinue?.()
-      else setNotice(review ? '已读取最新资源。请核对当前草稿后再保存。'
-        : refresh ? '资源已刷新。' : '资源配置已保存。')
+      else if (review) setNotice('已读取最新资源。请核对当前草稿后再保存。')
       if (mode === 'save' && props.projectType === 'thesis') props.onSaved?.()
     } catch (cause) {
       if (controller.signal.aborted) return
@@ -132,29 +145,28 @@ export default function CustomerSciResources(props: Props) {
 
   if (thesis && current && !figures.length && !planned.length && !dirty) return <div className="sci-inline-controls">
     <p>{t('暂无可配置的正图。')}</p>
-    <button type="button" className="button-quiet" disabled={locked} onClick={onFigures}>{t('前往图件拼版')}</button>
+    <button type="button" className="button-accent" disabled={locked} onClick={onFigures}>{t('前往图件拼版')}</button>
   </div>
 
   return <section className={thesis ? 'thesis-figure-resources sci-resources' : 'customer-section sci-resources'}>
     {!thesis && <h1 ref={headingRef} tabIndex={-1} className="visually-hidden">{t('模板设定和资源配置')}</h1>}
     <div className="sci-resources-heading">
-      <h2>{t('资源配置')}</h2>
       <div className="sci-inline-controls">
-        {!thesis && <button type="button" className="button-quiet" disabled={locked} onClick={onTemplate}>{t('返回模板设定')}</button>}
-        {current?.template_id && <button type="button" className="button-quiet" disabled={locked || conflict}
-          onClick={() => void operate('refresh')}>{t('刷新资源')}</button>}
+        <h2>{t('资源配置')}</h2>
+        {!thesis && <button type="button" className="button-accent" disabled={locked} onClick={onTemplate}>{t('返回模板设定')}</button>}
       </div>
+      {current?.template_id && <button type="button" className="button-accent" disabled={locked || conflict}
+        onClick={() => void operate('refresh')}>{t('刷新资源')}</button>}
     </div>
     {initial.error && !current ? <p role="alert" className="error-panel">{t(initial.error)} <button type="button" onClick={initial.refresh}>{t('重试')}</button></p>
-      : !current ? <p role="status">{t('正在读取资源配置……')}</p>
+      : !current ? <p role="status" className="visually-hidden">{t('正在读取资源配置……')}</p>
       : !current.template_id ? <div className="sci-inline-controls">
         <p>{t(thesis ? '请先采用学校模板。' : '请先核对并使用 SCI 模板。')}</p>
-        {thesis && <button type="button" className="button-quiet" disabled={locked} onClick={onFigures}>{t('前往图件拼版')}</button>}
+        {thesis && <button type="button" className="button-accent" disabled={locked} onClick={onFigures}>{t('前往图件拼版')}</button>}
       </div>
       : <>
-        {rowIds.length > 0 ? <p className="muted">{t('为要入稿的图件选择章节并填写图注。')}</p>
-          : !thesis && <p>{t('当前没有可选图件。可以保存空配置并继续。')} <button type="button" className="button-quiet" disabled={locked} onClick={onFigures}>{t('前往图件拼版')}</button></p>}
-        {busy && <p role="status">{t(busy === 'refresh' ? '正在读取资源配置……' : '正在保存……')}</p>}
+        {!rowIds.length && !thesis && <p>{t('当前没有可选图件。可以保存空配置并继续。')} <button type="button" className="button-quiet" disabled={locked} onClick={onFigures}>{t('前往图件拼版')}</button></p>}
+        {busy && <p role="status" className="visually-hidden">{t(busy === 'refresh' ? '正在读取资源配置……' : '正在保存……')}</p>}
         {error && <p role="alert" className="error-panel">{t(error)}{' '}
           {conflict && <button type="button" disabled={locked} onClick={() => void operate('refresh')}>{t('重新读取并核对')}</button>}
         </p>}
@@ -170,24 +182,29 @@ export default function CustomerSciResources(props: Props) {
           }}>{t('采用已保存配置')}</button>
         </div>}
         {invalid && <p role="alert" className="error-panel">{t('请为失效的图件配置重新指定章节，或设为未选用。')}</p>}
-        {missingCaption && <p className="muted">{t('请为选中的正图填写图注。')}</p>}
         {rowIds.length > 0 && <div className="sci-resource-editor" data-preview={!!preview || undefined}>
-          <ul className="sci-resource-list">
+          <ol className="sci-resource-list sci-sortable-list" role="list" ref={figureDrag.listRef}
+            data-sorting={figureDrag.sorting || undefined}>
             {rowIds.map((id, index) => {
               const figure = figureById.get(id)
               const name = figure?.title ?? t('原配图 {number}（已不可用）', {number:index + 1})
               const placement = entries.find(item => item.figure_id === id) ?? {figure_id:id, chapter_id:'', caption:''}
               const unavailableChapter = placement.chapter_id && !chapterById.has(placement.chapter_id)
-              const sameChapter = chosen.filter(item => item.chapter_id === placement.chapter_id)
-              const position = sameChapter.indexOf(placement)
-              const earlier = sameChapter[position - 1]
-              const later = position < 0 ? undefined : sameChapter[position + 1]
-              return <li className="sci-resource-row" key={id}>
-                <div className="sci-resource-name">
-                  <strong>{name}</strong>
-                  {figure?.preview_url.startsWith(base + '/') && <button type="button" className="button-quiet" aria-pressed={previewId === id}
-                    aria-label={t('预览 {name}', {name})} onClick={() => setPreviewId(previewId === id ? '' : id)}>{t('预览')}</button>}
-                </div>
+              const position = chosen.indexOf(placement)
+              const previous = chosen[position - 1]
+              const next = chosen[position + 1]
+              const earlier = previous?.chapter_id === placement.chapter_id ? previous : undefined
+              const later = next?.chapter_id === placement.chapter_id ? next : undefined
+              const canSort = placement.chapter_id && !unavailableChapter && (earlier || later)
+              const previewButton = figure?.preview_url.startsWith(base + '/') &&
+                <button type="button" className="button-quiet" aria-pressed={previewId === id}
+                  aria-label={t('预览 {name}', {name})} onClick={() => setPreviewId(previewId === id ? '' : id)}>{t('预览')}</button>
+              const grip = canSort && <button type="button" className="button-quiet sci-resource-grip"
+                aria-label={t('拖动 {heading}', {heading:name})} title={t('拖动排序，或按方向键 ↑/↓')}
+                aria-keyshortcuts={locked ? undefined : 'ArrowUp ArrowDown'} {...figureDrag.handle(position)}>
+                <WorkspaceIcon name="menu" />
+              </button>
+              const fields = <>
                 <label>{t('入稿章节')}
                   <select aria-label={t('入稿章节 {name}', {name})} disabled={locked} value={placement.chapter_id}
                     onChange={event => update({...placement, chapter_id:event.target.value})}>
@@ -197,19 +214,20 @@ export default function CustomerSciResources(props: Props) {
                     {figure && chapters.map(chapter => <option value={chapter.id} key={chapter.id}>{chapter.label}</option>)}
                   </select>
                 </label>
-                {placement.chapter_id && <label>{t('图注')}
-                  <textarea rows={2} aria-label={t('图注 {name}', {name})} disabled={locked || !figure} maxLength={20000}
-                    value={placement.caption} required={figure?.revision !== undefined} onChange={event => update({...placement, caption:event.target.value})} />
+                {placement.chapter_id && <label>{t('图注（选填）')}
+                  <textarea rows={1} aria-label={t('图注 {name}', {name})} disabled={locked || !figure} maxLength={20000}
+                    value={placement.caption} onChange={event => update({...placement, caption:event.target.value})} />
                 </label>}
-                {placement.chapter_id && !unavailableChapter && (earlier || later) && <div className="sci-figure-panel-tools">
-                  <button type="button" className="button-quiet" disabled={locked || !earlier} aria-label={t('{name} 在本章前移', {name})}
-                    onClick={() => earlier && move(placement, earlier)}>↑</button>
-                  <button type="button" className="button-quiet" disabled={locked || !later} aria-label={t('{name} 在本章后移', {name})}
-                    onClick={() => later && move(placement, later)}>↓</button>
-                </div>}
+              </>
+              return <li className="sci-resource-card" key={id} {...(position >= 0 ? figureDrag.row(position) : {})}>
+                <header className="sci-resource-card-heading">
+                  <h3>{name}</h3>
+                  {(previewButton || grip) && <div className="sci-resource-card-actions">{previewButton}{grip}</div>}
+                </header>
+                <div className="sci-resource-fields">{fields}</div>
               </li>
             })}
-          </ul>
+          </ol>
           {preview?.preview_url.startsWith(base + '/') && <aside className="sci-figure-preview">
             <h3>{preview.title}</h3>
             <ManuscriptImage url={preview.preview_url} title={t('预览 {name}', {name:preview.title})} timeoutMs={RESEARCH_TIMEOUT_MS} />
@@ -217,7 +235,7 @@ export default function CustomerSciResources(props: Props) {
         </div>}
       </>}
     {(!thesis || current?.template_id) && <footer className="customer-step-actions sci-figure-actions">
-      {current?.template_id && <button type="button" className="button-quiet" disabled={saveDisabled || thesis && !dirty}
+      {current?.template_id && <button type="button" className="button-accent" disabled={saveDisabled || thesis && !dirty}
         onClick={() => void operate('save')}>{t('保存资源配置')}</button>}
       {!thesis && <button type="button" className="button-primary" disabled={saveDisabled}
         onClick={() => void operate('continue')}>{t('下一步 文献与初稿')}</button>}

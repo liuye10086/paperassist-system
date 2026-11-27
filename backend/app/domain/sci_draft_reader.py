@@ -110,6 +110,7 @@ def draft_content(snapshot, evidence):
     en = snapshot['output_language'] == 'en'
     school = bool(snapshot.get('thesis_context'))
     plan = snapshot.get('paper_plan') or {}
+    sci_template = plan.get('sci_template') or {}
     headings = {} if school else {sid: english if en else chinese
                 for sid, english, chinese in labels(snapshot.get('article_type', 'research'), snapshot)}
     references = {item['project_reference_id']: item for item in snapshot['references']}
@@ -118,7 +119,7 @@ def draft_content(snapshot, evidence):
     for section in snapshot['sections']:
         sid = section['id']
         if not school and sid == 'references':
-            if plan.get('sci_template'):
+            if sci_template:
                 reference_heading = dict(heading=headings[sid], level=section.get('level', 1))
             continue
         role = section.get('purpose', sid)
@@ -135,9 +136,13 @@ def draft_content(snapshot, evidence):
         if school:
             view.update(purpose=role, output_language=section['output_language'])
         sections.append(view)
+    template_name = sci_template.get('name')
+    title_fields = [field['en' if en else 'zh'] for field in sci_template.get('title_fields', ())]
     return dict(title=snapshot['title'], output_language=snapshot['output_language'], sections=sections,
                 keywords=snapshot.get('keywords', []), acknowledgements=snapshot.get('acknowledgements', ''),
                 references=reader_references(snapshot, sections, references),
+                **({'sci_template_name': template_name} if template_name else {}),
+                **({'title_fields': title_fields} if title_fields else {}),
                 **({'reference_heading': reference_heading} if reference_heading else {}))
 
 
@@ -445,6 +450,9 @@ def draft_word(draft, images):
                 document.add_paragraph(paragraph_text(paragraph), style='Normal')
             for figure in paragraph.get('figures', ()):
                 _figure(document, figure, images, en)
+        if title:
+            for label in draft.get('title_fields', ()):
+                document.add_paragraph().add_run(label + (':' if en else '：')).bold = True
         if section['id'] == 'abstract' and draft['keywords']:
             document.add_paragraph(('Keywords: ' if en else '关键词：') + (', ' if en else '、').join(draft['keywords']))
         for group in section['groups']:

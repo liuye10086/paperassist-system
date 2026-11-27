@@ -1,11 +1,15 @@
 import { fileRequest } from './fileLibraryApi';
 import { isTask, type TaskView } from '../tasks/taskTypes';
+export const uploadStatusLabels = {
+    pending: '等待上传', rejected: '上传被拒绝', queued: '已保存，等待解析', parsing: '文件解析中',
+    parsed: '解析完成', failed: '解析失败', stored: '已上传',
+};
 export type BatchItem = {
     id: string;
     ordinal: number;
     filename: string;
     size_bytes: number;
-    status: 'pending' | 'rejected' | 'queued' | 'parsing' | 'parsed' | 'failed' | 'stored';
+    status: keyof typeof uploadStatusLabels;
     file_id: string | null;
     task: TaskView | null;
     error: {
@@ -58,7 +62,7 @@ const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 export function isBatch(value: unknown, projectId: string): value is UploadBatch {
     if (!record(value) || typeof value.id !== 'string' || value.project_id !== projectId || typeof value.created_at !== 'string' || !Number.isFinite(Date.parse(value.created_at)) || !Number.isSafeInteger(value.revision) || Number(value.revision) < 1 || !Array.isArray(value.items) || value.items.length < 1 || value.items.length > 10)
         return false;
-    return value.items.every((item, index) => record(item) && typeof item.id === 'string' && Number.isSafeInteger(item.ordinal) && item.ordinal === index && typeof item.filename === 'string' && Number.isSafeInteger(item.size_bytes) && Number(item.size_bytes) >= 0 && ['pending', 'rejected', 'queued', 'parsing', 'parsed', 'failed', 'stored'].includes(String(item.status)) && (item.file_id === null || typeof item.file_id === 'string') && (item.task === null || isTask(item.task, projectId) && item.task.task_type === 'parse_file') && (item.error === null || record(item.error) && typeof item.error.code === 'string')) && new Set(value.items.map(item => item.id)).size === value.items.length;
+    return value.items.every((item, index) => record(item) && typeof item.id === 'string' && Number.isSafeInteger(item.ordinal) && item.ordinal === index && typeof item.filename === 'string' && Number.isSafeInteger(item.size_bytes) && Number(item.size_bytes) >= 0 && Object.hasOwn(uploadStatusLabels, String(item.status)) && (item.file_id === null || typeof item.file_id === 'string') && (item.task === null || isTask(item.task, projectId) && item.task.task_type === 'parse_file') && (item.error === null || record(item.error) && typeof item.error.code === 'string')) && new Set(value.items.map(item => item.id)).size === value.items.length;
 }
 export async function batchRequest<T>(url: string, controller: AbortController, onUnavailable: () => void, valid: (v: unknown) => v is T, init?: RequestInit): Promise<T> {
     const timer = window.setTimeout(() => controller.abort(), 15000);

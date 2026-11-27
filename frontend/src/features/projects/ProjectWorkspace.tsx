@@ -68,7 +68,7 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [topic, setTopic] = useState('')
-  const [projectType, setProjectType] = useState<'' | 'sci' | 'thesis' | 'research'>('research')
+  const [projectType, setProjectType] = useState<Project['project_type']>('research')
   const [deliveryKinds,setDeliveryKinds]=useState<DeliveryKind[]>(['analysis'])
   const createIdentity=useRef<{key:string;body:string}|null>(null)
   const [createUnknown,setCreateUnknown]=useState(false)
@@ -272,7 +272,6 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
     if (createController.current) return
     if (!name.trim() || !topic.trim()) { setCreateError('请填写项目名称和研究主题。'); return }
     if (projectType==='research'&&!deliveryKinds.length){setCreateError('请至少选择一种服务。');return}
-    if (!projectType) { setCreateError('请选择项目类型。'); return }
     const controller = new AbortController()
     createController.current = controller
     let timedOut = false
@@ -355,13 +354,15 @@ export default function ProjectWorkspace({ analysisOnly = false }: { analysisOnl
     {!analysisOnly && showCreate && <ProjectCreateDialog busy={creating} onClose={() => setShowCreate(false)}>
     <form className="project-form" onSubmit={create} aria-busy={creating}>
       <div className="project-fields">
-        <label>{t("项目名称")}<input placeholder={t('例如：药物干预后的表达变化研究')} value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={creating||createUnknown} /></label>
-        <label>{t("项目类型")}<select value={projectType} onChange={event => setProjectType(event.target.value as '' | 'sci' | 'thesis' | 'research')} required disabled={creating||createUnknown}>
-          <option value="research">{t('研究项目')}</option><option value="">{t("请选择项目类型")}</option><option value="sci">{t("SCI 科研论文")}</option><option value="thesis">{t("毕业论文")}</option>
+        <label>{t("项目名称")}<input value={name} onChange={event => setName(event.target.value)} required maxLength={120} disabled={creating||createUnknown} /></label>
+        <label>{t("项目类型")}<select value={projectType} onChange={event => setProjectType(event.target.value as Project['project_type'])} required disabled={creating||createUnknown}>
+          <option value="research">{t('研究项目')}</option>
+          <option value="sci">{t('SCI 科研论文')}</option>
+          <option value="thesis">{t('毕业论文')}</option>
         </select></label>
       </div>
       {projectType==='research'&&<fieldset className="create-service-options" disabled={creating||createUnknown}><legend>{t('所需服务')}</legend>{(Object.keys(deliveryLabels) as DeliveryKind[]).map(kind=><label key={kind}><input type="checkbox" checked={deliveryKinds.includes(kind)} onChange={e=>setDeliveryKinds(e.target.checked?[...deliveryKinds,kind]:deliveryKinds.filter(k=>k!==kind))}/>{t(deliveryLabels[kind])}</label>)}<p>{t('可以多选，也可以先做分析，之后再添加论文写作。')}</p></fieldset>}
-      <label>{t("研究主题")}<textarea placeholder={t('用一句话描述你想研究什么，或比较哪些差异。')} value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={3} disabled={creating||createUnknown} /></label>
+      <label>{t("研究主题")}<textarea value={topic} onChange={event => setTopic(event.target.value)} required maxLength={500} rows={3} disabled={creating||createUnknown} /></label>
 
       {createError && <p className="error-panel" role="alert">{t(createError)}</p>}
       <div className="project-form-actions"><button type="submit" className="button-primary" disabled={creating}>{creating ? t("正在创建……") : t(createUnknown?'核对创建结果':'创建项目')}</button>
