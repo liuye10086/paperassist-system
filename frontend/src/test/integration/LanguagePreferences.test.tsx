@@ -24,15 +24,15 @@ it('switches anonymous login without storing credentials or language in browser 
   expect(localStorage.length).toBe(0)
 })
 
-it.each(['research', 'sci', 'thesis'])('shows English project field hints when creating a %s project', async projectType => {
+it.each(['research', 'sci', 'thesis'])('shows English field labels without placeholders when creating a %s project', async projectType => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/me') ? Response.json(session) : empty(url)))
   render(<App />)
   const sidebar = within(await screen.findByRole('complementary', { name: 'Main navigation' }))
   fireEvent.click(await sidebar.findByRole('button', { name: 'New project' }))
   const form = within(screen.getByRole('dialog'))
   fireEvent.change(form.getByLabelText('Project type'), { target: { value: projectType } })
-  expect.soft(form.getByRole('textbox', { name: 'Project name' }).getAttribute('placeholder')).toBe('For example, changes in gene expression after drug treatment')
-  expect.soft(form.getByRole('textbox', { name: 'Research objective' }).getAttribute('placeholder')).toBe('In one sentence, describe what you want to study or which differences you want to compare.')
+  expect(form.getByRole('textbox', { name: 'Project name' }).getAttribute('placeholder')).toBeNull()
+  expect(form.getByRole('textbox', { name: 'Research objective' }).getAttribute('placeholder')).toBeNull()
 })
 
 it('restores the user language and persists changes without reloading projects or losing drafts', async () => {
